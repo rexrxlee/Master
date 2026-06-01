@@ -4,7 +4,6 @@ const msalConfig = {
     authority: CONFIG.authority,
     redirectUri: CONFIG.redirectUri
   },
-
   cache: {
     cacheLocation: "localStorage",
     storeAuthStateInCookie: true
@@ -20,15 +19,25 @@ async function initializeMsal() {
 
   await msalInstance.initialize();
 
-  const accounts = msalInstance.getAllAccounts();
+  const response = await msalInstance.handleRedirectPromise();
 
-  if (accounts.length > 0) {
-    msalInstance.setActiveAccount(accounts[0]);
+  if (response && response.account) {
+    msalInstance.setActiveAccount(response.account);
+  } else {
+    const accounts = msalInstance.getAllAccounts();
 
+    if (accounts.length > 0) {
+      msalInstance.setActiveAccount(accounts[0]);
+    }
+  }
+
+  const account = msalInstance.getActiveAccount();
+
+  if (account) {
     const status = document.getElementById("status");
 
     if (status) {
-      status.innerText = "Logged in as " + accounts[0].username;
+      status.innerText = "Logged in as " + account.username;
     }
   }
 
@@ -54,19 +63,9 @@ function clearOutput() {
 async function login() {
   await initializeMsal();
 
-  const result = await msalInstance.loginPopup({
+  await msalInstance.loginRedirect({
     scopes: CONFIG.scopes
   });
-
-  msalInstance.setActiveAccount(result.account);
-
-  const status = document.getElementById("status");
-
-  if (status) {
-    status.innerText = "Logged in as " + result.account.username;
-  }
-
-  log("Login successful");
 }
 
 async function getToken() {
@@ -85,7 +84,7 @@ async function getToken() {
 
   if (!account) {
     await login();
-    account = msalInstance.getActiveAccount();
+    return;
   }
 
   try {
@@ -96,12 +95,10 @@ async function getToken() {
 
     return result.accessToken;
   } catch (err) {
-    const result = await msalInstance.acquireTokenPopup({
+    await msalInstance.acquireTokenRedirect({
       scopes: CONFIG.scopes,
       account: account
     });
-
-    return result.accessToken;
   }
 }
 
@@ -150,18 +147,13 @@ async function graphPatch(url, token, body) {
   return response.json();
 }
 
-async function downloadExcelFile(forceRefresh = false) {
-  const cacheKey = "masterExcelFileBase64";
+async function downloadExcelFile() {
+  const token = await getToken();
 
-  if (!forceRefresh) {
-    const cached = sessionStorage.getItem(cacheKey);
-
-    if (cached) {
-      return base64ToArrayBuffer(cached);
-    }
+  if (!token) {
+    throw new Error("No access token available yet. Please wait for login redirect to complete.");
   }
 
-  const token = await getToken();
   const encodedPath = getEncodedExcelPath();
 
   const downloadUrl =
@@ -171,40 +163,16 @@ async function downloadExcelFile(forceRefresh = false) {
 
   const response = await graphFetch(downloadUrl, token);
 
-  const arrayBuffer = await response.arrayBuffer();
-
-  sessionStorage.setItem(
-    cacheKey,
-    arrayBufferToBase64(arrayBuffer)
-  );
-
-  return arrayBuffer;
-}
-
-function arrayBufferToBase64(buffer) {
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-
-  bytes.forEach(byte => {
-    binary += String.fromCharCode(byte);
-  });
-
-  return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return bytes.buffer;
+  return response.arrayBuffer();
 }
 
 async function readExcelRange(sheetName, rangeAddress) {
   const token = await getToken();
+
+  if (!token) {
+    throw new Error("No access token available yet. Please wait for login redirect to complete.");
+  }
+
   const encodedPath = getEncodedExcelPath();
 
   const url =
@@ -221,6 +189,11 @@ async function readExcelRange(sheetName, rangeAddress) {
 
 async function writeExcelRange(sheetName, rangeAddress, values) {
   const token = await getToken();
+
+  if (!token) {
+    throw new Error("No access token available yet. Please wait for login redirect to complete.");
+  }
+
   const encodedPath = getEncodedExcelPath();
 
   const url =
