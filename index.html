@@ -1,239 +1,100 @@
-<!-- <!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Master Excel Reader</title>
+  <title>Transaction Dashboard</title>
 
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    button { padding: 10px 14px; margin: 5px; cursor: pointer; }
-    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 8px; }
-    th { background: #f2f2f2; }
-    #debug { background: #f7f7f7; padding: 10px; white-space: pre-wrap; }
-  </style>
+  <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-  <h1>Read Master.xlsx from OneDrive</h1>
+  <h1>Transaction Dashboard</h1>
 
-  <button onclick="login()">Login</button>
-  <button onclick="listRoot()">List OneDrive Root</button>
-  <button onclick="listDocuments()">List Documents</button>
-  <button onclick="readMasterFile()">Read Master.xlsx</button>
+  <button onclick="loadDashboard()">Login & Load Dashboard</button>
 
   <p id="status"></p>
   <pre id="debug"></pre>
-  <table id="dataTable"></table>
 
-<script>
-const msalConfig = {
-  auth: {
-    clientId: "768e8544-9eab-40cb-940e-5ba478af614f",
-    authority: "https://login.microsoftonline.com/consumers",
-    redirectUri: "http://localhost:5500"
-  }
-};
+  <div class="filters">
+    <div class="filter-box">
+      <button class="dropdown-button" onclick="toggleDropdown('mainCategoryMenu')">
+        Main Category
+      </button>
+      <div id="mainCategoryMenu" class="checkbox-menu"></div>
+    </div>
 
-const msalInstance = new msal.PublicClientApplication(msalConfig);
+    <div class="filter-box">
+      <button class="dropdown-button" onclick="toggleDropdown('subCategoryMenu')">
+        Sub Category
+      </button>
+      <div id="subCategoryMenu" class="checkbox-menu"></div>
+    </div>
 
-const scopes = ["Files.Read"];
+    <div class="filter-box">
+      <button class="dropdown-button" onclick="toggleDropdown('transactionMenu')">
+        Transaction
+      </button>
+      <div id="transactionMenu" class="checkbox-menu"></div>
+    </div>
 
-// Change this after checking List Root / List Documents
-const filePath = "Master.xlsx";
+    <label>From Date:</label>
+    <input type="date" id="fromDate">
 
-// Change this if your sheet tab has a different name
-const sheetName = "Transaction";
+    <label>To Date:</label>
+    <input type="date" id="toDate">
 
-function log(message) {
-  document.getElementById("debug").textContent += message + "\n";
-}
+    <button onclick="resetFilters()">Reset Filters</button>
+  </div>
 
-function clearOutput() {
-  document.getElementById("debug").textContent = "";
-  document.getElementById("dataTable").innerHTML = "";
-}
+  <div class="dashboard-row">
+    <div>
+      <h2>Monthly Expenses</h2>
+      <div class="chart-container">
+        <canvas id="expenseChart"></canvas>
+      </div>
+    </div>
 
-async function login() {
-  try {
-    clearOutput();
+    <div class="cards-panel">
+      <div class="card">
+        <h3>Total Expenses</h3>
+        <div id="totalExpenses">$0</div>
+      </div>
 
-    await msalInstance.initialize();
+      <div class="card">
+        <h3>Transactions</h3>
+        <div id="transactionCount">0</div>
+      </div>
 
-    const result = await msalInstance.loginPopup({
-      scopes: scopes
-    });
+      <div class="card">
+        <h3>UOB ONE Credit Card</h3>
+        <div id="uobOneBalance">$0</div>
+      </div>
 
-    document.getElementById("status").innerText =
-      "Logged in as " + result.account.username;
+      <div class="card">
+        <h3>Assets</h3>
+        <div id="assetsBalance">$0</div>
+      </div>
 
-    log("Login successful");
+      <div class="card savings-card">
+        <h3>Savings Account</h3>
+        <table id="savingsTable"></table>
+      </div>
+    </div>
+  </div>
 
-  } catch (err) {
-    log("LOGIN ERROR: " + err.message);
-    alert(err.message);
-    console.error(err);
-  }
-}
+  <h2>Monthly Expenses by Sub Category</h2>
+  <div class="chart-container full-width-chart">
+    <canvas id="subCategoryChart"></canvas>
+  </div>
 
-async function getToken() {
-  await msalInstance.initialize();
-
-  const account = msalInstance.getAllAccounts()[0];
-
-  if (!account) {
-    throw new Error("Please click Login first.");
-  }
-
-  const result = await msalInstance.acquireTokenSilent({
-    scopes: scopes,
-    account: account
-  });
-
-  return result.accessToken;
-}
-
-async function graphFetch(url, token) {
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(response.status + " " + errorText);
-  }
-
-  return response;
-}
-
-async function listRoot() {
-  try {
-    clearOutput();
-
-    const token = await getToken();
-
-    log("Listing OneDrive root...");
-
-    const response = await graphFetch(
-      "https://graph.microsoft.com/v1.0/me/drive/root/children",
-      token
-    );
-
-    const data = await response.json();
-
-    data.value.forEach(item => {
-      log(item.name + " | " + (item.folder ? "folder" : "file"));
-    });
-
-  } catch (err) {
-    log("ERROR: " + err.message);
-    console.error(err);
-  }
-}
-
-async function listDocuments() {
-  try {
-    clearOutput();
-
-    const token = await getToken();
-
-    log("Listing Documents folder...");
-
-    const response = await graphFetch(
-      "https://graph.microsoft.com/v1.0/me/drive/root:/Documents:/children",
-      token
-    );
-
-    const data = await response.json();
-
-    data.value.forEach(item => {
-      log(item.name + " | " + (item.folder ? "folder" : "file"));
-    });
-
-  } catch (err) {
-    log("ERROR: " + err.message);
-    console.error(err);
-  }
-}
-
-async function readMasterFile() {
-  try {
-    clearOutput();
-
-    log("Getting Microsoft token...");
-    const token = await getToken();
-
-    log("Downloading OneDrive file: " + filePath);
-
-    const encodedPath = filePath
-      .split("/")
-      .map(part => encodeURIComponent(part))
-      .join("/");
-
-    const downloadUrl =
-      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-      encodedPath +
-      ":/content";
-
-    const fileResponse = await graphFetch(downloadUrl, token);
-    const arrayBuffer = await fileResponse.arrayBuffer();
-
-    log("Reading Excel workbook...");
-
-    const workbook = XLSX.read(arrayBuffer, {
-      type: "array"
-    });
-
-    log("Sheets found: " + workbook.SheetNames.join(", "));
-
-    const worksheet = workbook.Sheets[sheetName];
-
-    if (!worksheet) {
-      throw new Error("Sheet not found: " + sheetName);
-    }
-
-    log("Reading sheet: " + sheetName);
-
-    const rows = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      blankrows: false
-    });
-
-    log("Rows found: " + rows.length);
-
-    showTable(rows);
-
-  } catch (err) {
-    log("ERROR: " + err.message);
-    alert(err.message);
-    console.error(err);
-  }
-}
-
-function showTable(rows) {
-  const table = document.getElementById("dataTable");
-  table.innerHTML = "";
-
-  rows.forEach((row, rowIndex) => {
-    const tr = document.createElement("tr");
-
-    row.forEach(cell => {
-      const cellElement = document.createElement(
-        rowIndex === 0 ? "th" : "td"
-      );
-
-      cellElement.innerText = cell ?? "";
-      tr.appendChild(cellElement);
-    });
-
-    table.appendChild(tr);
-  });
-}
-</script>
+  <script src="config.js"></script>
+  <script src="onedrive.js"></script>
+  <script src="charts.js"></script>
+  <script src="dashboard.js"></script>
 </body>
-</html> -->
+</html>
