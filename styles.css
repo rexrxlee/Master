@@ -1,0 +1,152 @@
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+}
+
+button,
+select,
+input {
+  padding: 8px;
+  margin: 5px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.filter-box {
+  position: relative;
+}
+
+.dropdown-button {
+  min-width: 170px;
+  text-align: left;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.checkbox-menu {
+  display: none;
+  position: absolute;
+  z-index: 10;
+  width: 260px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.checkbox-option {
+  display: block;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.checkbox-option:hover {
+  background: #f2f2f2;
+}
+
+.dashboard-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.chart-container {
+  min-width: 0;
+  height: 450px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 15px;
+  box-sizing: border-box;
+}
+
+.full-width-chart {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.chart-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.cards-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 48px;
+}
+
+.card {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.card h3 {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.card div {
+  margin-top: 10px;
+  font-size: 30px;
+  font-weight: bold;
+}
+
+.savings-card table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.savings-card td {
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+
+.savings-card .amount-cell {
+  text-align: right;
+  font-weight: bold;
+}
+
+.savings-card .total-row td {
+  border-top: 2px solid #333;
+  border-bottom: none;
+  padding-top: 10px;
+  font-weight: bold;
+}
+
+#debug {
+  background: #f7f7f7;
+  padding: 10px;
+  white-space: pre-wrap;
+  margin-top: 15px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-row {
+    grid-template-columns: 1fr;
+  }
+
+  .cards-panel {
+    margin-top: 0;
+  }
+}
