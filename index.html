@@ -10,13 +10,16 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
   <link rel="stylesheet" href="styles.css">
-</head>
+  </head>
 
-<body>
+  <body onload="loadDashboard()">
   <h1>Transaction Dashboard</h1>
 
-  <button onclick="loadDashboard()">Login & Load Dashboard</button>
-
+  <button onclick="loadDashboard()">Load Dashboard</button><nav class="nav">
+  <a href="index.html">Dashboard</a>
+  <a href="goals.html">Goals</a>
+  <a href="monthly-budget.html">Monthly Budget</a>
+</nav>
   <p id="status"></p>
   <pre id="debug"></pre>
 

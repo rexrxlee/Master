@@ -9,5 +9,5 @@ const CONFIG = {
 
   filePath: "Master.xlsx",
   sheetName: "Transaction",
-  scopes: ["Files.Read"]
+  scopes: ["Files.ReadWrite"]
 };

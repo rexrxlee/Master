@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Monthly Budget Setup</title>
+
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+    </head>
+
+    <body onload="loadBudgetPage()">
+  <h1>Monthly Budget Setup</h1>
+
+  <nav class="nav">
+    <a href="index.html">Dashboard</a>
+    <a href="goals.html">Goals</a>
+    <a href="monthly-budget.html">Monthly Budget</a>
+  </nav>
+
+  <button onclick="loadBudgetPage()">Load Monthly Budget</button>
+
+  <p id="status"></p>
+  <pre id="debug"></pre>
+
+  <div class="budget-cards">
+    <div class="card">
+      <h3>Total Allocated</h3>
+      <div id="totalAllocated">$0</div>
+    </div>
+
+    <div class="card">
+      <h3>Total Spent</h3>
+      <div id="totalSpent">$0</div>
+    </div>
+
+    <div class="card">
+      <h3>Total Balance</h3>
+      <div id="totalBalance">$0</div>
+    </div>
+
+    <div class="card">
+      <h3>Food Left / Day</h3>
+      <div id="foodPerDay">$0</div>
+    </div>
+
+    <div class="card">
+      <h3>Monthly Left / Day</h3>
+      <div id="monthlyPerDay">$0</div>
+    </div>
+  </div>
+
+  <h2>Add Budget Item</h2>
+
+  <div class="budget-form">
+    <select id="budgetType">
+      <option value="Bills">Bills</option>
+      <option value="Monthly Expenses">Monthly Expenses</option>
+    </select>
+
+    <input id="subCategoryInput" placeholder="Sub Category">
+    <input id="allocatedInput" type="number" step="0.01" placeholder="Allocated">
+    <button onclick="saveBudgetSetupToExcel()">Save to Excel</button>
+    <button onclick="addBudgetItem()">Add</button>
+  </div>
+
+  <h2>Bills</h2>
+  <table class="budget-table" id="billsTable"></table>
+
+  <h2>Monthly Expenses</h2>
+  <table class="budget-table" id="monthlyTable"></table>
+
+  <script src="config.js"></script>
+  <script src="onedrive.js"></script>
+  <script src="budget.js"></script>
+</body>
+</html>
+
+<script src="config.js"></script>
+<script src="onedrive.js"></script>
+<script src="budget.js"></script>
