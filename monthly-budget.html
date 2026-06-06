@@ -2,81 +2,175 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Monthly Budget Setup</title>
-
+  <title>Budget — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-    </head>
+  <style>
+    .budget-page-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    .budget-section-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .budget-section-card .card-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .budget-section-card .card-header h2 { font-size: 15px; font-weight: 600; }
+    .budget-section-card .budget-table { margin-bottom: 0; }
+    .budget-section-card .budget-table th,
+    .budget-section-card .budget-table td { border-left: none; border-right: none; }
+    .budget-section-card .budget-table tr:first-child th { border-top: none; }
+    .add-item-row {
+      display: flex;
+      gap: 8px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+      flex-wrap: wrap;
+    }
+    .add-item-row input {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      flex: 1;
+      min-width: 100px;
+    }
+    .add-item-row button {
+      padding: 7px 14px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .add-item-row button:hover { opacity: 0.85; }
+    @media (max-width: 900px) {
+      .budget-page-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body onload="loadBudgetPage()">
 
-    <body onload="loadBudgetPage()">
-  <h1>Monthly Budget Setup</h1>
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">Fintrack</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
+      <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
+      <a href="monthly-budget.html" class="nav-item active"><span class="nav-icon">▤</span> Budget</a>
+      <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
+      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts</a>
+      <a href="setup.html" class="nav-item"><span class="nav-icon">⚙</span> Setup</a>
+    </nav>
+    <div class="sidebar-status">
+      <p id="status"></p>
+    </div>
+  </aside>
 
-  <nav class="nav">
-    <a href="index.html">Dashboard</a>
-    <a href="goals.html">Goals</a>
-    <a href="monthly-budget.html">Monthly Budget</a>
-  </nav>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">Monthly Budget</h1>
+        <p class="page-subtitle">Current month spending vs allocation</p>
+      </div>
+      <div class="topbar-right">
+        <button class="reload-btn" onclick="loadBudgetPage()">↻ Reload</button>
+        <button class="reload-btn" onclick="saveBudgetSetupToExcel()" style="margin-left:8px;background:var(--text);color:#fff;border-color:var(--text);">💾 Save to Excel</button>
+      </div>
+    </header>
 
-  <button onclick="loadBudgetPage()">Load Monthly Budget</button>
+    <details class="debug-panel">
+      <summary>System Log</summary>
+      <pre id="debug"></pre>
+    </details>
 
-  <p id="status"></p>
-  <pre id="debug"></pre>
-
-  <div class="budget-cards">
-    <div class="card">
-      <h3>Total Allocated</h3>
-      <div id="totalAllocated">$0</div>
+    <!-- KPI cards -->
+    <div class="budget-cards" style="margin-bottom:24px;">
+      <div class="kpi-card neutral">
+        <div class="kpi-label">Total Allocated</div>
+        <div class="kpi-value" id="totalAllocated">$0</div>
+      </div>
+      <div class="kpi-card expense">
+        <div class="kpi-label">Total Spent</div>
+        <div class="kpi-value" id="totalSpent">$0</div>
+      </div>
+      <div class="kpi-card net">
+        <div class="kpi-label">Total Balance</div>
+        <div class="kpi-value" id="totalBalance">$0</div>
+      </div>
+      <div class="kpi-card income">
+        <div class="kpi-label">Food Left / Day</div>
+        <div class="kpi-value" id="foodPerDay">$0</div>
+      </div>
+      <div class="kpi-card income">
+        <div class="kpi-label">Monthly Left / Day</div>
+        <div class="kpi-value" id="monthlyPerDay">$0</div>
+      </div>
     </div>
 
-    <div class="card">
-      <h3>Total Spent</h3>
-      <div id="totalSpent">$0</div>
+    <!-- Budget tables side by side -->
+    <div class="budget-page-grid">
+      <div class="budget-section-card">
+        <div class="card-header">
+          <h2 class="card-title">Bills</h2>
+        </div>
+        <table class="budget-table" id="billsTable"></table>
+        <div class="add-item-row">
+          <input id="billsSubCategoryInput" placeholder="Sub Category">
+          <input id="billsAllocatedInput" type="number" step="0.01" placeholder="Allocated">
+          <button onclick="addBudgetItemFor('Bills')">+ Add</button>
+        </div>
+      </div>
+
+      <div class="budget-section-card">
+        <div class="card-header">
+          <h2 class="card-title">Monthly Expenses</h2>
+        </div>
+        <table class="budget-table" id="monthlyTable"></table>
+        <div class="add-item-row">
+          <input id="monthlySubCategoryInput" placeholder="Sub Category">
+          <input id="monthlyAllocatedInput" type="number" step="0.01" placeholder="Allocated">
+          <button onclick="addBudgetItemFor('Monthly Expenses')">+ Add</button>
+        </div>
+      </div>
     </div>
-
-    <div class="card">
-      <h3>Total Balance</h3>
-      <div id="totalBalance">$0</div>
-    </div>
-
-    <div class="card">
-      <h3>Food Left / Day</h3>
-      <div id="foodPerDay">$0</div>
-    </div>
-
-    <div class="card">
-      <h3>Monthly Left / Day</h3>
-      <div id="monthlyPerDay">$0</div>
-    </div>
-  </div>
-
-  <h2>Add Budget Item</h2>
-
-  <div class="budget-form">
-    <select id="budgetType">
-      <option value="Bills">Bills</option>
-      <option value="Monthly Expenses">Monthly Expenses</option>
-    </select>
-
-    <input id="subCategoryInput" placeholder="Sub Category">
-    <input id="allocatedInput" type="number" step="0.01" placeholder="Allocated">
-    <button onclick="saveBudgetSetupToExcel()">Save to Excel</button>
-    <button onclick="addBudgetItem()">Add</button>
-  </div>
-
-  <h2>Bills</h2>
-  <table class="budget-table" id="billsTable"></table>
-
-  <h2>Monthly Expenses</h2>
-  <table class="budget-table" id="monthlyTable"></table>
+  </main>
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
   <script src="budget.js"></script>
+  <script>
+    // Adapters so the inline buttons work with per-section inputs
+    function addBudgetItemFor(type) {
+      const prefix = type === 'Bills' ? 'bills' : 'monthly';
+      const category = document.getElementById(prefix + 'SubCategoryInput').value.trim();
+      const allocated = Number(document.getElementById(prefix + 'AllocatedInput').value);
+      if (!category || isNaN(allocated)) { alert('Please enter Sub Category and Allocated.'); return; }
+      const list = type === 'Bills' ? billsBudget : monthlyBudget;
+      if (list.length >= 12) { alert('Maximum 12 rows allowed.'); return; }
+      list.push({ type, category, allocated });
+      document.getElementById(prefix + 'SubCategoryInput').value = '';
+      document.getElementById(prefix + 'AllocatedInput').value = '';
+      renderBudget();
+    }
+  </script>
 </body>
 </html>
-
-<script src="config.js"></script>
-<script src="onedrive.js"></script>
-<script src="budget.js"></script>

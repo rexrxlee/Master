@@ -2,98 +2,229 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Transaction Dashboard</title>
-
+  <title>Finance Dashboard</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  </head>
+</head>
+<body onload="loadDashboard()">
 
-  <body onload="loadDashboard()">
-  <h1>Transaction Dashboard</h1>
-
-  <button onclick="loadDashboard()">Load Dashboard</button><nav class="nav">
-  <a href="index.html">Dashboard</a>
-  <a href="goals.html">Goals</a>
-  <a href="monthly-budget.html">Monthly Budget</a>
-</nav>
-  <p id="status"></p>
-  <pre id="debug"></pre>
-
-  <div class="filters">
-    <div class="filter-box">
-      <button class="dropdown-button" onclick="toggleDropdown('mainCategoryMenu')">
-        Main Category
-      </button>
-      <div id="mainCategoryMenu" class="checkbox-menu"></div>
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">Fintrack</span>
     </div>
-
-    <div class="filter-box">
-      <button class="dropdown-button" onclick="toggleDropdown('subCategoryMenu')">
-        Sub Category
-      </button>
-      <div id="subCategoryMenu" class="checkbox-menu"></div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item active">
+        <span class="nav-icon">▦</span> Dashboard
+      </a>
+      <a href="goals.html" class="nav-item">
+        <span class="nav-icon">◎</span> Goals
+      </a>
+      <a href="monthly-budget.html" class="nav-item">
+        <span class="nav-icon">▤</span> Budget
+      </a>
+      <a href="add-transaction.html" class="nav-item">
+        <span class="nav-icon">＋</span> Add Transaction
+      </a>
+      <a href="accounts.html" class="nav-item">
+        <span class="nav-icon">▣</span> Accounts
+      </a>
+      <a href="setup.html" class="nav-item">
+        <span class="nav-icon">⚙</span> Setup
+      </a>
+    </nav>
+    <div class="sidebar-status">
+      <p id="status"></p>
     </div>
+  </aside>
 
-    <div class="filter-box">
-      <button class="dropdown-button" onclick="toggleDropdown('transactionMenu')">
-        Transaction
-      </button>
-      <div id="transactionMenu" class="checkbox-menu"></div>
-    </div>
-
-    <label>From Date:</label>
-    <input type="date" id="fromDate">
-
-    <label>To Date:</label>
-    <input type="date" id="toDate">
-
-    <button onclick="resetFilters()">Reset Filters</button>
-  </div>
-
-  <div class="dashboard-row">
-    <div>
-      <h2>Monthly Expenses</h2>
-      <div class="chart-container">
-        <canvas id="expenseChart"></canvas>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Your financial overview</p>
       </div>
-    </div>
-
-    <div class="cards-panel">
-      <div class="card">
-        <h3>Total Expenses</h3>
-        <div id="totalExpenses">$0</div>
+      <div class="topbar-right">
+        <button class="reload-btn" onclick="loadDashboard()">↻ Reload</button>
       </div>
+    </header>
 
-      <div class="card">
-        <h3>Transactions</h3>
-        <div id="transactionCount">0</div>
+    <details class="debug-panel">
+      <summary>System Log</summary>
+      <pre id="debug"></pre>
+    </details>
+
+    <section class="filters-bar">
+      <div class="filter-group">
+        <div class="filter-box">
+          <button class="dropdown-button" onclick="toggleDropdown('mainCategoryMenu')">Main Category <span class="chevron">▾</span></button>
+          <div id="mainCategoryMenu" class="checkbox-menu"></div>
+        </div>
+        <div class="filter-box">
+          <button class="dropdown-button" onclick="toggleDropdown('subCategoryMenu')">Sub Category <span class="chevron">▾</span></button>
+          <div id="subCategoryMenu" class="checkbox-menu"></div>
+        </div>
+        <div class="filter-box">
+          <button class="dropdown-button" onclick="toggleDropdown('transactionMenu')">Transaction <span class="chevron">▾</span></button>
+          <div id="transactionMenu" class="checkbox-menu"></div>
+        </div>
+        <div class="filter-box">
+          <button class="dropdown-button" onclick="toggleDatePanel()">📅 Date Range <span class="chevron">▾</span></button>
+          <div id="dateRangePanel" class="date-range-panel" style="display:none;">
+            <div class="date-preset-row">
+              <button onclick="applyDatePreset('today')">Today</button>
+              <button onclick="applyDatePreset('this_week')">This Week</button>
+              <button onclick="applyDatePreset('this_month')">This Month</button>
+              <button onclick="applyDatePreset('last_month')">Last Month</button>
+              <button onclick="applyDatePreset('last_3m')">Last 3 Months</button>
+              <button onclick="applyDatePreset('this_year')">This Year</button>
+            </div>
+            <div class="date-custom-row">
+              <label>From <input type="date" id="fromDate"></label>
+              <label>To <input type="date" id="toDate"></label>
+            </div>
+          </div>
+        </div>
       </div>
+      <button id="clearFiltersBtn" onclick="resetFilters()" style="display:none;" class="clear-btn">✕ Clear Filters</button>
+    </section>
 
-      <div class="card">
-        <h3>UOB ONE Credit Card</h3>
-        <div id="uobOneBalance">$0</div>
+    <div id="activeFilterBadges" class="filter-badges"></div>
+
+    <section class="kpi-row">
+      <div class="kpi-card income">
+        <div class="kpi-label">Total Income</div>
+        <div class="kpi-value" id="totalIncome">$0</div>
       </div>
-
-      <div class="card">
-        <h3>Assets</h3>
-        <div id="assetsBalance">$0</div>
+      <div class="kpi-card expense">
+        <div class="kpi-label">Total Expenses</div>
+        <div class="kpi-value" id="totalExpenses">$0</div>
       </div>
-
-      <div class="card savings-card">
-        <h3>Savings Account</h3>
-        <table id="savingsTable"></table>
+      <div class="kpi-card net">
+        <div class="kpi-label">Net Cashflow</div>
+        <div class="kpi-value" id="netSavings">$0</div>
+        <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
       </div>
-    </div>
-  </div>
+      <div class="kpi-card neutral">
+        <div class="kpi-label">Transactions</div>
+        <div class="kpi-value" id="transactionCount">0</div>
+      </div>
+    </section>
 
-  <h2>Monthly Expenses by Sub Category</h2>
-  <div class="chart-container full-width-chart">
-    <canvas id="subCategoryChart"></canvas>
-  </div>
+    <section class="charts-row">
+      <div class="chart-card wide">
+        <div class="card-header">
+          <h2 class="card-title">Monthly Overview</h2>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="expenseChart"></canvas>
+        </div>
+      </div>
+      <div class="accounts-card">
+        <div class="card-header">
+          <h2 class="card-title">Savings Accounts</h2>
+        </div>
+        <table id="savingsTable" class="accounts-table"></table>
+        <div class="accounts-footer">
+          <div class="account-line">
+            <span class="acc-label">Credit Cards (owed)</span>
+            <span class="acc-val" id="uobOneBalance">$0</span>
+          </div>
+          <div class="account-line total-line">
+            <span class="acc-label">Net Assets</span>
+            <span class="acc-val" id="assetsBalance">$0</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-card full">
+      <div class="card-header">
+        <h2 class="card-title">Expenses by Sub Category</h2>
+      </div>
+      <div class="chart-wrap tall">
+        <canvas id="subCategoryChart"></canvas>
+      </div>
+    </section>
+
+    <section class="income-breakdown-row">
+      <div class="chart-card">
+        <div class="card-header">
+          <h2 class="card-title">Income by Sub Category</h2>
+        </div>
+        <div class="chart-wrap income-chart">
+          <canvas id="incomeSubCategoryChart"></canvas>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="card-header">
+          <h2 class="card-title">Income Breakdown</h2>
+          <span class="card-badge" id="incomeBreakdownTotal">$0</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="incomeBreakdownTable"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="insight-row">
+      <div class="insight-card">
+        <div class="insight-label">Highest Spending Month</div>
+        <div class="insight-value" id="highestMonthCard">—</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">vs Last Month</div>
+        <div class="insight-value" id="vsLastMonthCard">—</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Top Category This Month</div>
+        <div class="insight-value" id="topCategoryCard">—</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Daily Avg This Month</div>
+        <div class="insight-value" id="dailyAvgCard">—</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-label">Net Cashflow This Month</div>
+        <div class="insight-value" id="thisMonthNetCard">—</div>
+      </div>
+    </section>
+
+    <section class="tables-row">
+      <div class="table-card">
+        <div class="card-header">
+          <h2 class="card-title">Recent Transactions</h2>
+          <span class="card-badge">Last 10</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="recentTransactionsTable"></table>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="card-header">
+          <h2 class="card-title">Top 5 by Amount</h2>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="top5Table"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="table-card full" style="margin-bottom: 40px;">
+      <div class="card-header">
+        <h2 class="card-title">Monthly Average by Sub Category</h2>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="avgCategoryTable"></table>
+      </div>
+    </section>
+
+  </main>
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>

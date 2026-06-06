@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Accounts — Fintrack</title>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .accounts-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    .section-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .section-card .card-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .section-card .card-header h2 { font-size: 15px; font-weight: 600; }
+    .section-card .card-hint {
+      font-size: 12.5px;
+      color: var(--muted);
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .section-card .budget-table { margin: 0; }
+    .section-card .budget-table th,
+    .section-card .budget-table td { border-left: none; border-right: none; }
+    .section-card .budget-table tr:first-child th { border-top: none; }
+    .section-add-row {
+      display: flex;
+      gap: 8px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .section-add-row input, .section-add-row select {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      flex: 1;
+      min-width: 120px;
+    }
+    .section-add-row button {
+      padding: 7px 14px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .section-add-row button:hover { opacity: 0.85; }
+    .save-all-btn {
+      padding: 8px 16px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .save-all-btn:hover { opacity: 0.85; }
+    @media (max-width: 900px) {
+      .accounts-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body onload="loadAccountsPage()">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">Fintrack</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
+      <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
+      <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
+      <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
+      <a href="accounts.html" class="nav-item active"><span class="nav-icon">▣</span> Accounts</a>
+      <a href="setup.html" class="nav-item"><span class="nav-icon">⚙</span> Setup</a>
+    </nav>
+    <div class="sidebar-status">
+      <p id="status"></p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">Accounts</h1>
+        <p class="page-subtitle">Manage your accounts and income categories</p>
+      </div>
+      <div class="topbar-right">
+        <button class="save-all-btn" onclick="saveAccountsToExcel()">💾 Save All to Excel</button>
+      </div>
+    </header>
+
+    <details class="debug-panel">
+      <summary>System Log</summary>
+      <pre id="debug"></pre>
+    </details>
+
+    <div class="accounts-layout">
+
+      <!-- Accounts section -->
+      <div class="section-card">
+        <div class="card-header">
+          <h2 class="card-title">Accounts</h2>
+        </div>
+        <table class="budget-table" id="accountsTable"></table>
+        <div class="section-add-row">
+          <input id="accountNameInput" placeholder="Account name">
+          <select id="accountTypeInput">
+            <option value="Savings">Savings</option>
+            <option value="Credit Card">Credit Card</option>
+          </select>
+          <button onclick="addAccount()">+ Add</button>
+        </div>
+      </div>
+
+      <!-- Income sub categories -->
+      <div class="section-card">
+        <div class="card-header">
+          <h2 class="card-title">Income Sub Categories</h2>
+        </div>
+        <p class="card-hint">These appear in the dropdown when adding income. Saved to Budget Setup column Q.</p>
+        <table class="budget-table" id="incomeSubsTable"></table>
+        <div class="section-add-row">
+          <input id="incomeSubInput" placeholder="e.g. Salary, Bonus, Dividend">
+          <button onclick="addIncomeSub()">+ Add</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="onedrive.js"></script>
+  <script src="accounts.js"></script>
+</body>
+</html>

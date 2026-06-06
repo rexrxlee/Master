@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Setup — Fintrack</title>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .setup-container {
+      max-width: 620px;
+    }
+    .setup-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .setup-card .card-header {
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .setup-card .card-header h2 { font-size: 15px; font-weight: 600; }
+    .setup-card-body { padding: 20px; }
+    .setup-description {
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.65;
+      margin-bottom: 16px;
+    }
+    .setup-date-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .setup-date-row label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .setup-date-row input[type="date"] {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+    }
+    #setupForm .budget-table { margin-bottom: 0; }
+    .setup-actions { padding: 16px 20px; border-top: 1px solid var(--border); background: var(--bg); display: flex; gap: 10px; align-items: center; }
+    .save-setup-btn {
+      padding: 10px 22px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .save-setup-btn:hover { opacity: 0.85; }
+  </style>
+</head>
+<body onload="loadSetupPage()">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">Fintrack</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
+      <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
+      <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
+      <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
+      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts</a>
+      <a href="setup.html" class="nav-item active"><span class="nav-icon">⚙</span> Setup</a>
+    </nav>
+    <div class="sidebar-status">
+      <p id="status"></p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">First-Time Setup</h1>
+        <p class="page-subtitle">Set opening balances for your accounts</p>
+      </div>
+    </header>
+
+    <details class="debug-panel">
+      <summary>System Log</summary>
+      <pre id="debug"></pre>
+    </details>
+
+    <div class="setup-container">
+      <div class="setup-card">
+        <div class="card-header">
+          <h2 class="card-title">Opening Balances</h2>
+        </div>
+        <div class="setup-card-body">
+          <p class="setup-description">
+            Record the <strong>opening balance</strong> of each account before you start tracking transactions.
+            This creates an "Opening Balance" income entry per account so your totals are accurate from day one.
+          </p>
+          <div id="setupForm">
+            <p style="color:var(--muted);font-size:13px;">Loading accounts…</p>
+          </div>
+        </div>
+        <div class="setup-actions">
+          <button id="saveSetupBtn" class="save-setup-btn" onclick="saveOpeningBalances()" style="display:none;">
+            💾 Save Opening Balances
+          </button>
+          <div id="setupSuccess" class="success-message" style="display:none;margin:0;">
+            ✅ Opening balances saved! You can now start tracking transactions.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="onedrive.js"></script>
+  <script src="setup.js"></script>
+</body>
+</html>
