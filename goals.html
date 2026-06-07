@@ -931,6 +931,866 @@
       .stats-grid { grid-template-columns: 1fr; }
       .goal-form-grid { grid-template-columns: 1fr; }
     }
+
+    /* ══════════════════════════════════════════════════════════════
+       TAB BAR
+    ══════════════════════════════════════════════════════════════ */
+    .gi-tab-bar {
+      display: flex;
+      gap: 4px;
+      padding: 0 0 0 0;
+      margin-bottom: 20px;
+      border-bottom: 2px solid var(--border);
+    }
+    .gi-tab {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 18px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      position: relative;
+    }
+    .gi-tab:hover { color: var(--text); }
+    .gi-tab.active {
+      color: var(--text);
+      border-bottom-color: var(--text);
+      font-weight: 600;
+    }
+    .gi-tab-icon { font-size: 14px; }
+    .gi-tab-badge {
+      background: #dc2626;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 20px;
+      line-height: 1.5;
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       GOAL ITEMS — PLANNER TAB
+    ══════════════════════════════════════════════════════════════ */
+
+    /* Loading / empty states */
+    .gi-loading, .gi-error {
+      padding: 48px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .gi-error { color: var(--red); }
+    .gi-empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 80px 32px;
+      text-align: center;
+    }
+    .gi-empty-icon { font-size: 40px; opacity: 0.25; }
+    .gi-empty-title { font-size: 17px; font-weight: 600; color: var(--text); }
+    .gi-empty-sub { font-size: 13.5px; color: var(--muted); max-width: 380px; line-height: 1.6; }
+
+    /* Header bar */
+    .gi-header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .gi-header-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .gi-sum-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12.5px;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    .gi-sum-pill.neutral { background: var(--bg); border-color: var(--border); color: var(--muted); }
+    .gi-sum-pill.warn    { background: #fff7ed; border-color: #fed7aa; color: #7c2d12; }
+    .gi-sum-pill.ok      { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+    .gi-sum-pill.red     { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+    .gi-save-btn {
+      padding: 8px 16px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .gi-save-btn:hover { opacity: 0.85; }
+    .gi-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* Goal sections */
+    .gi-goals-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding-bottom: 48px;
+    }
+    .gi-goal-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Section header */
+    .gi-section-header {
+      padding: 14px 18px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s;
+      /* border-left is set inline per goal color */
+    }
+    .gi-section-header:hover { background: var(--bg); }
+    .gi-section-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .gi-chevron {
+      font-size: 10px;
+      color: var(--muted);
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+      display: inline-block;
+    }
+    .gi-chevron.open { transform: rotate(90deg); }
+    .gi-section-name {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .gi-hdr-count {
+      font-size: 11.5px;
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1px 8px;
+    }
+    .gi-hdr-overdue {
+      font-size: 11.5px;
+      color: #dc2626;
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 20px;
+      padding: 1px 8px;
+    }
+    .gi-section-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .gi-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .gi-meta-label { font-size: 11.5px; color: var(--muted); }
+    .gi-meta-val   { font-size: 13px; font-weight: 600; font-family: 'DM Mono', monospace; }
+    .gi-meta-val.red { color: var(--red); }
+
+    /* Budget badges */
+    .gi-budget-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .gi-budget-badge.under   { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+    .gi-budget-badge.over    { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+    .gi-budget-badge.exact   { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+    .gi-budget-badge.neutral { background: var(--bg); border-color: var(--border); color: var(--muted); }
+    .gi-bump-btn {
+      margin-left: 4px;
+      padding: 2px 8px;
+      background: #dc2626;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .gi-bump-btn:hover { opacity: 0.85; }
+
+    /* Progress bar in section header */
+    .gi-section-progress {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .gi-prog-bar {
+      flex: 1;
+      max-width: 300px;
+      height: 5px;
+      background: var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .gi-prog-fill { height: 100%; border-radius: 20px; transition: width 0.4s ease; }
+    .gi-prog-label { font-size: 11.5px; color: var(--muted); font-family: 'DM Mono', monospace; flex-shrink: 0; }
+
+    /* Section body (collapsible) */
+    .gi-section-body {
+      display: none;
+      border-top: 1px solid var(--border);
+    }
+    .gi-section-body.open { display: block; }
+    .gi-no-items {
+      padding: 24px 20px;
+      font-size: 13.5px;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* Items table */
+    .gi-table-wrap {
+      overflow-x: auto;
+    }
+    .gi-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .gi-table thead tr {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .gi-table th {
+      padding: 9px 12px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .gi-th-check    { width: 32px; }
+    .gi-th-desc     { min-width: 180px; }
+    .gi-th-amt      { width: 120px; }
+    .gi-th-date     { width: 100px; }
+    .gi-th-pri      { width: 90px; }
+    .gi-th-link     { width: 48px; text-align: center; }
+    .gi-th-comments { min-width: 140px; }
+    .gi-th-status   { width: 130px; }
+    .gi-th-actions  { width: 120px; }
+
+    /* Item rows */
+    .gi-item-row td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .gi-item-row:last-of-type td { border-bottom: none; }
+    .gi-row-purchased { opacity: 0.7; }
+    .gi-row-cancelled { opacity: 0.45; }
+    .gi-row-overdue   { background: #fffbeb; }
+
+    .gi-desc-text { font-weight: 500; }
+    .gi-strikethrough { text-decoration: line-through; color: var(--muted); }
+    .gi-mono { font-family: 'DM Mono', monospace; font-size: 12.5px; }
+    .gi-muted { color: var(--muted); }
+    .gi-actual-diff {
+      display: block;
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+      margin-top: 2px;
+    }
+    .gi-actual-diff.red   { color: var(--red); }
+    .gi-actual-diff.green { color: var(--green); }
+    .gi-overdue-text { color: #dc2626; font-weight: 600; }
+    .gi-pri-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .gi-link-btn {
+      display: inline-block;
+      text-decoration: none;
+      font-size: 16px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: background 0.1s;
+    }
+    .gi-link-btn:hover { background: var(--bg); }
+    .gi-link-empty { color: var(--muted); }
+    .gi-comment-text { color: var(--muted); font-size: 12px; cursor: default; }
+
+    /* Status badges */
+    .gi-status-badge {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 1px;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .gi-status-badge small { font-weight: 400; font-size: 10.5px; line-height: 1.3; }
+    .gi-status-badge.planned   { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .gi-status-badge.purchased { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+    .gi-status-badge.cancelled { background: var(--bg); border-color: var(--border); color: var(--muted); }
+    .gi-status-badge.overdue   { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+
+    /* Action buttons */
+    .gi-td-actions { white-space: nowrap; }
+    .gi-action-btn {
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-right: 2px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .gi-action-btn:hover    { background: var(--bg); }
+    .gi-edit-btn:hover      { border-color: #6366f1; color: #6366f1; }
+    .gi-buy-btn             { background: #f0fdf4; border-color: #86efac; color: #14532d; font-weight: 600; }
+    .gi-buy-btn:hover       { background: #dcfce7; }
+    .gi-cancel-btn:hover    { background: #fff7ed; border-color: #fed7aa; color: #7c2d12; }
+    .gi-del-btn:hover       { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+    .gi-undo-btn            { color: var(--muted); }
+    .gi-undo-btn:hover      { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+
+    /* Inline edit panel */
+    .gi-edit-row td { padding: 0 !important; }
+    .gi-edit-panel {
+      padding: 14px 16px;
+      background: #fafafa;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .gi-edit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .gi-edit-group { display: flex; flex-direction: column; gap: 4px; }
+    .gi-edit-full  { grid-column: 1 / -1; }
+    .gi-edit-label { font-size: 11.5px; font-weight: 500; color: var(--muted); }
+    .gi-edit-input {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .gi-edit-input:focus { outline: none; border-color: var(--text); box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+    .gi-edit-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .gi-save-item-btn {
+      padding: 7px 16px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .gi-save-item-btn:hover { opacity: 0.85; }
+    .gi-cancel-edit-btn {
+      padding: 7px 14px;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .gi-cancel-edit-btn:hover { background: var(--bg); }
+
+    /* Add item form (inside <details>) */
+    .gi-add-row {
+      padding: 4px 0 0;
+      border-top: 1px dashed var(--border);
+    }
+    .gi-add-details { }
+    .gi-add-summary {
+      padding: 11px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      list-style: none;
+      transition: color 0.1s;
+      user-select: none;
+    }
+    .gi-add-summary:hover { color: var(--text); }
+    .gi-add-summary::-webkit-details-marker { display: none; }
+    .gi-add-form {
+      padding: 14px 18px 16px;
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+    }
+    .gi-add-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .gi-add-group { display: flex; flex-direction: column; gap: 4px; }
+    .gi-add-full  { grid-column: 1 / -1; }
+    .gi-add-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .gi-add-confirm-btn {
+      padding: 8px 18px;
+      background: var(--text);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .gi-add-confirm-btn:hover { opacity: 0.85; }
+    .gi-add-cancel-btn {
+      padding: 8px 14px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .gi-add-cancel-btn:hover { background: var(--bg); }
+    .gi-check { accent-color: var(--text); width: 15px; height: 15px; cursor: pointer; }
+
+    /* ── Purchase Modal ── */
+    .gi-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .gi-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) + 2px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .gi-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .gi-modal-title { font-size: 15px; font-weight: 600; }
+    .gi-modal-close {
+      background: transparent;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 0.1s;
+    }
+    .gi-modal-close:hover { background: var(--bg); color: var(--text); }
+    .gi-modal-body {
+      padding: 18px 20px;
+      flex: 1;
+    }
+    .gi-modal-item-name {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      color: var(--text);
+    }
+    .gi-modal-item-goal {
+      font-size: 12.5px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .gi-modal-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .gi-modal-group { display: flex; flex-direction: column; gap: 4px; }
+    .gi-modal-full  { grid-column: 1 / -1; }
+    .gi-modal-hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .gi-modal-info {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12.5px;
+      color: #1e40af;
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .gi-modal-info-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+    .gi-modal-diff {
+      padding: 7px 12px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      font-family: 'DM Mono', monospace;
+      margin-top: 4px;
+    }
+    .gi-modal-diff.over  { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+    .gi-modal-diff.under { background: #f0fdf4; color: #16a34a; border: 1px solid #86efac; }
+    .gi-modal-footer {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .gi-confirm-purchase-btn {
+      flex: 1;
+      padding: 10px;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .gi-confirm-purchase-btn:hover { opacity: 0.88; }
+    .gi-confirm-purchase-btn:disabled { opacity: 0.5; cursor: default; }
+    .gi-modal-cancel-btn {
+      padding: 10px 18px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .gi-modal-cancel-btn:hover { background: var(--surface); }
+
+    @media (max-width: 700px) {
+      .gi-edit-grid, .gi-add-grid, .gi-modal-fields { grid-template-columns: 1fr; }
+      .gi-edit-full, .gi-add-full, .gi-modal-full { grid-column: 1; }
+      .gi-table th, .gi-table td { padding: 8px 8px; }
+    }
+
+    /* ── Feasibility Insights Panel ─────────────────────────────────── */
+    .gi-insights-panel {
+      margin: 0 20px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .gi-insights-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      cursor: pointer;
+      user-select: none;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .gi-insights-header:hover { background: var(--bg); }
+    .gi-insights-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .gi-insights-chevron { font-size: 12px; color: var(--muted); }
+    .gi-insights-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .gi-insights-table-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .gi-insights-chart-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 10px 10px 6px;
+    }
+    .gi-insights-chart-scroll {
+      max-height: 560px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 4px;
+    }
+    .gi-insights-chart-box {
+      position: relative;
+      min-height: 270px;
+    }
+    .gi-insights-chart-box canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .gi-insights-summary {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+    .gi-insights-summary.ok      { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .gi-insights-summary.warn    { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+    .gi-insights-summary.neutral { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+    .gi-insights-summary-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .gi-ins-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .gi-ins-pill.ok      { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+    .gi-ins-pill.track   { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .gi-ins-pill.risk    { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+    .gi-ins-pill.neutral { background: var(--surface); border-color: var(--border); color: var(--muted); }
+    .gi-target-strip-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 10px 12px;
+    }
+    .gi-target-strip-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .gi-target-strip-head strong {
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .gi-target-strip {
+      position: relative;
+      display: flex;
+      height: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+    .gi-target-segment {
+      flex-grow: 0;
+      flex-shrink: 0;
+      min-width: 2px;
+      height: 100%;
+      border-right: 1px solid rgba(255,255,255,0.72);
+    }
+    .gi-target-segment.purchased { background: #16a34a; }
+    .gi-target-segment.track     { background: #2563eb; }
+    .gi-target-segment.risk      { background: #dc2626; }
+    .gi-target-segment.nodate    { background: #64748b; }
+    .gi-target-segment.unallocated {
+      background: repeating-linear-gradient(135deg, #f1f5f9 0, #f1f5f9 6px, #e2e8f0 6px, #e2e8f0 12px);
+      border-right: none;
+      min-width: 0;
+    }
+    .gi-target-marker {
+      position: absolute;
+      top: -4px;
+      bottom: -4px;
+      width: 2px;
+      background: #111827;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.75);
+    }
+    .gi-target-strip-axis {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+    }
+    .gi-target-legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      color: var(--muted);
+      font-size: 11.5px;
+    }
+    .gi-target-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .gi-target-legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .gi-target-legend-dot.purchased { background: #16a34a; }
+    .gi-target-legend-dot.track     { background: #2563eb; }
+    .gi-target-legend-dot.risk      { background: #dc2626; }
+    .gi-target-legend-dot.nodate    { background: #64748b; }
+    .gi-insights-mini-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .gi-insights-mini-note strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .gi-ins-details {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .gi-ins-details-summary {
+      cursor: pointer;
+      padding: 9px 12px;
+      color: #7f1d1d;
+      font-size: 12.5px;
+      font-weight: 600;
+      user-select: none;
+    }
+    .gi-ins-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .gi-ins-table th,
+    .gi-ins-table td {
+      padding: 7px 10px;
+      border-top: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .gi-ins-table th {
+      color: var(--muted);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .gi-ins-risk-cell {
+      color: #dc2626;
+      font-weight: 600;
+      font-family: 'DM Mono', monospace;
+    }
+    .gi-insight-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .gi-insight-item-row:last-of-type { border-bottom: none; }
+    .gi-insight-item-left  { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+    .gi-insight-item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 160px; }
+    .gi-insight-icon { font-size: 16px; flex-shrink: 0; }
+    .gi-insight-item-info  { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .gi-insight-item-name  { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gi-insight-item-meta  { font-size: 11.5px; color: var(--muted); }
+    .gi-insight-bar-wrap   { width: 160px; height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; }
+    .gi-insight-bar        { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+    .gi-insight-status     { font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .gi-insight-no-dates   { font-size: 13px; color: var(--muted); font-style: italic; padding: 4px 0; }
+    .gi-insights-note      { font-size: 11.5px; color: var(--muted); padding-top: 4px; border-top: 1px solid var(--border); }
+    @media (max-width: 700px) {
+      .gi-insights-panel { margin: 0 10px 14px; }
+      .gi-insights-body { padding: 12px; }
+      .gi-insights-chart-scroll { max-height: 480px; }
+      .gi-insights-chart-wrap { padding: 8px 6px 4px; }
+      .gi-target-strip-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+      .gi-ins-table { min-width: 560px; }
+      .gi-ins-details { overflow-x: auto; }
+      .gi-insight-item-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+      .gi-insight-item-right { width: 100%; align-items: flex-start; }
+      .gi-insight-bar-wrap { width: 100%; }
+    }
   </style>
 </head>
 <body onload="loadGoalsPage()">
@@ -956,24 +1816,94 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <h1 class="page-title">Goals</h1>
-        <p class="page-subtitle">Smart savings targets with real-time forecasting</p>
+        <h1 class="page-title" id="pageTitle">Goals</h1>
+        <p class="page-subtitle" id="pageSubtitle">Smart savings targets with real-time forecasting</p>
       </div>
       <div class="topbar-right">
-        <button class="reload-btn" onclick="loadGoalsPage()">↻ Reload</button>
+        <button class="reload-btn" id="reloadBtn" onclick="loadGoalsPage()">↻ Reload</button>
       </div>
     </header>
+
+    <!-- Tab bar -->
+    <div class="gi-tab-bar">
+      <button class="gi-tab active" id="tabOverview" onclick="switchGoalsTab('overview')">
+        <span class="gi-tab-icon">◎</span> Overview
+      </button>
+      <button class="gi-tab" id="tabPlanner" onclick="switchGoalsTab('planner')">
+        <span class="gi-tab-icon">📋</span> Purchase Planner
+        <span class="gi-tab-badge" id="plannerBadge" style="display:none;"></span>
+      </button>
+    </div>
 
     <details class="debug-panel">
       <summary>System Log</summary>
       <pre id="debug"></pre>
     </details>
 
-    <div id="goalsContainer"></div>
+    <!-- Overview tab content -->
+    <div id="overviewTab">
+      <div id="goalsContainer"></div>
+    </div>
+
+    <!-- Planner tab content -->
+    <div id="plannerTab" style="display:none;">
+      <div id="plannerTabContent">
+        <div class="gi-loading">Loading purchase planner…</div>
+      </div>
+    </div>
+
   </main>
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
   <script src="goals.js"></script>
+  <script src="goal-items.js"></script>
+  <script>
+    // ── Tab switching ──────────────────────────────────────────────
+    let _activeGoalsTab = "overview";
+    let _plannerLoaded  = false;
+
+    function switchGoalsTab(tab) {
+      _activeGoalsTab = tab;
+
+      // Tab button states
+      document.getElementById("tabOverview").classList.toggle("active", tab === "overview");
+      document.getElementById("tabPlanner").classList.toggle("active", tab === "planner");
+
+      // Panel visibility
+      document.getElementById("overviewTab").style.display = tab === "overview" ? "" : "none";
+      document.getElementById("plannerTab").style.display  = tab === "planner"  ? "" : "none";
+
+      // Reload button target
+      const reloadBtn = document.getElementById("reloadBtn");
+      if (tab === "planner") {
+        reloadBtn.onclick = () => { _plannerLoaded = false; loadGoalItemsTab(); };
+        document.getElementById("pageTitle").textContent    = "Purchase Planner";
+        document.getElementById("pageSubtitle").textContent = "Plan and track purchases within each goal";
+        if (!_plannerLoaded) {
+          loadGoalItemsTab();
+          _plannerLoaded = true;
+        }
+      } else {
+        reloadBtn.onclick = () => loadGoalsPage();
+        document.getElementById("pageTitle").textContent    = "Goals";
+        document.getElementById("pageSubtitle").textContent = "Smart savings targets with real-time forecasting";
+      }
+    }
+
+    // After goals load, update the planner badge with overdue count
+    const _origRenderGoalsPage = typeof renderGoalsPage === "function" ? renderGoalsPage : null;
+    // Hook: after loadGoalsPage resolves, refresh badge
+    const _origLoadGoalsPage = window.loadGoalsPage;
+    window.loadGoalsPage = async function() {
+      await _origLoadGoalsPage.apply(this, arguments);
+      // Refresh planner badge if planner was already loaded
+      if (_plannerLoaded) {
+        _plannerLoaded = false; // force reload on next tab switch
+        const badge = document.getElementById("plannerBadge");
+        if (badge) badge.style.display = "none";
+      }
+    };
+  </script>
 </body>
 </html>

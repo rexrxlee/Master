@@ -323,13 +323,25 @@ function updateFinanceCards(data) {
       return d && d >= openingDate;
     });
 
-    // Charges: expense rows billed to this CC (add to balance owed)
+    // Charges: expense rows billed to this CC (add to balance owed).
+    // If a row has been fully claimed (Claim Status = "Claimed"), the reimbursed
+    // portion is subtracted — it never truly cost you that amount on the CC.
     const charges = subsequent
       .filter(row => {
         const cat = clean(row["Main Category"]).toLowerCase();
         return cat !== "income" && cat !== "transfer";
       })
-      .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
+      .reduce((sum, row) => {
+        const amount = Math.abs(getSignedAmount(row["Amount"]));
+        const claimStatusKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim status") || "Claim Status";
+        const claimStatus = clean(row[claimStatusKey]).toLowerCase();
+        if (claimStatus !== "claimed") return sum + amount;
+        // Only subtract the actual claim amount that was reimbursed
+        const claimAmountKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim amount") || "Claim Amount";
+        const claimAmount = Math.abs(getSignedAmount(row[claimAmountKey]));
+        const reimbursed = claimAmount > 0 ? Math.min(claimAmount, amount) : amount;
+        return sum + Math.max(0, amount - reimbursed);
+      }, 0);
 
     // Payments: transfer rows where this CC is the destination (reduce balance owed)
     // These show up as Main Category = Transfer with Account = CC name
@@ -338,10 +350,12 @@ function updateFinanceCards(data) {
       .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
 
     ccBalances[account] = openingBalance + charges - payments;
+    log(`CC [${account}]: opening=${openingBalance.toFixed(2)}, charges=${charges.toFixed(2)}, payments=${payments.toFixed(2)}, total=${ccBalances[account].toFixed(2)}, rows=${subsequent.length}`);
   });
 
   // Total CC outstanding (what you owe)
   const totalCcOwed = ccAccounts.reduce((sum, a) => sum + (ccBalances[a] || 0), 0);
+  log(`CC accounts detected: ${ccAccounts.join(", ") || "(none)"} | Savings: ${savingsAccounts.join(", ")}`);
 
   // For backward-compat the HTML still uses uobOneBalance / assetsBalance IDs;
   // show total CC owed and net assets (savings minus CC debt)
