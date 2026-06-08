@@ -25,7 +25,7 @@ let allTxForGoals   = [];
 let allAccounts     = [];          // { name, type } from col J/K
 let goalSavingsAccts = [];         // names of accounts chosen for goals
 let historicalStats = { avgMonthlyIncome:0, avgMonthlyExpenses:0, avgMonthlySavings:0, months:0 };
-let budgetSummary   = { billsTotal:0, monthlyTotal:0 };
+let budgetSummary   = { billsTotal:0, monthlyTotal:0, billsRows:[], monthlyRows:[] };
 let ccOwed          = 0;           // total credit-card balance owed
 let savingsBalances = {};          // { accountName: balance } from transactions
 
@@ -58,6 +58,8 @@ async function loadGoalsPage() {
     const monthlyRows = readBudgetSection(budgetSheet, "F2:G13");
     budgetSummary.billsTotal   = billsRows.reduce((s,r)=>s+r.allocated,0);
     budgetSummary.monthlyTotal = monthlyRows.reduce((s,r)=>s+r.allocated,0);
+    budgetSummary.billsRows    = billsRows;
+    budgetSummary.monthlyRows  = monthlyRows;
 
     // Transactions
     allTxForGoals   = readAllTx(txSheet);
@@ -141,7 +143,9 @@ function getSignedAmount(value) {
 
 function computeAccountBalances(txData) {
   // Mirrors dashboard.js exactly: opening balance + income - nonIncome, from opening date onwards
-  const savingsNames = allAccounts.filter(a => a.type === "Savings").map(a => a.name);
+  const savingsNames = allAccounts
+    .filter(a => clean(a.type || "Savings").toLowerCase() === "savings")
+    .map(a => a.name);
   const balances = {};
 
   savingsNames.forEach(account => {
@@ -173,9 +177,16 @@ function computeAccountBalances(txData) {
 
 function computeCCOwed(txData) {
   // Mirrors dashboard.js: opening + charges - payments (transfers to CC)
-  const savingsNames = new Set(allAccounts.filter(a => a.type === "Savings").map(a => a.name));
+  const savingsNames = new Set(allAccounts
+    .filter(a => clean(a.type || "Savings").toLowerCase() === "savings")
+    .map(a => a.name));
+  const creditCardNames = allAccounts
+    .filter(a => clean(a.type).toLowerCase() === "credit card")
+    .map(a => a.name);
   const allAccountsInData = [...new Set(txData.map(row => clean(row["Account"])).filter(Boolean))];
-  const ccAccounts = allAccountsInData.filter(a => !savingsNames.has(a));
+  const ccAccounts = creditCardNames.length > 0
+    ? creditCardNames.filter(a => allAccountsInData.includes(a))
+    : allAccountsInData.filter(a => !savingsNames.has(a));
 
   let totalOwed = 0;
   ccAccounts.forEach(account => {
@@ -246,20 +257,91 @@ function computeDeployableBalance() {
   // Step 2: subtract CC owed (you'll need to pay this)
   const afterCC = rawSavings - ccOwed;
 
-  // Step 3: subtract remaining budget for the month
+  // Step 3: reserve only positive unspent budget for the rest of the month.
+  // If the month is over budget, the shortfall is shown separately because the
+  // actual spend is already reflected through savings balances and/or CC owed.
+  const budgetPosition         = computeCurrentMonthBudgetPosition();
+  const monthlyBudgetBalance   = budgetPosition.total.balance;
+  const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
+  const deployable             = afterCC - remainingBudgetReserve;
+
+  return {
+    rawSavings,
+    afterCC,
+    remainingBudget: remainingBudgetReserve,
+    monthlyBudgetBalance,
+    budgetPosition,
+    deployable
+  };
+}
+
+function computeCurrentMonthBudgetPosition() {
   const today = new Date();
-  const thisMonthExpenses = allTxForGoals.filter(r => {
-    const d = parseExcelDate(r["Date"]);
-    return d && d.getMonth()===today.getMonth() && d.getFullYear()===today.getFullYear()
-      && clean(r["Main Category"]).toLowerCase() !== "income"
-      && clean(r["Main Category"]).toLowerCase() !== "transfer";
-  }).reduce((s,r)=>s+getClaimAdjustedExpenseAmount(r),0);
+  const isCurrentMonthExpense = row => {
+    const d = parseExcelDate(row["Date"]);
+    if (!d || d.getMonth() !== today.getMonth() || d.getFullYear() !== today.getFullYear()) return false;
+    const cat = clean(row["Main Category"]).toLowerCase();
+    return cat !== "income" && cat !== "transfer" && cat !== "saving goals";
+  };
 
-  const totalBudget       = budgetSummary.billsTotal + budgetSummary.monthlyTotal;
-  const remainingBudget   = Math.max(0, totalBudget - thisMonthExpenses);
-  const deployable        = afterCC - remainingBudget;
+  const spentByType = {
+    bills: new Map(),
+    monthly: new Map()
+  };
 
-  return { rawSavings, afterCC, remainingBudget, deployable };
+  allTxForGoals.filter(isCurrentMonthExpense).forEach(row => {
+    const main = clean(row["Main Category"]).toLowerCase();
+    const bucket = main === "bills"
+      ? "bills"
+      : main === "monthly expenses"
+        ? "monthly"
+        : "";
+    if (!bucket) return;
+
+    const subCategory = clean(row["Sub Category"]) || "(Uncategorised)";
+    spentByType[bucket].set(
+      subCategory,
+      (spentByType[bucket].get(subCategory) || 0) + getClaimAdjustedExpenseAmount(row)
+    );
+  });
+
+  const buildSection = (budgetRows, spentMap) => {
+    const allocatedByCategory = new Map();
+    budgetRows.forEach(row => {
+      allocatedByCategory.set(row.category, (allocatedByCategory.get(row.category) || 0) + row.allocated);
+    });
+
+    const categoryNames = [...new Set([...allocatedByCategory.keys(), ...spentMap.keys()])];
+    const rows = categoryNames.map(category => {
+      const allocated = allocatedByCategory.get(category) || 0;
+      const spent = spentMap.get(category) || 0;
+      const balance = allocated - spent;
+      return {
+        category,
+        allocated,
+        spent,
+        balance,
+        over: Math.max(0, spent - allocated),
+        isUnbudgeted: allocated <= 0 && spent > 0
+      };
+    }).sort((a, b) => b.over - a.over || b.spent - a.spent);
+
+    const allocated = rows.reduce((sum, row) => sum + row.allocated, 0);
+    const spent = rows.reduce((sum, row) => sum + row.spent, 0);
+    const balance = allocated - spent;
+    return { rows, allocated, spent, balance, over: Math.max(0, spent - allocated) };
+  };
+
+  const bills = buildSection(budgetSummary.billsRows || [], spentByType.bills);
+  const monthly = buildSection(budgetSummary.monthlyRows || [], spentByType.monthly);
+  const total = {
+    allocated: bills.allocated + monthly.allocated,
+    spent: bills.spent + monthly.spent,
+    balance: bills.balance + monthly.balance
+  };
+  total.over = Math.max(0, total.spent - total.allocated);
+
+  return { bills, monthly, total };
 }
 
 // ─── Render Page ──────────────────────────────────────────────────
@@ -297,6 +379,12 @@ function renderGoalsPage() {
   const depClass = dep.deployable >= 0 ? "green" : "red";
   const totalAllocatedToGoals = goalsData.reduce((s,g)=>s+g.manualSaved,0);
   const unassigned = dep.deployable - totalAllocatedToGoals;
+  const budgetBalance = dep.monthlyBudgetBalance || 0;
+  const budgetIsOver = budgetBalance < 0;
+  const budgetLineLabel = budgetIsOver ? "Monthly budget overrun" : "− Remaining monthly budget";
+  const budgetLineValue = budgetIsOver
+    ? formatCurrency(budgetBalance)
+    : (dep.remainingBudget > 0 ? "−" + formatCurrency(dep.remainingBudget) : formatCurrency(0));
 
   // Build per-goal allocator rows
   const allocatorRows = goalsData.map((g, idx) => {
@@ -376,9 +464,9 @@ function renderGoalsPage() {
           <span class="bal-label">− Credit card owed</span>
           <span class="bal-val red">−${formatCurrency(ccOwed)}</span>
         </div>
-        <div class="balance-row deduct">
-          <span class="bal-label">− Remaining monthly budget</span>
-          <span class="bal-val red">−${formatCurrency(dep.remainingBudget)}</span>
+        <div class="balance-row deduct ${budgetIsOver ? 'warn-row' : ''}">
+          <span class="bal-label">${budgetLineLabel}</span>
+          <span class="bal-val ${budgetIsOver || dep.remainingBudget > 0 ? 'red' : ''}">${budgetLineValue}</span>
         </div>
         <div class="balance-row total-row">
           <span class="bal-label">= Deployable Balance</span>
@@ -422,6 +510,8 @@ function renderGoalsPage() {
       </div>` : ""}
     </div>
   `;
+
+  renderBudgetPressureCheck(container, dep);
 
   // ── 3. Historical snapshot ──
   container.innerHTML += `
@@ -539,6 +629,105 @@ function renderGoalsPage() {
   container.innerHTML += `
     <div style="margin-top:8px;padding-bottom:40px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
       <button class="btn-primary" onclick="saveGoalsToExcel()">💾 Save All Goals to Excel</button>
+    </div>
+  `;
+}
+
+function renderBudgetPressureCheck(container, dep) {
+  const position = dep.budgetPosition || computeCurrentMonthBudgetPosition();
+  const totalBalance = position.total.balance;
+  const totalOver = position.total.over;
+  const billsOver = position.bills.over;
+  const monthlyOver = position.monthly.over;
+  const isOverBudget = totalBalance < 0;
+
+  const overBills = position.bills.rows.filter(row => row.over > 0).slice(0, 3);
+  const overMonthly = position.monthly.rows.filter(row => row.over > 0).slice(0, 4);
+  const topOver = [...overBills, ...overMonthly]
+    .sort((a, b) => b.over - a.over)
+    .slice(0, 5);
+
+  const overRowsHtml = topOver.length
+    ? topOver.map(row => `
+        <div class="bp-over-row">
+          <span>${escapeHtml(row.category)}${row.isUnbudgeted ? ' <em>unbudgeted</em>' : ''}</span>
+          <strong>${formatCurrency(row.over)} over</strong>
+        </div>`).join("")
+    : `<div class="bp-muted">No categories are currently over budget.</div>`;
+
+  const monthlyNames = overMonthly.map(row => row.category).slice(0, 3).join(", ");
+  const actions = [];
+
+  if (billsOver > 0) {
+    actions.push(`
+      <div class="bp-action danger">
+        <strong>Protect bills first.</strong>
+        Bills are ${formatCurrency(billsOver)} over. Treat this as a committed cash need: top up the bills allocation or reduce goal allocations before touching required payments.
+      </div>`);
+  } else {
+    actions.push(`
+      <div class="bp-action ok">
+        <strong>Bills are covered.</strong>
+        Current bills still have ${formatCurrency(Math.max(0, position.bills.balance))} left, so keep that amount reserved before adding more to goals.
+      </div>`);
+  }
+
+  if (monthlyOver > 0) {
+    actions.push(`
+      <div class="bp-action warn">
+        <strong>Trim flexible spend next.</strong>
+        Monthly expenses are ${formatCurrency(monthlyOver)} over${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}. Pause new goal top-ups and set a short-term cap for those categories until the balance returns to zero.
+      </div>`);
+  } else {
+    actions.push(`
+      <div class="bp-action ok">
+        <strong>Monthly expenses are within plan.</strong>
+        You still have ${formatCurrency(Math.max(0, position.monthly.balance))} left for flexible monthly spending.
+      </div>`);
+  }
+
+  if (isOverBudget) {
+    actions.push(`
+      <div class="bp-action danger">
+        <strong>Absorb the shortfall before assigning more.</strong>
+        The month is ${formatCurrency(totalOver)} over budget. The spend already flows through savings balances or credit-card owed, so Goals reserves $0 extra but flags the shortfall in red.
+      </div>`);
+  }
+
+  container.innerHTML += `
+    <div class="goals-panel budget-pressure-panel ${isOverBudget ? 'danger' : 'ok'}">
+      <div class="panel-header">
+        <span class="panel-icon">▤</span>
+        <h2>Budget Pressure</h2>
+        <span class="panel-hint">Current month budget impact on goals</span>
+      </div>
+      <div class="bp-grid">
+        <div class="bp-summary">
+          <span class="bp-label">Current budget balance</span>
+          <strong class="${isOverBudget ? 'red' : 'green'}">${formatCurrency(totalBalance)}</strong>
+          <span class="bp-detail">${formatCurrency(position.total.spent)} spent vs ${formatCurrency(position.total.allocated)} allocated</span>
+        </div>
+        <div class="bp-summary">
+          <span class="bp-label">Bills balance</span>
+          <strong class="${position.bills.balance < 0 ? 'red' : 'green'}">${formatCurrency(position.bills.balance)}</strong>
+          <span class="bp-detail">Fixed commitments</span>
+        </div>
+        <div class="bp-summary">
+          <span class="bp-label">Monthly expenses balance</span>
+          <strong class="${position.monthly.balance < 0 ? 'red' : 'green'}">${formatCurrency(position.monthly.balance)}</strong>
+          <span class="bp-detail">More flexible categories</span>
+        </div>
+      </div>
+      <div class="bp-content">
+        <div class="bp-over-list">
+          <div class="bp-section-title">Over-budget categories</div>
+          ${overRowsHtml}
+        </div>
+        <div class="bp-actions">
+          <div class="bp-section-title">What to do</div>
+          ${actions.join("")}
+        </div>
+      </div>
     </div>
   `;
 }

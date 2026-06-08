@@ -91,6 +91,7 @@ function renderBudget() {
   renderBudgetTable("billsTable",   "Bills",            computedBills);
   renderBudgetTable("monthlyTable", "Monthly Expenses", computedMonthly);
   updateBudgetCards([...computedBills, ...computedMonthly]);
+  renderBudgetPressurePanel(computedBills, computedMonthly);
 }
 
 function computeBudgetRow(item) {
@@ -161,7 +162,7 @@ function renderBudgetTable(tableId, type, rows) {
     <td><strong>Total</strong></td>
     <td><strong>${formatCurrency(totalAllocated)}</strong></td>
     <td><strong>${formatCurrency(totalSpent)}</strong></td>
-    <td><strong>${formatCurrency(totalBalance)}</strong></td>
+    <td style="color:${totalBalance < 0 ? '#c0392b' : 'inherit'}"><strong>${formatCurrency(totalBalance)}</strong></td>
     <td></td>`;
   table.appendChild(totalRow);
 }
@@ -195,11 +196,143 @@ function updateBudgetCards(rows) {
   const foodBalance = foodRow ? foodRow.balance : 0;
   const daysLeft    = getDaysRemainingInMonth();
 
-  document.getElementById("totalAllocated").innerText = formatCurrency(totalAllocated);
-  document.getElementById("totalSpent").innerText     = formatCurrency(totalSpent);
-  document.getElementById("totalBalance").innerText   = formatCurrency(totalBalance);
-  document.getElementById("foodPerDay").innerText     = formatCurrency(foodBalance / daysLeft);
-  document.getElementById("monthlyPerDay").innerText  = formatCurrency(totalBalance / daysLeft);
+  setCurrencyValue("totalAllocated", totalAllocated);
+  setCurrencyValue("totalSpent", totalSpent, "red");
+  setCurrencyValue("totalBalance", totalBalance, totalBalance < 0 ? "red" : "green");
+  setCurrencyValue("foodPerDay", foodBalance / daysLeft, foodBalance < 0 ? "red" : "green");
+  setCurrencyValue("monthlyPerDay", totalBalance / daysLeft, totalBalance < 0 ? "red" : "green");
+}
+
+function setCurrencyValue(id, value, tone = "") {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerText = formatCurrency(value);
+  el.style.color = tone === "red" ? "var(--red)" : tone === "green" ? "var(--green)" : "";
+}
+
+function renderBudgetPressurePanel(billsRows, monthlyRows) {
+  const container = document.getElementById("budgetPressurePanel");
+  if (!container) return;
+
+  const bills = summariseBudgetRows(billsRows);
+  const monthly = summariseBudgetRows(monthlyRows);
+  const total = {
+    allocated: bills.allocated + monthly.allocated,
+    spent: bills.spent + monthly.spent,
+    balance: bills.balance + monthly.balance
+  };
+  total.over = Math.max(0, total.spent - total.allocated);
+
+  const isOverBudget = total.balance < 0;
+  const overBills = bills.rows.filter(row => row.over > 0).slice(0, 3);
+  const overMonthly = monthly.rows.filter(row => row.over > 0).slice(0, 4);
+  const billsCategoryOver = bills.rows.reduce((sum, row) => sum + row.over, 0);
+  const monthlyCategoryOver = monthly.rows.reduce((sum, row) => sum + row.over, 0);
+  const topOver = [
+    ...overBills.map(row => ({ ...row, group: "Bills" })),
+    ...overMonthly.map(row => ({ ...row, group: "Monthly" }))
+  ].sort((a, b) => b.over - a.over || b.spent - a.spent).slice(0, 5);
+
+  const overRowsHtml = topOver.length
+    ? topOver.map(row => `
+        <div class="bp-over-row">
+          <span>${escapeHtml(row.category)} <small>${row.group}</small></span>
+          <strong>${formatCurrency(row.over)} over</strong>
+        </div>`).join("")
+    : `<div class="bp-muted">No categories are currently over budget.</div>`;
+
+  const monthlyNames = overMonthly.map(row => row.category).slice(0, 3).join(", ");
+  const actions = [];
+
+  if (billsCategoryOver > 0) {
+    const billAction = bills.balance < 0
+      ? "Top up the bill budget or reduce goal allocations before cutting required payments."
+      : "Move allocation from under-used bill lines, or top up the bill budget if this is a permanent increase.";
+    actions.push(`
+      <div class="bp-action danger">
+        <strong>Protect bills first.</strong>
+        Bill categories are ${formatCurrency(billsCategoryOver)} over. These are fixed commitments. ${billAction}
+      </div>`);
+  } else {
+    actions.push(`
+      <div class="bp-action ok">
+        <strong>Bills are covered.</strong>
+        Bills still have ${formatCurrency(Math.max(0, bills.balance))} left. Keep that reserved before sending extra money to goals.
+      </div>`);
+  }
+
+  if (monthlyCategoryOver > 0) {
+    actions.push(`
+      <div class="bp-action warn">
+        <strong>Trim flexible spend next.</strong>
+        Monthly expense categories are ${formatCurrency(monthlyCategoryOver)} over${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}. Put a short cap on those categories for the rest of the month.
+      </div>`);
+  } else {
+    actions.push(`
+      <div class="bp-action ok">
+        <strong>Monthly expenses are within plan.</strong>
+        Flexible spending still has ${formatCurrency(Math.max(0, monthly.balance))} left.
+      </div>`);
+  }
+
+  if (isOverBudget) {
+    actions.push(`
+      <div class="bp-action danger">
+        <strong>You are drawing from savings or future card payment capacity.</strong>
+        The month is ${formatCurrency(total.over)} over budget. Pause non-urgent goal top-ups until this is absorbed.
+      </div>`);
+  }
+
+  container.innerHTML = `
+    <div class="budget-pressure-panel ${isOverBudget ? "danger" : "ok"}">
+      <div class="budget-pressure-header">
+        <h2>Budget Pressure</h2>
+        <span>Current month risk and next actions</span>
+      </div>
+      <div class="bp-grid">
+        <div class="bp-summary">
+          <span class="bp-label">Budget Balance</span>
+          <strong class="${isOverBudget ? "red" : "green"}">${formatCurrency(total.balance)}</strong>
+          <span class="bp-detail">${formatCurrency(total.spent)} spent vs ${formatCurrency(total.allocated)} allocated</span>
+        </div>
+        <div class="bp-summary">
+          <span class="bp-label">Bills Balance</span>
+          <strong class="${bills.balance < 0 ? "red" : "green"}">${formatCurrency(bills.balance)}</strong>
+          <span class="bp-detail">Fixed commitments</span>
+        </div>
+        <div class="bp-summary">
+          <span class="bp-label">Monthly Expenses Balance</span>
+          <strong class="${monthly.balance < 0 ? "red" : "green"}">${formatCurrency(monthly.balance)}</strong>
+          <span class="bp-detail">More flexible categories</span>
+        </div>
+      </div>
+      <div class="bp-content">
+        <div>
+          <div class="bp-section-title">Over-budget categories</div>
+          ${overRowsHtml}
+        </div>
+        <div class="bp-actions">
+          <div class="bp-section-title">What to do</div>
+          ${actions.join("")}
+        </div>
+      </div>
+    </div>`;
+}
+
+function summariseBudgetRows(rows) {
+  const sortedRows = [...rows]
+    .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
+    .sort((a, b) => b.over - a.over || b.spent - a.spent);
+  const allocated = sortedRows.reduce((sum, row) => sum + row.allocated, 0);
+  const spent = sortedRows.reduce((sum, row) => sum + row.spent, 0);
+  const balance = allocated - spent;
+  return {
+    rows: sortedRows,
+    allocated,
+    spent,
+    balance,
+    over: Math.max(0, spent - allocated)
+  };
 }
 
 function getDaysRemainingInMonth() {

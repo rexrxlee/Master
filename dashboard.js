@@ -1,6 +1,7 @@
 let allTransactions = [];
 let isUpdatingFilters = false;
 let savingsAccountNames = [];
+let creditCardAccountNames = [];
 
 async function loadDashboard() {
   try {
@@ -16,10 +17,20 @@ async function loadDashboard() {
     const budgetSheet = workbook.Sheets["Budget Setup"];
     if (budgetSheet) {
       const allRows = XLSX.utils.sheet_to_json(budgetSheet, { header: 1, blankrows: false });
-      savingsAccountNames = allRows.slice(1)
-        .filter(row => String(row[10] ?? "").trim() === "Savings")
-        .map(row => String(row[9] ?? "").trim())
-        .filter(Boolean);
+      const configuredAccounts = allRows.slice(1)
+        .map(row => ({
+          name: clean(row[9]),
+          type: clean(row[10] || "Savings")
+        }))
+        .filter(account => account.name !== "");
+
+      savingsAccountNames = configuredAccounts
+        .filter(account => account.type.toLowerCase() === "savings")
+        .map(account => account.name);
+
+      creditCardAccountNames = configuredAccounts
+        .filter(account => account.type.toLowerCase() === "credit card")
+        .map(account => account.name);
     }
     setupFilters();
     const filters = getCurrentFilters();
@@ -289,23 +300,12 @@ function updateFinanceCards(data) {
   // Opening balance row is stored as Income/Opening Balance with a positive amount (what you owe).
   // Expense rows on the CC account add to what you owe.
   // CC-pay rows (Main Category = "Transfer", Account = CC) reduce what you owe.
-  const ccAccountNames = (() => {
-    try {
-      const allRows = XLSX.utils.sheet_to_json(
-        null, { header: 1, blankrows: false }
-      );
-      return [];
-    } catch { return []; }
-  })();
-
   // We know the CC accounts from Budget Setup (type = "Credit Card").
-  // savingsAccountNames only holds Savings accounts; we need to derive CC names separately.
-  // They are already available via the workbook loaded at page start — re-derive from allTransactions
-  // by looking at accounts NOT in savingsAccountNames that appear in the data.
-  // Simpler: replicate the same opening-balance logic used for savings, but for CC accounts the
-  // balance is: opening + expenses charged to it - payments made to it (transfers in).
+  // Fall back to the old "not savings" inference only if no credit-card accounts are configured.
   const allAccountsInData = [...new Set(data.map(row => clean(row["Account"])).filter(Boolean))];
-  const ccAccounts = allAccountsInData.filter(a => !savingsAccounts.includes(a));
+  const ccAccounts = creditCardAccountNames.length > 0
+    ? creditCardAccountNames.filter(a => allAccountsInData.includes(a))
+    : allAccountsInData.filter(a => !savingsAccounts.includes(a));
 
   const ccBalances = {};
   ccAccounts.forEach(account => {
@@ -324,24 +324,14 @@ function updateFinanceCards(data) {
     });
 
     // Charges: expense rows billed to this CC (add to balance owed).
-    // If a row has been fully claimed (Claim Status = "Claimed"), the reimbursed
-    // portion is subtracted — it never truly cost you that amount on the CC.
+    // Claimable/claimed rows still hit the credit-card bill; the claim fields only
+    // adjust budget impact, not what is owed to the card issuer.
     const charges = subsequent
       .filter(row => {
         const cat = clean(row["Main Category"]).toLowerCase();
         return cat !== "income" && cat !== "transfer";
       })
-      .reduce((sum, row) => {
-        const amount = Math.abs(getSignedAmount(row["Amount"]));
-        const claimStatusKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim status") || "Claim Status";
-        const claimStatus = clean(row[claimStatusKey]).toLowerCase();
-        if (claimStatus !== "claimed") return sum + amount;
-        // Only subtract the actual claim amount that was reimbursed
-        const claimAmountKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim amount") || "Claim Amount";
-        const claimAmount = Math.abs(getSignedAmount(row[claimAmountKey]));
-        const reimbursed = claimAmount > 0 ? Math.min(claimAmount, amount) : amount;
-        return sum + Math.max(0, amount - reimbursed);
-      }, 0);
+      .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
 
     // Payments: transfer rows where this CC is the destination (reduce balance owed)
     // These show up as Main Category = Transfer with Account = CC name

@@ -48,9 +48,9 @@
       flex: 1;
       min-width: 100px;
     }
-    .add-item-row button {
-      padding: 7px 14px;
-      background: var(--text);
+        .add-item-row button {
+          padding: 7px 14px;
+          background: var(--text);
       color: #fff;
       border: none;
       border-radius: 6px;
@@ -58,12 +58,143 @@
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
-    }
-    .add-item-row button:hover { opacity: 0.85; }
-    @media (max-width: 900px) {
-      .budget-page-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+        }
+        .add-item-row button:hover { opacity: 0.85; }
+        .budget-pressure-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-left: 4px solid var(--green);
+          border-radius: var(--radius);
+          box-shadow: var(--shadow);
+          padding: 18px 20px;
+          margin-bottom: 24px;
+        }
+        .budget-pressure-panel.danger { border-left-color: var(--red); }
+        .budget-pressure-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+        .budget-pressure-header h2 {
+          font-size: 15px;
+          font-weight: 600;
+          margin: 0;
+        }
+        .budget-pressure-header span {
+          font-size: 12.5px;
+          color: var(--muted);
+        }
+        .bp-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+        .bp-summary {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          padding: 10px 0;
+          border-top: 1px solid var(--border);
+          border-bottom: 1px solid var(--border);
+          min-width: 0;
+        }
+        .bp-label {
+          font-size: 11px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          font-weight: 600;
+        }
+        .bp-summary strong {
+          font-family: 'DM Mono', monospace;
+          font-size: 18px;
+          line-height: 1.2;
+        }
+        .bp-summary strong.green { color: var(--green); }
+        .bp-summary strong.red { color: var(--red); }
+        .bp-detail { font-size: 12px; color: var(--muted); }
+        .bp-content {
+          display: grid;
+          grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+          gap: 16px;
+          align-items: start;
+        }
+        .bp-section-title {
+          font-size: 11px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          font-weight: 600;
+          margin-bottom: 8px;
+        }
+        .bp-over-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 0;
+          border-bottom: 1px solid var(--border);
+          font-size: 13px;
+        }
+        .bp-over-row span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bp-over-row small {
+          color: var(--muted);
+          margin-left: 4px;
+        }
+        .bp-over-row strong {
+          color: var(--red);
+          font-family: 'DM Mono', monospace;
+          font-size: 12.5px;
+          white-space: nowrap;
+        }
+        .bp-muted {
+          color: var(--muted);
+          font-size: 13px;
+          padding: 8px 0;
+        }
+        .bp-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .bp-action {
+          border-radius: 7px;
+          padding: 10px 12px;
+          font-size: 13px;
+          line-height: 1.45;
+          border: 1px solid var(--border);
+          background: var(--bg);
+        }
+        .bp-action strong { display: block; margin-bottom: 2px; }
+        .bp-action.ok {
+          background: #f0fdf4;
+          border-color: #86efac;
+          color: #14532d;
+        }
+        .bp-action.warn {
+          background: #fff7ed;
+          border-color: #fed7aa;
+          color: #7c2d12;
+        }
+        .bp-action.danger {
+          background: #fef2f2;
+          border-color: #fca5a5;
+          color: #7f1d1d;
+        }
+        @media (max-width: 900px) {
+          .budget-page-grid { grid-template-columns: 1fr; }
+          .bp-grid,
+          .bp-content { grid-template-columns: 1fr; }
+        }
+      </style>
 </head>
 <body onload="loadBudgetPage()">
 
@@ -125,6 +256,8 @@
         <div class="kpi-value" id="monthlyPerDay">$0</div>
       </div>
     </div>
+
+    <section id="budgetPressurePanel"></section>
 
     <!-- Budget tables side by side -->
     <div class="budget-page-grid">
