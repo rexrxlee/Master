@@ -511,8 +511,6 @@ function renderGoalsPage() {
     </div>
   `;
 
-  renderBudgetPressureCheck(container, dep);
-
   // ── 3. Historical snapshot ──
   container.innerHTML += `
     <div class="goals-panel stats-panel">
@@ -529,17 +527,22 @@ function renderGoalsPage() {
     </div>
   `;
 
-  // ── 4. Budget-to-goal motivation ──
+  // ── 4. Multi-goal realism check ──
+  if (goalsData.length > 0) {
+    container.innerHTML += `<div id="goalRealismRegion"></div>`;
+  }
+
+  // ── 4.5 Budget-to-goal motivation ──
   if (goalsData.length > 0) {
     container.innerHTML += `<div id="goalMotivationRegion"></div>`;
   }
 
-  // ── 4.5 Income Boosts ──
+  // ── 4.6 Income Boosts ──
   if (goalsData.length > 0) {
     renderIncomeBoostsPanel(container);
   }
 
-  // ── 4.6 Forecast visual placeholders ──
+  // ── 4.7 Forecast visual placeholders ──
   if (goalsData.length > 0) {
     container.innerHTML += `<div id="goalForecastRegion"></div>`;
   }
@@ -629,105 +632,6 @@ function renderGoalsPage() {
   `;
 
   refreshGoalInsightPanels();
-}
-
-function renderBudgetPressureCheck(container, dep) {
-  const position = dep.budgetPosition || computeCurrentMonthBudgetPosition();
-  const totalBalance = position.total.balance;
-  const totalOver = position.total.over;
-  const billsOver = position.bills.over;
-  const monthlyOver = position.monthly.over;
-  const isOverBudget = totalBalance < 0;
-
-  const overBills = position.bills.rows.filter(row => row.over > 0).slice(0, 3);
-  const overMonthly = position.monthly.rows.filter(row => row.over > 0).slice(0, 4);
-  const topOver = [...overBills, ...overMonthly]
-    .sort((a, b) => b.over - a.over)
-    .slice(0, 5);
-
-  const overRowsHtml = topOver.length
-    ? topOver.map(row => `
-        <div class="bp-over-row">
-          <span>${escapeHtml(row.category)}${row.isUnbudgeted ? ' <em>unbudgeted</em>' : ''}</span>
-          <strong>${formatCurrency(row.over)} over</strong>
-        </div>`).join("")
-    : `<div class="bp-muted">No categories are currently over budget.</div>`;
-
-  const monthlyNames = overMonthly.map(row => row.category).slice(0, 3).join(", ");
-  const actions = [];
-
-  if (billsOver > 0) {
-    actions.push(`
-      <div class="bp-action danger">
-        <strong>Protect bills first.</strong>
-        Bills are ${formatCurrency(billsOver)} over. Treat this as a committed cash need: top up the bills allocation or reduce goal allocations before touching required payments.
-      </div>`);
-  } else {
-    actions.push(`
-      <div class="bp-action ok">
-        <strong>Bills are covered.</strong>
-        Current bills still have ${formatCurrency(Math.max(0, position.bills.balance))} left, so keep that amount reserved before adding more to goals.
-      </div>`);
-  }
-
-  if (monthlyOver > 0) {
-    actions.push(`
-      <div class="bp-action warn">
-        <strong>Trim flexible spend next.</strong>
-        Monthly expenses are ${formatCurrency(monthlyOver)} over${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}. Pause new goal top-ups and set a short-term cap for those categories until the balance returns to zero.
-      </div>`);
-  } else {
-    actions.push(`
-      <div class="bp-action ok">
-        <strong>Monthly expenses are within plan.</strong>
-        You still have ${formatCurrency(Math.max(0, position.monthly.balance))} left for flexible monthly spending.
-      </div>`);
-  }
-
-  if (isOverBudget) {
-    actions.push(`
-      <div class="bp-action danger">
-        <strong>Absorb the shortfall before assigning more.</strong>
-        The month is ${formatCurrency(totalOver)} over budget. The spend already flows through savings balances or credit-card owed, so Goals reserves $0 extra but flags the shortfall in red.
-      </div>`);
-  }
-
-  container.innerHTML += `
-    <div class="goals-panel budget-pressure-panel ${isOverBudget ? 'danger' : 'ok'}">
-      <div class="panel-header">
-        <span class="panel-icon">▤</span>
-        <h2>Budget Pressure</h2>
-        <span class="panel-hint">Current month budget impact on goals</span>
-      </div>
-      <div class="bp-grid">
-        <div class="bp-summary">
-          <span class="bp-label">Current budget balance</span>
-          <strong class="${isOverBudget ? 'red' : 'green'}">${formatCurrency(totalBalance)}</strong>
-          <span class="bp-detail">${formatCurrency(position.total.spent)} spent vs ${formatCurrency(position.total.allocated)} allocated</span>
-        </div>
-        <div class="bp-summary">
-          <span class="bp-label">Bills balance</span>
-          <strong class="${position.bills.balance < 0 ? 'red' : 'green'}">${formatCurrency(position.bills.balance)}</strong>
-          <span class="bp-detail">Fixed commitments</span>
-        </div>
-        <div class="bp-summary">
-          <span class="bp-label">Monthly expenses balance</span>
-          <strong class="${position.monthly.balance < 0 ? 'red' : 'green'}">${formatCurrency(position.monthly.balance)}</strong>
-          <span class="bp-detail">More flexible categories</span>
-        </div>
-      </div>
-      <div class="bp-content">
-        <div class="bp-over-list">
-          <div class="bp-section-title">Over-budget categories</div>
-          ${overRowsHtml}
-        </div>
-        <div class="bp-actions">
-          <div class="bp-section-title">What to do</div>
-          ${actions.join("")}
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 const GOAL_COLORS = [
@@ -934,11 +838,17 @@ let timelineChart = null;
 let goalInsightsRefreshTimer = null;
 
 function refreshGoalInsightPanels() {
+  const realismRegion = document.getElementById("goalRealismRegion");
   const motivationRegion = document.getElementById("goalMotivationRegion");
   const forecastRegion = document.getElementById("goalForecastRegion");
-  if (!motivationRegion && !forecastRegion) return;
+  if (!realismRegion && !motivationRegion && !forecastRegion) return;
 
   const dep = computeDeployableBalance();
+
+  if (realismRegion) {
+    realismRegion.innerHTML = "";
+    if (goalsData.length > 0) renderRealismCheck(realismRegion, dep);
+  }
 
   if (motivationRegion) {
     motivationRegion.innerHTML = "";
@@ -2402,27 +2312,97 @@ return `  ${item.dataset.label}: ${v.toFixed(0)}% · ${formatCurrency(savedAmt)}
   });
 }
 
+function renderRealismCheck(container, dep) {
+  const today   = new Date();
+  const avgSave = Math.max(0, historicalStats.avgMonthlySavings);
+  let issues    = [];
+  let tips      = [];
+  let totalMonthlyNeeded = 0;
+
+  goalsData.forEach(goal => {
+    const savedViaGoalTx = getSavedViaTransactions(goal.name);
+    const totalSaved     = goal.manualSaved + savedViaGoalTx;
+    const effectiveTarget = goal.target * (1 + (goal.goalBuffer || 0) / 100);
+    const remaining      = Math.max(0, effectiveTarget - totalSaved);
+    let monthsLeft       = null;
+
+    if (goal.endDate) {
+      const endParts = goal.endDate.split("-");
+      if (endParts.length === 3) {
+        const endObj = new Date(+endParts[0], +endParts[1]-1, +endParts[2]);
+        if (endObj > today) {
+          monthsLeft = (endObj.getFullYear() - today.getFullYear())*12 + (endObj.getMonth()-today.getMonth());
+        }
+      }
+    }
+
+    const reqMonthly = monthsLeft && monthsLeft > 0 ? remaining / monthsLeft : (goal.monthlyAlloc || 0);
+    totalMonthlyNeeded += reqMonthly;
+
+    if (goal.urgency === "Critical" && monthsLeft !== null && reqMonthly > avgSave * 0.6) {
+      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: needs ${formatCurrency(reqMonthly)}/mo — that's ${Math.round(reqMonthly/avgSave*100)}% of your avg savings alone.`);
+    }
+    if (goal.endDate && monthsLeft !== null && monthsLeft <= 0) {
+      issues.push(`⏰ <strong>${escapeHtml(goal.name)}</strong>: deadline has passed. Update or archive this goal.`);
+    }
+  });
+
+  if (totalMonthlyNeeded > avgSave) {
+    const gap = totalMonthlyNeeded - avgSave;
+    issues.push(`⚡ Goals plus buffers need ${formatCurrency(totalMonthlyNeeded)}/mo but your avg savings is ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
+    tips.push(`💡 Reduce your monthly expenses budget by ${formatCurrency(gap)} or increase income to close the gap.`);
+    tips.push(`💡 Lower the allocation on Low/Medium priority goals to free up ${formatCurrency(gap)}/mo for Critical ones.`);
+  } else if (totalMonthlyNeeded > 0) {
+    tips.push(`✅ Your goals are <strong>collectively achievable</strong> based on your avg savings of ${formatCurrency(avgSave)}/mo.`);
+  }
+
+  if (dep.deployable < 0) {
+    issues.push(`🚨 Deployable balance is negative (${formatCurrency(dep.deployable)}). You may be over-extended — check your CC bill and budget.`);
+  }
+
+  if (issues.length === 0 && tips.length === 0) return;
+
+  const issueHtml = issues.map(i => `<div class="rc-issue">${i}</div>`).join("");
+  const tipHtml   = tips.map(t => `<div class="rc-tip">${t}</div>`).join("");
+
+  container.innerHTML += `
+    <div class="goals-panel realism-panel">
+      <div class="panel-header">
+        <span class="panel-icon">🧠</span>
+        <h2>Realism Check</h2>
+        <span class="panel-hint">AI analysis of your goals vs your actual finances</span>
+      </div>
+      <div class="rc-body">
+        ${issueHtml}
+        ${tipHtml}
+        <div class="rc-summary">
+          <span>Total monthly needed for goals + buffers:</span>
+          <strong class="${totalMonthlyNeeded <= avgSave ? 'green':'red'}">${formatCurrency(totalMonthlyNeeded)}/mo</strong>
+          <span>vs your avg savings</span>
+          <strong>${formatCurrency(avgSave)}/mo</strong>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderBudgetGoalMotivation(container, dep) {
   if (!container) return;
 
   const position = dep.budgetPosition || computeCurrentMonthBudgetPosition();
-  const focusRow = selectBudgetMotivationRow(position);
+  const trend = computeFlexibleDailyTrend(position);
   const focusGoal = selectGoalForMotivation();
-  const flexibleLeft = Math.max(0, position.monthly.balance);
-  const daysLeft = getGoalDaysRemainingInMonth();
-  const totalOver = Math.max(0, position.total.over);
-  const monthlyOver = Math.max(0, position.monthly.over);
-  const opportunity = buildBudgetOpportunity(focusRow, flexibleLeft);
   const goalLabel = focusGoal ? escapeHtml(focusGoal.name) : "your next goal";
-  const impactText = buildGoalMomentumImpact(focusGoal, opportunity.amount, opportunity.recurring);
-  const chips = buildGoalMomentumChips(position, focusGoal, daysLeft);
+  const opportunity = buildDailyTrendOpportunity(trend);
+  const impactText = buildGoalMomentumImpact(focusGoal, opportunity.amount, false);
+  const chips = buildGoalMomentumChips(position, trend, focusGoal);
 
   container.innerHTML = `
     <div class="goals-panel motivation-panel">
       <div class="panel-header">
         <span class="panel-icon">↗</span>
         <h2>Goal Momentum</h2>
-        <span class="panel-hint">Small budget wins that speed up your goals</span>
+        <span class="panel-hint">Daily flexible expense pace and possible goal boost</span>
       </div>
       <div class="gm-grid">
         <div class="gm-hero">
@@ -2433,20 +2413,20 @@ function renderBudgetGoalMotivation(container, dep) {
         </div>
         <div class="gm-side">
           <div class="gm-stat">
-            <span>Flexible spend left</span>
-            <strong class="${flexibleLeft > 0 ? "green" : ""}">${formatCurrency(flexibleLeft)}</strong>
+            <span>Actual flexible pace</span>
+            <strong class="${trend.actualDaily <= trend.plannedDaily ? "green" : "red"}">${formatCurrency(trend.actualDaily)}/day</strong>
           </div>
           <div class="gm-stat">
-            <span>Left per day this month</span>
-            <strong>${formatCurrency(flexibleLeft / daysLeft)}</strong>
+            <span>Planned flexible pace</span>
+            <strong>${formatCurrency(trend.plannedDaily)}/day</strong>
           </div>
           <div class="gm-stat">
-            <span>Current overspend drag</span>
-            <strong class="${totalOver > 0 ? "red" : "green"}">${formatCurrency(totalOver)}</strong>
+            <span>Rest-of-month budget pace</span>
+            <strong>${formatCurrency(trend.remainingDailyBudget)}/day</strong>
           </div>
           <div class="gm-stat">
-            <span>Flexible-category overspend</span>
-            <strong class="${monthlyOver > 0 ? "red" : "green"}">${formatCurrency(monthlyOver)}</strong>
+            <span>Projected month-end balance</span>
+            <strong class="${trend.projectedBalance >= 0 ? "green" : "red"}">${formatCurrency(trend.projectedBalance)}</strong>
           </div>
         </div>
       </div>
@@ -2454,72 +2434,80 @@ function renderBudgetGoalMotivation(container, dep) {
     </div>`;
 }
 
-function selectBudgetMotivationRow(position) {
-  const monthlyRows = (position.monthly.rows || [])
-    .filter(row => row.allocated > 0 || row.spent > 0);
-  if (!monthlyRows.length) return null;
+function computeFlexibleDailyTrend(position) {
+  const today = new Date();
+  const daysElapsed = Math.max(1, today.getDate());
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysLeft = Math.max(daysInMonth - today.getDate() + 1, 1);
+  const allocated = Math.max(0, position.monthly.allocated || 0);
+  const spent = Math.max(0, position.monthly.spent || 0);
+  const balance = allocated - spent;
+  const plannedDaily = allocated > 0 ? allocated / daysInMonth : 0;
+  const actualDaily = spent / daysElapsed;
+  const projectedSpent = actualDaily * daysInMonth;
+  const projectedBalance = allocated - projectedSpent;
+  const remainingDailyBudget = Math.max(0, balance / daysLeft);
+  const dailyDelta = actualDaily - plannedDaily;
+  const nudgeDaily = actualDaily > 0
+    ? Math.min(actualDaily, Math.max(5, Math.min(25, actualDaily * 0.12)))
+    : 0;
 
-  const foodLike = monthlyRows.find(row =>
-    /food|meal|dining|coffee|grocery|groceries|lunch|dinner/i.test(row.category)
-  );
-  if (foodLike) return foodLike;
-
-  const over = monthlyRows
-    .filter(row => row.over > 0)
-    .sort((a, b) => b.over - a.over || b.spent - a.spent)[0];
-  if (over) return over;
-
-  return monthlyRows
-    .filter(row => row.balance > 0)
-    .sort((a, b) => b.balance - a.balance || b.spent - a.spent)[0] || monthlyRows[0];
+  return {
+    allocated,
+    spent,
+    balance,
+    daysElapsed,
+    daysLeft,
+    daysInMonth,
+    plannedDaily,
+    actualDaily,
+    projectedSpent,
+    projectedBalance,
+    remainingDailyBudget,
+    dailyDelta,
+    nudgeDaily,
+    nudgeByMonthEnd: nudgeDaily * daysLeft,
+    topDailyRows: (position.monthly.rows || [])
+      .filter(row => row.spent > 0)
+      .sort((a, b) => b.spent - a.spent)
+      .slice(0, 3)
+      .map(row => ({ ...row, daily: row.spent / daysElapsed }))
+  };
 }
 
-function buildBudgetOpportunity(row, flexibleLeft) {
-  if (!row) {
-    const amount = Math.max(0, flexibleLeft);
+function buildDailyTrendOpportunity(trend) {
+  if (trend.allocated <= 0) {
     return {
-      amount,
-      recurring: false,
-      kicker: "Budget win",
-      title: amount > 0
-        ? `${formatCurrency(amount)} of flexible budget is still unspent`
-        : "Every unspent dollar can become goal progress",
-      body: amount > 0
-        ? `If you leave that buffer untouched, it can go straight into {goal} this month.`
-        : `Keep the next flexible category under plan and move the difference into {goal}.`
+      amount: Math.max(0, trend.nudgeByMonthEnd),
+      kicker: "Daily expense trend",
+      title: "Add a monthly expenses budget to turn daily spending into goal signals",
+      body: `Once flexible expenses have an allocation, this panel can compare actual daily spend with planned daily pace and estimate what can move into {goal}.`
     };
   }
 
-  const category = row.category || "Flexible spending";
-  if (row.balance > 0) {
+  if (trend.spent <= 0) {
     return {
-      amount: row.balance,
-      recurring: false,
-      kicker: `${category} is under plan`,
-      title: `${formatCurrency(row.balance)} can stay available`,
-      body: `If you finish the month without using the remaining ${formatCurrency(row.balance)} in ${escapeHtml(category)}, that money can move into {goal}.`
+      amount: 0,
+      kicker: "Daily expense trend",
+      title: "No flexible expenses recorded yet this month",
+      body: `As transactions come in, this will show whether your daily expense pace is creating extra room for {goal}.`
     };
   }
 
-  if (row.over > 0) {
+  if (trend.projectedBalance >= 0) {
     return {
-      amount: row.over,
-      recurring: true,
-      kicker: `${category} can recover`,
-      title: `Pull back ${formatCurrency(row.over)} next month`,
-      body: `${escapeHtml(category)} is ${formatCurrency(row.over)} over right now. Getting it back inside budget next month frees that much monthly momentum for {goal}.`
+      amount: trend.projectedBalance,
+      kicker: "Under daily pace",
+      title: `Flexible expenses are trending ${formatCurrency(trend.projectedBalance)} under budget`,
+      body: `You are averaging ${formatCurrency(trend.actualDaily)}/day against a planned ${formatCurrency(trend.plannedDaily)}/day. If that pace holds, the projected leftover can move into {goal} at month end.`
     };
   }
 
-  const amount = Math.max(0, Math.round((row.allocated || row.spent || 0) * 0.1));
   return {
-    amount,
-    recurring: true,
-    kicker: `${category} is on track`,
-    title: amount > 0 ? `A 10% trim frees ${formatCurrency(amount)}/mo` : "A tiny trim still counts",
-    body: amount > 0
-      ? `Keeping ${escapeHtml(category)} just 10% lighter next month can add ${formatCurrency(amount)}/mo to {goal}.`
-      : `Pick one flexible spend to trim and send the saved amount to {goal}.`
+    amount: trend.nudgeByMonthEnd,
+    kicker: "Above daily pace",
+    title: `Flexible expenses are running ${formatCurrency(Math.abs(trend.dailyDelta))}/day above plan`,
+    body: `No zero-spend challenge needed. A practical ${formatCurrency(trend.nudgeDaily)}/day trim across flexible expenses for the remaining ${trend.daysLeft} day${trend.daysLeft === 1 ? "" : "s"} saves about ${formatCurrency(trend.nudgeByMonthEnd)} while you steer back toward budget.`
   };
 }
 
@@ -2583,28 +2571,19 @@ function buildGoalMomentumImpact(goal, amount, recurring) {
   return `That covers <strong>${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%</strong> of <strong>${safeName}</strong>'s remaining gap.`;
 }
 
-function buildGoalMomentumChips(position, focusGoal, daysLeft) {
-  const underRows = (position.monthly.rows || [])
-    .filter(row => row.balance > 0)
-    .sort((a, b) => b.balance - a.balance)
-    .slice(0, 3);
+function buildGoalMomentumChips(position, trend, focusGoal) {
   const focusRemaining = getGoalRemainingAmount(focusGoal);
-  const chips = underRows.map(row => `
-    <span class="gm-chip">${escapeHtml(row.category)} buffer <strong>${formatCurrency(row.balance)}</strong></span>
+  const chips = trend.topDailyRows.map(row => `
+    <span class="gm-chip">${escapeHtml(row.category)} avg <strong>${formatCurrency(row.daily)}/day</strong></span>
   `);
 
   if (focusGoal) {
     chips.push(`<span class="gm-chip">${escapeHtml(focusGoal.name)} left <strong>${formatCurrency(focusRemaining)}</strong></span>`);
   }
-  chips.push(`<span class="gm-chip">Days left <strong>${daysLeft}</strong></span>`);
+  chips.push(`<span class="gm-chip">Days left <strong>${trend.daysLeft}</strong></span>`);
+  chips.push(`<span class="gm-chip">Flexible spent <strong>${formatCurrency(position.monthly.spent)}</strong></span>`);
 
   return `<div class="gm-list">${chips.join("")}</div>`;
-}
-
-function getGoalDaysRemainingInMonth() {
-  const today = new Date();
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  return Math.max(lastDay.getDate() - today.getDate() + 1, 1);
 }
 
 // ─── Individual Goal Card ──────────────────────────────────────────
