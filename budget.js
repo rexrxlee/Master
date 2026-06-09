@@ -78,10 +78,12 @@ function deleteBudgetItem(type, index) {
 
 function updateBudgetCategory(type, index, value) {
   (type === "Bills" ? billsBudget : monthlyBudget)[index].category = clean(value);
+  renderBudget();
 }
 
 function updateBudgetAllocated(type, index, value) {
   (type === "Bills" ? billsBudget : monthlyBudget)[index].allocated = Number(value) || 0;
+  renderBudget();
 }
 
 function renderBudget() {
@@ -91,6 +93,7 @@ function renderBudget() {
   renderBudgetTable("billsTable",   "Bills",            computedBills);
   renderBudgetTable("monthlyTable", "Monthly Expenses", computedMonthly);
   updateBudgetCards([...computedBills, ...computedMonthly]);
+  renderBudgetVisualPanel(computedBills, computedMonthly);
   renderBudgetPressurePanel(computedBills, computedMonthly);
 }
 
@@ -165,6 +168,113 @@ function renderBudgetTable(tableId, type, rows) {
     <td style="color:${totalBalance < 0 ? '#c0392b' : 'inherit'}"><strong>${formatCurrency(totalBalance)}</strong></td>
     <td></td>`;
   table.appendChild(totalRow);
+}
+
+function renderBudgetVisualPanel(billsRows, monthlyRows) {
+  const container = document.getElementById("budgetVisualPanel");
+  if (!container) return;
+
+  const allRows = [...billsRows, ...monthlyRows];
+  const bills = summariseBudgetRows(billsRows);
+  const monthly = summariseBudgetRows(monthlyRows);
+  const total = summariseBudgetRows(allRows);
+  const topOver = allRows
+    .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
+    .filter(row => row.over > 0)
+    .sort((a, b) => b.over - a.over || b.spent - a.spent);
+
+  const alertHtml = topOver.length
+    ? `<span class="bv-alert">${escapeHtml(topOver[0].category)} is ${formatCurrency(topOver[0].over)} over</span>`
+    : `<span class="bv-alert ok">No overspent categories</span>`;
+
+  container.innerHTML = `
+    <div class="budget-visual-panel">
+      <div class="bv-header">
+        <div>
+          <h2>Budget Visuals</h2>
+          <p>Allocated, spent, and balance by category. Red means the category has gone past its allocation.</p>
+        </div>
+        ${alertHtml}
+      </div>
+      <div class="bv-summary-grid">
+        ${renderBudgetSummaryMeter("Total Budget", total)}
+        ${renderBudgetSummaryMeter("Bills", bills)}
+        ${renderBudgetSummaryMeter("Monthly Expenses", monthly)}
+      </div>
+      <div class="bv-legend">
+        <span><i class="spent"></i> Spent inside budget</span>
+        <span><i class="balance"></i> Balance left</span>
+        <span><i class="over"></i> Overspent</span>
+      </div>
+      <div class="bv-section-grid">
+        <div>
+          <div class="bv-section-title">Bills</div>
+          <div class="bv-rows">${renderBudgetVisualRows(billsRows)}</div>
+        </div>
+        <div>
+          <div class="bv-section-title">Monthly Expenses</div>
+          <div class="bv-rows">${renderBudgetVisualRows(monthlyRows)}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderBudgetSummaryMeter(label, summary) {
+  const balanceClass = summary.balance < 0 ? "red" : "green";
+  return `
+    <div class="bv-summary">
+      <div class="bv-summary-top">
+        <span class="bv-summary-label">${escapeHtml(label)}</span>
+        <strong class="bv-summary-value ${balanceClass}">${formatCurrency(summary.balance)}</strong>
+      </div>
+      ${renderBudgetMeter(summary)}
+      <div class="bv-summary-detail">
+        <span>${formatCurrency(summary.spent)} spent</span>
+        <span>${formatCurrency(summary.allocated)} allocated</span>
+      </div>
+    </div>`;
+}
+
+function renderBudgetVisualRows(rows) {
+  if (!rows.length) return `<div class="bp-muted">No budget rows yet.</div>`;
+
+  return [...rows]
+    .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
+    .sort((a, b) => b.over - a.over || (b.spent / Math.max(b.allocated, 1)) - (a.spent / Math.max(a.allocated, 1)))
+    .map(row => {
+      const balanceClass = row.balance < 0 ? "red" : "green";
+      const rowClass = row.balance < 0 ? "bv-row over" : "bv-row";
+      return `
+        <div class="${rowClass}">
+          <div class="bv-row-top">
+            <span class="bv-row-name">${escapeHtml(row.category)}</span>
+            <strong class="bv-row-balance ${balanceClass}">${formatCurrency(row.balance)}</strong>
+          </div>
+          ${renderBudgetMeter(row)}
+          <div class="bv-row-detail">
+            <span>${formatCurrency(row.spent)} spent</span>
+            <span>${formatCurrency(row.allocated)} allocated</span>
+          </div>
+        </div>`;
+    }).join("");
+}
+
+function renderBudgetMeter(row) {
+  const spentInside = Math.min(Math.max(0, row.spent), Math.max(0, row.allocated));
+  const balanceLeft = Math.max(0, row.allocated - row.spent);
+  const overspent = Math.max(0, row.spent - row.allocated);
+  const scale = Math.max(spentInside + balanceLeft + overspent, row.allocated, row.spent, 1);
+  const spentPct = (spentInside / scale) * 100;
+  const balancePct = (balanceLeft / scale) * 100;
+  const overPct = (overspent / scale) * 100;
+  const emptyClass = row.allocated <= 0 && row.spent <= 0 ? " empty" : "";
+
+  return `
+    <div class="bv-meter${emptyClass}" aria-label="${escapeHtml(row.category || "Budget")} budget meter">
+      <span class="bv-seg spent" style="width:${spentPct.toFixed(2)}%;"></span>
+      <span class="bv-seg balance" style="width:${balancePct.toFixed(2)}%;"></span>
+      <span class="bv-seg over" style="width:${overPct.toFixed(2)}%;"></span>
+    </div>`;
 }
 
 async function saveBudgetSetupToExcel() {

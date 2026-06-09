@@ -529,9 +529,9 @@ function renderGoalsPage() {
     </div>
   `;
 
-  // ── 4. Multi-Goal Realism Check ──
+  // ── 4. Budget-to-goal motivation ──
   if (goalsData.length > 0) {
-    renderRealismCheck(container, dep);
+    container.innerHTML += `<div id="goalMotivationRegion"></div>`;
   }
 
   // ── 4.5 Income Boosts ──
@@ -539,14 +539,9 @@ function renderGoalsPage() {
     renderIncomeBoostsPanel(container);
   }
 
-  // ── 4.6 Goal Date Timeline ──
+  // ── 4.6 Forecast visual placeholders ──
   if (goalsData.length > 0) {
-    renderGoalGanttTimeline(container);
-  }
-
-  // ── 4.7 Savings Timeline Chart ──
-  if (goalsData.length > 0) {
-    renderSavingsTimeline(container, dep);
+    container.innerHTML += `<div id="goalForecastRegion"></div>`;
   }
 
   // ── 5. Add Goal Form ──
@@ -621,6 +616,7 @@ function renderGoalsPage() {
   } else {
     const goalsGrid = document.createElement("div");
     goalsGrid.className = "goals-grid";
+    goalsGrid.id = "goalCardsGrid";
     container.appendChild(goalsGrid);
     sorted.forEach(goal => renderGoalCard(goal, goal.originalIdx, goalsGrid));
   }
@@ -631,6 +627,8 @@ function renderGoalsPage() {
       <button class="btn-primary" onclick="saveGoalsToExcel()">💾 Save All Goals to Excel</button>
     </div>
   `;
+
+  refreshGoalInsightPanels();
 }
 
 function renderBudgetPressureCheck(container, dep) {
@@ -797,6 +795,19 @@ function _refreshAllocUI() {
   });
 }
 
+function refreshGoalCardsGrid() {
+  const grid = document.getElementById("goalCardsGrid");
+  if (!grid) return;
+
+  const urgencyOrder = { Critical:0, High:1, Medium:2, Low:3 };
+  const sorted = [...goalsData]
+    .map((g,i) => ({...g, originalIdx:i}))
+    .sort((a,b) => (urgencyOrder[a.urgency]??2) - (urgencyOrder[b.urgency]??2));
+
+  grid.innerHTML = "";
+  sorted.forEach(goal => renderGoalCard(goal, goal.originalIdx, grid));
+}
+
 function onAllocInput(idx, value) {
   const v = Math.max(0, parseFloat(value) || 0);
   goalsData[idx].manualSaved = v;
@@ -804,6 +815,8 @@ function onAllocInput(idx, value) {
   const inp = document.getElementById("allocAmt_" + idx);
   if (inp && parseFloat(inp.value) < 0) inp.value = 0;
   _refreshAllocUI();
+  refreshGoalCardsGrid();
+  scheduleGoalInsightRefresh();
 }
 
 function onAllocChange(idx, value) {
@@ -812,6 +825,8 @@ function onAllocChange(idx, value) {
   const inp = document.getElementById("allocAmt_" + idx);
   if (inp) inp.value = v.toFixed(2);
   _refreshAllocUI();
+  refreshGoalCardsGrid();
+  scheduleGoalInsightRefresh();
 }
 
 function onBufferChange(idx, value) {
@@ -820,6 +835,8 @@ function onBufferChange(idx, value) {
   const inp = document.getElementById("allocBuf_" + idx);
   if (inp) inp.value = v.toFixed(0);
   _refreshAllocUI();
+  refreshGoalCardsGrid();
+  scheduleGoalInsightRefresh();
 }
 
 /**
@@ -877,6 +894,8 @@ function smartAssign() {
   });
 
   _refreshAllocUI();
+  refreshGoalCardsGrid();
+  refreshGoalInsightPanels();
 
   const remaining = deployable - goalsData.reduce((s,g)=>s+g.manualSaved, 0);
   log("Smart Assign complete. Unassigned: " + formatCurrency(remaining));
@@ -912,6 +931,37 @@ async function saveAllocations() {
 // Income boosts (scheduled budget savings) shift the monthly alloc from a set month.
 
 let timelineChart = null;
+let goalInsightsRefreshTimer = null;
+
+function refreshGoalInsightPanels() {
+  const motivationRegion = document.getElementById("goalMotivationRegion");
+  const forecastRegion = document.getElementById("goalForecastRegion");
+  if (!motivationRegion && !forecastRegion) return;
+
+  const dep = computeDeployableBalance();
+
+  if (motivationRegion) {
+    motivationRegion.innerHTML = "";
+    if (goalsData.length > 0) renderBudgetGoalMotivation(motivationRegion, dep);
+  }
+
+  if (forecastRegion) {
+    if (timelineChart) {
+      timelineChart.destroy();
+      timelineChart = null;
+    }
+    forecastRegion.innerHTML = "";
+    if (goalsData.length > 0) {
+      renderGoalGanttTimeline(forecastRegion);
+      renderSavingsTimeline(forecastRegion, dep);
+    }
+  }
+}
+
+function scheduleGoalInsightRefresh() {
+  clearTimeout(goalInsightsRefreshTimer);
+  goalInsightsRefreshTimer = setTimeout(refreshGoalInsightPanels, 220);
+}
 
 // ── Future Cashflow Changes ───────────────────────────────────────
 // Stored in goalsData as a separate list; also saved to Excel in col AE2
@@ -996,15 +1046,48 @@ function _boostSignedAmount(item) {
 function _setBoostDate(index, field, dateValue) {
   incomeBoosts[index][field] = _dateValueToMonth(dateValue);
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
+  scheduleGoalInsightRefresh();
 }
 
 function _setBoostKind(index, kind) {
   incomeBoosts[index].kind = kind === "reduce" ? "reduce" : "boost";
   if (incomeBoosts[index].kind === "reduce") incomeBoosts[index].toGoal = "any";
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
+  scheduleGoalInsightRefresh();
+}
+
+function _setBoostLabel(index, value) {
+  if (!incomeBoosts[index]) return;
+  incomeBoosts[index].label = value;
+  scheduleGoalInsightRefresh();
+}
+
+function _setBoostAmount(index, value) {
+  if (!incomeBoosts[index]) return;
+  incomeBoosts[index].amount = Math.abs(Number(value) || 0);
+  scheduleGoalInsightRefresh();
+}
+
+function _setBoostGoal(index, value) {
+  if (!incomeBoosts[index]) return;
+  incomeBoosts[index].toGoal = value;
+  scheduleGoalInsightRefresh();
+}
+
+function _addIncomeBoost(kind) {
+  incomeBoosts.push({ label:"", kind, amount:0, fromMonth:"", toMonth:"", toGoal:"any" });
+  _redrawBoostsPanel(document.getElementById("boostsPanel"));
+  scheduleGoalInsightRefresh();
+}
+
+function _deleteIncomeBoost(index) {
+  incomeBoosts.splice(index, 1);
+  _redrawBoostsPanel(document.getElementById("boostsPanel"));
+  scheduleGoalInsightRefresh();
 }
 
 function _redrawBoostsPanel(panel) {
+  if (!panel) return;
   const rows = incomeBoosts.map((b,i) => {
     b.kind = _normaliseBoostKind(b);
     b.amount = Math.abs(Number(b.amount || 0) || 0);
@@ -1017,7 +1100,7 @@ function _redrawBoostsPanel(panel) {
       <div class="boost-row" id="boostRow_${i}">
         <div class="boost-cell boost-label-cell">
           <input class="boost-input" value="${escapeHtml(b.label || "")}" placeholder="${isReduction ? "e.g. rent increase" : "e.g. PPHS ended"}"
-            onchange="incomeBoosts[${i}].label=this.value">
+            oninput="_setBoostLabel(${i}, this.value)">
         </div>
         <div class="boost-cell boost-kind-cell">
           <select class="boost-select boost-kind-select ${isReduction ? "reduce" : "boost"}" onchange="_setBoostKind(${i}, this.value)">
@@ -1029,7 +1112,7 @@ function _redrawBoostsPanel(panel) {
           <div class="boost-amt-wrap">
             <span class="boost-currency ${isReduction ? "reduce" : "boost"}">${isReduction ? "− $" : "+ $"}</span>
             <input class="boost-input boost-number" type="number" step="1" min="0" value="${b.amount}"
-              onchange="incomeBoosts[${i}].amount=Math.abs(Number(this.value)||0)" placeholder="0">
+              oninput="_setBoostAmount(${i}, this.value)" placeholder="0">
             <span class="boost-per-mo">/mo</span>
           </div>
         </div>
@@ -1051,13 +1134,13 @@ function _redrawBoostsPanel(panel) {
           </div>
         </div>
         <div class="boost-cell boost-goal-cell">
-          <select class="boost-select" ${isReduction ? "disabled" : ""} onchange="incomeBoosts[${i}].toGoal=this.value">
+          <select class="boost-select" ${isReduction ? "disabled" : ""} onchange="_setBoostGoal(${i}, this.value)">
             <option value="any" ${b.toGoal==="any"?"selected":""}>${isReduction ? "Savings pool" : "Any goal (pool)"}</option>
             ${isReduction ? "" : goalsData.map(g=>`<option value="${escapeHtml(g.name)}" ${b.toGoal===g.name?"selected":""}>${escapeHtml(g.name)}</option>`).join("")}
           </select>
         </div>
         <div class="boost-cell boost-del-cell">
-          <button class="boost-del-btn" onclick="incomeBoosts.splice(${i},1);_redrawBoostsPanel(document.getElementById('boostsPanel'));">✕</button>
+          <button class="boost-del-btn" onclick="_deleteIncomeBoost(${i})">✕</button>
         </div>
       </div>`;
   }).join("");
@@ -1082,10 +1165,10 @@ function _redrawBoostsPanel(panel) {
     </div>
     <div id="boostRows">${rows || '<div style="padding:14px 0;font-size:13px;color:var(--muted);">No future cashflow changes yet — add one below.</div>'}</div>
     <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:14px;">
-      <button class="btn-secondary btn-sm" onclick="incomeBoosts.push({label:'',kind:'boost',amount:0,fromMonth:'',toMonth:'',toGoal:'any'});_redrawBoostsPanel(document.getElementById('boostsPanel'));">
+      <button class="btn-secondary btn-sm" onclick="_addIncomeBoost('boost')">
         + Add Increase
       </button>
-      <button class="btn-secondary btn-sm" onclick="incomeBoosts.push({label:'',kind:'reduce',amount:0,fromMonth:'',toMonth:'',toGoal:'any'});_redrawBoostsPanel(document.getElementById('boostsPanel'));">
+      <button class="btn-secondary btn-sm" onclick="_addIncomeBoost('reduce')">
         − Add Reduction
       </button>
       <button class="btn-primary btn-sm" onclick="saveIncomeBoosts().then(()=>{renderGoalsPage();})">💾 Save Changes</button>
@@ -2319,78 +2402,209 @@ return `  ${item.dataset.label}: ${v.toFixed(0)}% · ${formatCurrency(savedAmt)}
   });
 }
 
-function renderRealismCheck(container, dep) {
-  const today   = new Date();
-  const avgSave = Math.max(0, historicalStats.avgMonthlySavings);
-  let issues    = [];
-  let tips      = [];
-  let totalMonthlyNeeded = 0;
+function renderBudgetGoalMotivation(container, dep) {
+  if (!container) return;
 
-  goalsData.forEach(goal => {
-    const savedViaGoalTx = getSavedViaTransactions(goal.name);
-    const totalSaved     = goal.manualSaved + savedViaGoalTx;
-    const effectiveTarget = goal.target * (1 + (goal.goalBuffer || 0) / 100);
-    const remaining      = Math.max(0, effectiveTarget - totalSaved);
-    let monthsLeft       = null;
+  const position = dep.budgetPosition || computeCurrentMonthBudgetPosition();
+  const focusRow = selectBudgetMotivationRow(position);
+  const focusGoal = selectGoalForMotivation();
+  const flexibleLeft = Math.max(0, position.monthly.balance);
+  const daysLeft = getGoalDaysRemainingInMonth();
+  const totalOver = Math.max(0, position.total.over);
+  const monthlyOver = Math.max(0, position.monthly.over);
+  const opportunity = buildBudgetOpportunity(focusRow, flexibleLeft);
+  const goalLabel = focusGoal ? escapeHtml(focusGoal.name) : "your next goal";
+  const impactText = buildGoalMomentumImpact(focusGoal, opportunity.amount, opportunity.recurring);
+  const chips = buildGoalMomentumChips(position, focusGoal, daysLeft);
 
-    if (goal.endDate) {
-      const endParts = goal.endDate.split("-");
-      if (endParts.length === 3) {
-        const endObj = new Date(+endParts[0], +endParts[1]-1, +endParts[2]);
-        if (endObj > today) {
-          monthsLeft = (endObj.getFullYear() - today.getFullYear())*12 + (endObj.getMonth()-today.getMonth());
-        }
-      }
-    }
-
-    const reqMonthly = monthsLeft && monthsLeft > 0 ? remaining / monthsLeft : (goal.monthlyAlloc || 0);
-    totalMonthlyNeeded += reqMonthly;
-
-    if (goal.urgency === "Critical" && monthsLeft !== null && reqMonthly > avgSave * 0.6) {
-      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: needs ${formatCurrency(reqMonthly)}/mo — that's ${Math.round(reqMonthly/avgSave*100)}% of your avg savings alone.`);
-    }
-    if (goal.endDate && monthsLeft !== null && monthsLeft <= 0) {
-      issues.push(`⏰ <strong>${escapeHtml(goal.name)}</strong>: deadline has passed. Update or archive this goal.`);
-    }
-  });
-
-  if (totalMonthlyNeeded > avgSave) {
-    const gap = totalMonthlyNeeded - avgSave;
-    issues.push(`⚡ Goals plus buffers need ${formatCurrency(totalMonthlyNeeded)}/mo but your avg savings is ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
-    tips.push(`💡 Reduce your monthly expenses budget by ${formatCurrency(gap)} or increase income to close the gap.`);
-    tips.push(`💡 Lower the allocation on Low/Medium priority goals to free up ${formatCurrency(gap)}/mo for Critical ones.`);
-  } else if (totalMonthlyNeeded > 0) {
-    tips.push(`✅ Your goals are <strong>collectively achievable</strong> based on your avg savings of ${formatCurrency(avgSave)}/mo.`);
-  }
-
-  if (dep.deployable < 0) {
-    issues.push(`🚨 Deployable balance is negative (${formatCurrency(dep.deployable)}). You may be over-extended — check your CC bill and budget.`);
-  }
-
-  if (issues.length === 0 && tips.length === 0) return;
-
-  const issueHtml = issues.map(i => `<div class="rc-issue">${i}</div>`).join("");
-  const tipHtml   = tips.map(t => `<div class="rc-tip">${t}</div>`).join("");
-
-  container.innerHTML += `
-    <div class="goals-panel realism-panel">
+  container.innerHTML = `
+    <div class="goals-panel motivation-panel">
       <div class="panel-header">
-        <span class="panel-icon">🧠</span>
-        <h2>Realism Check</h2>
-        <span class="panel-hint">AI analysis of your goals vs your actual finances</span>
+        <span class="panel-icon">↗</span>
+        <h2>Goal Momentum</h2>
+        <span class="panel-hint">Small budget wins that speed up your goals</span>
       </div>
-      <div class="rc-body">
-        ${issueHtml}
-        ${tipHtml}
-        <div class="rc-summary">
-          <span>Total monthly needed for goals + buffers:</span>
-          <strong class="${totalMonthlyNeeded <= avgSave ? 'green':'red'}">${formatCurrency(totalMonthlyNeeded)}/mo</strong>
-          <span>vs your avg savings</span>
-          <strong>${formatCurrency(avgSave)}/mo</strong>
+      <div class="gm-grid">
+        <div class="gm-hero">
+          <div class="gm-kicker">${escapeHtml(opportunity.kicker)}</div>
+          <h3>${escapeHtml(opportunity.title)}</h3>
+          <p>${opportunity.body.replace("{goal}", `<strong>${goalLabel}</strong>`)}</p>
+          <div class="gm-impact">${impactText}</div>
+        </div>
+        <div class="gm-side">
+          <div class="gm-stat">
+            <span>Flexible spend left</span>
+            <strong class="${flexibleLeft > 0 ? "green" : ""}">${formatCurrency(flexibleLeft)}</strong>
+          </div>
+          <div class="gm-stat">
+            <span>Left per day this month</span>
+            <strong>${formatCurrency(flexibleLeft / daysLeft)}</strong>
+          </div>
+          <div class="gm-stat">
+            <span>Current overspend drag</span>
+            <strong class="${totalOver > 0 ? "red" : "green"}">${formatCurrency(totalOver)}</strong>
+          </div>
+          <div class="gm-stat">
+            <span>Flexible-category overspend</span>
+            <strong class="${monthlyOver > 0 ? "red" : "green"}">${formatCurrency(monthlyOver)}</strong>
+          </div>
         </div>
       </div>
-    </div>
-  `;
+      ${chips}
+    </div>`;
+}
+
+function selectBudgetMotivationRow(position) {
+  const monthlyRows = (position.monthly.rows || [])
+    .filter(row => row.allocated > 0 || row.spent > 0);
+  if (!monthlyRows.length) return null;
+
+  const foodLike = monthlyRows.find(row =>
+    /food|meal|dining|coffee|grocery|groceries|lunch|dinner/i.test(row.category)
+  );
+  if (foodLike) return foodLike;
+
+  const over = monthlyRows
+    .filter(row => row.over > 0)
+    .sort((a, b) => b.over - a.over || b.spent - a.spent)[0];
+  if (over) return over;
+
+  return monthlyRows
+    .filter(row => row.balance > 0)
+    .sort((a, b) => b.balance - a.balance || b.spent - a.spent)[0] || monthlyRows[0];
+}
+
+function buildBudgetOpportunity(row, flexibleLeft) {
+  if (!row) {
+    const amount = Math.max(0, flexibleLeft);
+    return {
+      amount,
+      recurring: false,
+      kicker: "Budget win",
+      title: amount > 0
+        ? `${formatCurrency(amount)} of flexible budget is still unspent`
+        : "Every unspent dollar can become goal progress",
+      body: amount > 0
+        ? `If you leave that buffer untouched, it can go straight into {goal} this month.`
+        : `Keep the next flexible category under plan and move the difference into {goal}.`
+    };
+  }
+
+  const category = row.category || "Flexible spending";
+  if (row.balance > 0) {
+    return {
+      amount: row.balance,
+      recurring: false,
+      kicker: `${category} is under plan`,
+      title: `${formatCurrency(row.balance)} can stay available`,
+      body: `If you finish the month without using the remaining ${formatCurrency(row.balance)} in ${escapeHtml(category)}, that money can move into {goal}.`
+    };
+  }
+
+  if (row.over > 0) {
+    return {
+      amount: row.over,
+      recurring: true,
+      kicker: `${category} can recover`,
+      title: `Pull back ${formatCurrency(row.over)} next month`,
+      body: `${escapeHtml(category)} is ${formatCurrency(row.over)} over right now. Getting it back inside budget next month frees that much monthly momentum for {goal}.`
+    };
+  }
+
+  const amount = Math.max(0, Math.round((row.allocated || row.spent || 0) * 0.1));
+  return {
+    amount,
+    recurring: true,
+    kicker: `${category} is on track`,
+    title: amount > 0 ? `A 10% trim frees ${formatCurrency(amount)}/mo` : "A tiny trim still counts",
+    body: amount > 0
+      ? `Keeping ${escapeHtml(category)} just 10% lighter next month can add ${formatCurrency(amount)}/mo to {goal}.`
+      : `Pick one flexible spend to trim and send the saved amount to {goal}.`
+  };
+}
+
+function selectGoalForMotivation() {
+  const urgencyOrder = { Critical:0, High:1, Medium:2, Low:3 };
+  return goalsData
+    .map((goal, idx) => ({ goal, idx, remaining: getGoalRemainingAmount(goal) }))
+    .filter(item => item.remaining > 0)
+    .sort((a, b) => {
+      const u = (urgencyOrder[a.goal.urgency] ?? 2) - (urgencyOrder[b.goal.urgency] ?? 2);
+      if (u !== 0) return u;
+      if (a.goal.endDate && b.goal.endDate) return a.goal.endDate.localeCompare(b.goal.endDate);
+      if (a.goal.endDate) return -1;
+      if (b.goal.endDate) return 1;
+      return a.idx - b.idx;
+    })[0]?.goal || goalsData[0] || null;
+}
+
+function getGoalRemainingAmount(goal) {
+  if (!goal) return 0;
+  const savedViaGoalTx = getSavedViaTransactions(goal.name);
+  const totalSaved = goal.manualSaved + savedViaGoalTx;
+  const effectiveTarget = goal.target * (1 + (goal.goalBuffer || 0) / 100);
+  return Math.max(0, effectiveTarget - totalSaved);
+}
+
+function buildGoalMomentumImpact(goal, amount, recurring) {
+  if (!goal || amount <= 0) return "Even a small saved amount makes the next goal easier.";
+
+  const remaining = getGoalRemainingAmount(goal);
+  const safeName = escapeHtml(goal.name);
+  if (remaining <= 0) return `<strong>${safeName}</strong> is funded. Send this win to the next goal.`;
+
+  const monthlyAlloc = Math.max(0, Number(goal.monthlyAlloc || 0) || 0);
+  const pct = Math.min(100, (amount / remaining) * 100);
+
+  if (recurring) {
+    const boostedMonthly = monthlyAlloc + amount;
+    if (boostedMonthly > 0) {
+      const boostedMonths = Math.ceil(remaining / boostedMonthly);
+      if (monthlyAlloc > 0) {
+        const currentMonths = Math.ceil(remaining / monthlyAlloc);
+        const fasterBy = Math.max(0, currentMonths - boostedMonths);
+        if (fasterBy > 0) {
+          return `<strong>${safeName}</strong> could move ${fasterBy} month${fasterBy === 1 ? "" : "s"} faster.`;
+        }
+      }
+      return `<strong>${safeName}</strong> could finish in about ${boostedMonths} month${boostedMonths === 1 ? "" : "s"}.`;
+    }
+  }
+
+  if (monthlyAlloc > 0) {
+    const currentMonths = Math.ceil(remaining / monthlyAlloc);
+    const afterBoostMonths = Math.ceil(Math.max(0, remaining - amount) / monthlyAlloc);
+    const fasterBy = Math.max(0, currentMonths - afterBoostMonths);
+    if (fasterBy > 0) {
+      return `<strong>${safeName}</strong> could move ${fasterBy} month${fasterBy === 1 ? "" : "s"} closer.`;
+    }
+  }
+
+  return `That covers <strong>${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%</strong> of <strong>${safeName}</strong>'s remaining gap.`;
+}
+
+function buildGoalMomentumChips(position, focusGoal, daysLeft) {
+  const underRows = (position.monthly.rows || [])
+    .filter(row => row.balance > 0)
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 3);
+  const focusRemaining = getGoalRemainingAmount(focusGoal);
+  const chips = underRows.map(row => `
+    <span class="gm-chip">${escapeHtml(row.category)} buffer <strong>${formatCurrency(row.balance)}</strong></span>
+  `);
+
+  if (focusGoal) {
+    chips.push(`<span class="gm-chip">${escapeHtml(focusGoal.name)} left <strong>${formatCurrency(focusRemaining)}</strong></span>`);
+  }
+  chips.push(`<span class="gm-chip">Days left <strong>${daysLeft}</strong></span>`);
+
+  return `<div class="gm-list">${chips.join("")}</div>`;
+}
+
+function getGoalDaysRemainingInMonth() {
+  const today = new Date();
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  return Math.max(lastDay.getDate() - today.getDate() + 1, 1);
 }
 
 // ─── Individual Goal Card ──────────────────────────────────────────
