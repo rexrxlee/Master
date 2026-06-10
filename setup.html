@@ -2,7 +2,10 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Setup — Fintrack</title>
+  <title>Accounts & Setup — Fintrack</title>
+  <script>
+    window.location.replace("accounts.html#openingBalances");
+  </script>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -69,7 +72,7 @@
     .save-setup-btn:hover { opacity: 0.85; }
   </style>
 </head>
-<body onload="loadSetupPage()">
+<body>
 
   <aside class="sidebar">
     <div class="sidebar-brand">
@@ -81,8 +84,7 @@
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
       <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
-      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts</a>
-      <a href="setup.html" class="nav-item active"><span class="nav-icon">⚙</span> Setup</a>
+      <a href="accounts.html#openingBalances" class="nav-item active"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
     <div class="sidebar-status">
       <p id="status"></p>
@@ -92,8 +94,8 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <h1 class="page-title">First-Time Setup</h1>
-        <p class="page-subtitle">Set opening balances for your accounts</p>
+        <h1 class="page-title">Accounts & Setup</h1>
+        <p class="page-subtitle">Opening balances now live inside Accounts & Setup</p>
       </div>
     </header>
 
@@ -109,20 +111,10 @@
         </div>
         <div class="setup-card-body">
           <p class="setup-description">
-            Record the <strong>opening balance</strong> of each account before you start tracking transactions.
-            This creates an "Opening Balance" income entry per account so your totals are accurate from day one.
+            Opening balances have moved to the merged Accounts & Setup page.
+            If you are not redirected automatically, open the merged page below.
           </p>
-          <div id="setupForm">
-            <p style="color:var(--muted);font-size:13px;">Loading accounts…</p>
-          </div>
-        </div>
-        <div class="setup-actions">
-          <button id="saveSetupBtn" class="save-setup-btn" onclick="saveOpeningBalances()" style="display:none;">
-            💾 Save Opening Balances
-          </button>
-          <div id="setupSuccess" class="success-message" style="display:none;margin:0;">
-            ✅ Opening balances saved! You can now start tracking transactions.
-          </div>
+          <p><a class="save-setup-btn" href="accounts.html#openingBalances" style="display:inline-block;text-decoration:none;">Open Accounts & Setup</a></p>
         </div>
       </div>
     </div>

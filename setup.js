@@ -42,10 +42,22 @@ function detectExistingOpeningBalances(sheet) {
     }));
 }
 
+function renderOpeningBalanceSetup(accounts, txSheet) {
+  setupAccounts = (accounts || [])
+    .map(account => ({
+      name: String(account.name ?? "").trim(),
+      type: String(account.type ?? "Savings").trim() || "Savings"
+    }))
+    .filter(account => account.name !== "");
+
+  const existingEntries = txSheet ? detectExistingOpeningBalances(txSheet) : [];
+  renderSetupForm(existingEntries);
+}
+
 function renderSetupForm(existingEntries = []) {
   const container = document.getElementById("setupForm");
   if (setupAccounts.length === 0) {
-    container.innerHTML = `<p style="color:var(--red);">No accounts found. Please <a href="accounts.html">set up accounts</a> first.</p>`;
+    container.innerHTML = `<p style="color:var(--red);">No accounts found. Add accounts above first.</p>`;
     return;
   }
 
@@ -110,9 +122,10 @@ function renderSetupForm(existingEntries = []) {
     existingEntries.length > 0 ? "🔄 Replace Opening Balances" : "💾 Save Opening Balances";
 }
 
-async function saveOpeningBalances() {
+async function saveOpeningBalances(options = {}) {
   const newRows = [];
   let hasError = false;
+  let missingDateAccount = "";
 
   setupAccounts.forEach((account, idx) => {
     const dateInput = document.getElementById("setupDate_" + idx).value;
@@ -121,7 +134,7 @@ async function saveOpeningBalances() {
     if (isNaN(val) || val === 0) return; // skip blank rows
 
     if (!dateInput) {
-      alert("Please select a date for " + account.name);
+      missingDateAccount = missingDateAccount || account.name;
       hasError = true;
       return;
     }
@@ -130,8 +143,20 @@ async function saveOpeningBalances() {
     newRows.push([dateInput, "Opening Balance", val, "Income", "Opening Balance", account.name]);
   });
 
-  if (hasError) return;
-  if (newRows.length === 0) { alert("Please enter at least one opening balance."); return; }
+  if (hasError) {
+    const message = "Please select a date for " + missingDateAccount + ".";
+    if (options.rethrow) throw new Error(message);
+    alert(message);
+    return false;
+  }
+  if (newRows.length === 0 && !(options.allowEmpty && options.replaceExistingWhenEmpty)) {
+    if (options.allowEmpty) {
+      log("No opening balances entered; skipping opening balance save.");
+      return false;
+    }
+    alert("Please enter at least one opening balance.");
+    return false;
+  }
 
   try {
     log("Reading current transaction sheet...");
@@ -178,17 +203,27 @@ async function saveOpeningBalances() {
     }
 
     log("Opening balances saved.");
-    document.getElementById("setupSuccess").style.display = "block";
-    document.getElementById("saveSetupBtn").style.display = "none";
-    setTimeout(() => {
-      document.getElementById("setupSuccess").style.display = "none";
-      loadSetupPage();
-    }, 3000);
+    if (!options.silentSuccess) {
+      const successEl = document.getElementById("setupSuccess");
+      const saveBtn = document.getElementById("saveSetupBtn");
+      if (successEl) successEl.style.display = "block";
+      if (saveBtn) saveBtn.style.display = "none";
+      if (!options.skipReload) {
+        setTimeout(() => {
+          if (successEl) successEl.style.display = "none";
+          if (typeof loadAccountsPage === "function") loadAccountsPage();
+          else loadSetupPage();
+        }, 3000);
+      }
+    }
+    return true;
 
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed to save: " + err.message);
     console.error(err);
+    if (options.rethrow) throw err;
+    return false;
   }
 }
 

@@ -116,6 +116,40 @@
         .bp-summary strong.green { color: var(--green); }
         .bp-summary strong.red { color: var(--red); }
         .bp-detail { font-size: 12px; color: var(--muted); }
+        .bp-reserve-strip {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+          padding: 10px 12px;
+          border: 1px solid #fbbf24;
+          border-radius: 8px;
+          background: #fffbeb;
+        }
+        .bp-reserve-strip.danger {
+          border-color: #fca5a5;
+          background: #fef2f2;
+        }
+        .bp-reserve-strip div {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .bp-reserve-strip span {
+          color: var(--muted);
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          font-weight: 600;
+        }
+        .bp-reserve-strip strong {
+          font-family: 'DM Mono', monospace;
+          font-size: 15px;
+          white-space: nowrap;
+        }
+        .bp-reserve-strip strong.green { color: var(--green); }
+        .bp-reserve-strip strong.red { color: var(--red); }
         .bp-content {
           display: grid;
           grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
@@ -174,6 +208,31 @@
           background: var(--bg);
         }
         .bp-action strong { display: block; margin-bottom: 2px; }
+        .bp-cut-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-top: 8px;
+        }
+        .bp-cut-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: baseline;
+          font-size: 12.5px;
+          padding-top: 6px;
+          border-top: 1px solid rgba(124,45,18,0.14);
+        }
+        .bp-cut-row span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bp-cut-row strong {
+          font-family: 'DM Mono', monospace;
+          white-space: nowrap;
+        }
         .bp-action.ok {
           background: #f0fdf4;
           border-color: #86efac;
@@ -269,6 +328,7 @@
         .bv-row-balance.green { color: var(--green); }
         .bv-summary-value.red,
         .bv-row-balance.red { color: var(--red); }
+        .bv-reserve-text { color: #92400e; font-weight: 600; }
         .bv-meter {
           display: flex;
           width: 100%;
@@ -284,6 +344,15 @@
           height: 100%;
         }
         .bv-seg.spent { background: #60a5fa; }
+        .bv-seg.reserve {
+          background: repeating-linear-gradient(
+            135deg,
+            #f59e0b 0,
+            #f59e0b 4px,
+            #fbbf24 4px,
+            #fbbf24 8px
+          );
+        }
         .bv-seg.balance { background: #86efac; }
         .bv-seg.over { background: #ef4444; }
         .bv-meter.empty .bv-seg.balance { background: #e5e7eb; }
@@ -319,8 +388,75 @@
           display: inline-block;
         }
         .bv-legend .spent { background: #60a5fa; }
+        .bv-legend .reserve {
+          background: repeating-linear-gradient(
+            135deg,
+            #f59e0b 0,
+            #f59e0b 4px,
+            #fbbf24 4px,
+            #fbbf24 8px
+          );
+        }
         .bv-legend .balance { background: #86efac; }
         .bv-legend .over { background: #ef4444; }
+        .bv-cover-banner {
+          display: grid;
+          grid-template-columns: minmax(130px, 0.7fr) minmax(180px, 0.9fr) minmax(240px, 1.4fr);
+          gap: 12px;
+          align-items: stretch;
+          border: 1px solid #fbbf24;
+          background: #fffbeb;
+          border-radius: 8px;
+          padding: 12px;
+          margin-bottom: 14px;
+        }
+        .bv-cover-banner.danger {
+          border-color: #fca5a5;
+          background: #fef2f2;
+        }
+        .bv-cover-main {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          min-width: 0;
+        }
+        .bv-cover-main span {
+          color: var(--muted);
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          font-weight: 600;
+        }
+        .bv-cover-main strong {
+          font-family: 'DM Mono', monospace;
+          font-size: 18px;
+          color: #92400e;
+        }
+        .bv-cover-list {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          min-width: 0;
+        }
+        .bv-cover-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: baseline;
+          font-size: 12.5px;
+        }
+        .bv-cover-row span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bv-cover-row strong {
+          font-family: 'DM Mono', monospace;
+          color: #92400e;
+          white-space: nowrap;
+        }
+        .bv-cover-row.danger strong { color: var(--red); }
         .bv-section-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -346,12 +482,133 @@
         .bv-row.over .bv-row-balance {
           color: var(--red);
         }
+        .budget-projection-panel {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          box-shadow: var(--shadow);
+          padding: 18px 20px;
+          margin-bottom: 24px;
+        }
+        .bproj-header {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+          margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+        .bproj-header h2 {
+          font-size: 15px;
+          font-weight: 600;
+          margin: 0 0 3px;
+        }
+        .bproj-header p {
+          font-size: 12.5px;
+          color: var(--muted);
+          margin: 0;
+        }
+        .bproj-badge {
+          font-size: 12.5px;
+          font-weight: 600;
+          padding: 5px 10px;
+          border-radius: 20px;
+          border: 1px solid #86efac;
+          background: #f0fdf4;
+          color: #14532d;
+          white-space: nowrap;
+        }
+        .bproj-badge.over {
+          border-color: #fca5a5;
+          background: #fef2f2;
+          color: #7f1d1d;
+        }
+        .bproj-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .bproj-summary {
+          border-top: 1px solid var(--border);
+          border-bottom: 1px solid var(--border);
+          padding: 10px 0;
+          min-width: 0;
+        }
+        .bproj-summary span,
+        .bproj-row-detail {
+          font-size: 11.5px;
+          color: var(--muted);
+        }
+        .bproj-summary strong {
+          display: block;
+          margin-top: 3px;
+          font-family: 'DM Mono', monospace;
+          font-size: 17px;
+        }
+        .bproj-summary strong.green { color: var(--green); }
+        .bproj-summary strong.red { color: var(--red); }
+        .bproj-rows {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .bproj-row-top,
+        .bproj-row-detail {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: baseline;
+        }
+        .bproj-row-name {
+          font-size: 13px;
+          font-weight: 600;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bproj-row-val {
+          font-family: 'DM Mono', monospace;
+          font-size: 12.5px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .bproj-row-val.green { color: var(--green); }
+        .bproj-row-val.red { color: var(--red); }
+        .bproj-track {
+          position: relative;
+          height: 12px;
+          margin-top: 7px;
+          border-radius: 20px;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          overflow: hidden;
+        }
+        .bproj-fill {
+          display: block;
+          height: 100%;
+          border-radius: 20px;
+          background: #60a5fa;
+        }
+        .bproj-fill.over { background: #ef4444; }
+        .bproj-budget-line {
+          position: absolute;
+          top: -2px;
+          bottom: -2px;
+          width: 2px;
+          background: var(--text);
+          opacity: 0.45;
+        }
         @media (max-width: 900px) {
           .budget-page-grid { grid-template-columns: 1fr; }
           .bv-summary-grid,
-          .bv-section-grid { grid-template-columns: 1fr; }
+          .bv-section-grid,
+          .bproj-grid { grid-template-columns: 1fr; }
           .bp-grid,
-          .bp-content { grid-template-columns: 1fr; }
+          .bp-content,
+          .bp-reserve-strip,
+          .bv-cover-banner { grid-template-columns: 1fr; }
         }
       </style>
 </head>
@@ -367,8 +624,7 @@
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item active"><span class="nav-icon">▤</span> Budget</a>
       <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
-      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts</a>
-      <a href="setup.html" class="nav-item"><span class="nav-icon">⚙</span> Setup</a>
+      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
     <div class="sidebar-status">
       <p id="status"></p>
@@ -411,12 +667,15 @@
         <div class="kpi-value" id="foodPerDay">$0</div>
       </div>
       <div class="kpi-card income">
-        <div class="kpi-label">Monthly Left / Day</div>
+        <div class="kpi-label">Monthly Exp. Left / Day</div>
         <div class="kpi-value" id="monthlyPerDay">$0</div>
+        <div class="kpi-note" id="monthlyPerDayNote">Monthly expenses only; bills excluded.</div>
       </div>
     </div>
 
     <section id="budgetVisualPanel"></section>
+
+    <section id="budgetProjectionPanel"></section>
 
     <section id="budgetPressurePanel"></section>
 

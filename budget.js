@@ -92,8 +92,9 @@ function renderBudget() {
 
   renderBudgetTable("billsTable",   "Bills",            computedBills);
   renderBudgetTable("monthlyTable", "Monthly Expenses", computedMonthly);
-  updateBudgetCards([...computedBills, ...computedMonthly]);
+  updateBudgetCards(computedBills, computedMonthly);
   renderBudgetVisualPanel(computedBills, computedMonthly);
+  renderBudgetProjectionPanel(computedMonthly);
   renderBudgetPressurePanel(computedBills, computedMonthly);
 }
 
@@ -104,8 +105,8 @@ function computeBudgetRow(item) {
 
 /**
  * Calculates spending for the current month.
- * Claimable rows only count the non-claimable portion against the budget.
- * Example: $100 expense with $40 claim amount counts as $60 spent.
+ * Claimable rows are excluded from spending budgets entirely.
+ * They still affect account/card balances elsewhere until the reimbursement arrives.
  */
 function calculateSpentForCurrentMonth(mainCategory, subCategory) {
   const today        = new Date();
@@ -178,6 +179,9 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
   const bills = summariseBudgetRows(billsRows);
   const monthly = summariseBudgetRows(monthlyRows);
   const total = summariseBudgetRows(allRows);
+  const billCoveragePlan = buildBillReallocationPlan(bills, monthly);
+  const billCoverageMap = buildBillCoverageMap(billCoveragePlan);
+  const coveredFromMonthly = billCoveragePlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
   const topOver = allRows
     .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
     .filter(row => row.over > 0)
@@ -192,17 +196,19 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
       <div class="bv-header">
         <div>
           <h2>Budget Visuals</h2>
-          <p>Allocated, spent, and balance by category. Red means the category has gone past its allocation.</p>
+          <p>Allocated, spent, reserved, and balance by category. Amber means monthly balance is absorbing bill overspend.</p>
         </div>
         ${alertHtml}
       </div>
       <div class="bv-summary-grid">
         ${renderBudgetSummaryMeter("Total Budget", total)}
         ${renderBudgetSummaryMeter("Bills", bills)}
-        ${renderBudgetSummaryMeter("Monthly Expenses", monthly)}
+        ${renderBudgetSummaryMeter("Monthly Expenses", monthly, coveredFromMonthly)}
       </div>
+      ${renderBillCoverageBanner(billCoveragePlan)}
       <div class="bv-legend">
         <span><i class="spent"></i> Spent inside budget</span>
+        <span><i class="reserve"></i> Reserved for bill overspend</span>
         <span><i class="balance"></i> Balance left</span>
         <span><i class="over"></i> Overspent</span>
       </div>
@@ -213,67 +219,199 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
         </div>
         <div>
           <div class="bv-section-title">Monthly Expenses</div>
-          <div class="bv-rows">${renderBudgetVisualRows(monthlyRows)}</div>
+          <div class="bv-rows">${renderBudgetVisualRows(monthlyRows, billCoverageMap)}</div>
         </div>
       </div>
     </div>`;
 }
 
-function renderBudgetSummaryMeter(label, summary) {
+function renderBudgetSummaryMeter(label, summary, reserved = 0) {
   const balanceClass = summary.balance < 0 ? "red" : "green";
+  const reserveText = reserved > 0
+    ? `<span class="bv-reserve-text">${formatCurrency(reserved)} reserved</span>`
+    : "";
   return `
     <div class="bv-summary">
       <div class="bv-summary-top">
         <span class="bv-summary-label">${escapeHtml(label)}</span>
         <strong class="bv-summary-value ${balanceClass}">${formatCurrency(summary.balance)}</strong>
       </div>
-      ${renderBudgetMeter(summary)}
+      ${renderBudgetMeter(summary, reserved)}
       <div class="bv-summary-detail">
         <span>${formatCurrency(summary.spent)} spent</span>
         <span>${formatCurrency(summary.allocated)} allocated</span>
+        ${reserveText}
       </div>
     </div>`;
 }
 
-function renderBudgetVisualRows(rows) {
+function renderBudgetVisualRows(rows, reserveMap = {}) {
   if (!rows.length) return `<div class="bp-muted">No budget rows yet.</div>`;
 
   return [...rows]
     .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
     .sort((a, b) => b.over - a.over || (b.spent / Math.max(b.allocated, 1)) - (a.spent / Math.max(a.allocated, 1)))
     .map(row => {
+      const reserved = Math.min(Math.max(0, reserveMap[budgetCategoryKey(row.category)] || 0), Math.max(0, row.balance));
+      const freeBalance = Math.max(0, row.balance - reserved);
       const balanceClass = row.balance < 0 ? "red" : "green";
       const rowClass = row.balance < 0 ? "bv-row over" : "bv-row";
+      const reserveDetail = reserved > 0
+        ? `<span>${formatCurrency(reserved)} reserved for bills · ${formatCurrency(freeBalance)} free</span>`
+        : `<span>${formatCurrency(row.allocated)} allocated</span>`;
       return `
         <div class="${rowClass}">
           <div class="bv-row-top">
             <span class="bv-row-name">${escapeHtml(row.category)}</span>
             <strong class="bv-row-balance ${balanceClass}">${formatCurrency(row.balance)}</strong>
           </div>
-          ${renderBudgetMeter(row)}
+          ${renderBudgetMeter(row, reserved)}
           <div class="bv-row-detail">
             <span>${formatCurrency(row.spent)} spent</span>
-            <span>${formatCurrency(row.allocated)} allocated</span>
+            ${reserveDetail}
           </div>
         </div>`;
     }).join("");
 }
 
-function renderBudgetMeter(row) {
+function renderBudgetMeter(row, reserved = 0) {
   const spentInside = Math.min(Math.max(0, row.spent), Math.max(0, row.allocated));
   const balanceLeft = Math.max(0, row.allocated - row.spent);
+  const reserve = Math.min(Math.max(0, reserved), balanceLeft);
+  const freeBalance = Math.max(0, balanceLeft - reserve);
   const overspent = Math.max(0, row.spent - row.allocated);
   const scale = Math.max(spentInside + balanceLeft + overspent, row.allocated, row.spent, 1);
   const spentPct = (spentInside / scale) * 100;
-  const balancePct = (balanceLeft / scale) * 100;
+  const reservePct = (reserve / scale) * 100;
+  const balancePct = (freeBalance / scale) * 100;
   const overPct = (overspent / scale) * 100;
   const emptyClass = row.allocated <= 0 && row.spent <= 0 ? " empty" : "";
 
   return `
     <div class="bv-meter${emptyClass}" aria-label="${escapeHtml(row.category || "Budget")} budget meter">
       <span class="bv-seg spent" style="width:${spentPct.toFixed(2)}%;"></span>
+      <span class="bv-seg reserve" style="width:${reservePct.toFixed(2)}%;"></span>
       <span class="bv-seg balance" style="width:${balancePct.toFixed(2)}%;"></span>
       <span class="bv-seg over" style="width:${overPct.toFixed(2)}%;"></span>
+    </div>`;
+}
+
+function renderBillCoverageBanner(plan) {
+  const covered = plan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const totalNeeded = covered + plan.uncovered;
+  if (totalNeeded <= 0) return "";
+
+  const cutRows = plan.cuts.length
+    ? plan.cuts.map(cut => `
+        <div class="bv-cover-row">
+          <span>${escapeHtml(cut.category)}</span>
+          <strong>${formatCurrency(cut.cut)}</strong>
+        </div>`).join("")
+    : `<div class="bp-muted">No monthly balance available to reserve.</div>`;
+
+  return `
+    <div class="bv-cover-banner ${plan.uncovered > 0 ? "danger" : ""}">
+      <div class="bv-cover-main">
+        <span>Bills overspent</span>
+        <strong>${formatCurrency(totalNeeded)}</strong>
+      </div>
+      <div class="bv-cover-main">
+        <span>Reserved from monthly balance</span>
+        <strong>${formatCurrency(covered)}</strong>
+      </div>
+      <div class="bv-cover-list">
+        ${cutRows}
+        ${plan.uncovered > 0 ? `
+          <div class="bv-cover-row danger">
+            <span>Still uncovered</span>
+            <strong>${formatCurrency(plan.uncovered)}</strong>
+          </div>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderBudgetProjectionPanel(monthlyRows) {
+  const container = document.getElementById("budgetProjectionPanel");
+  if (!container) return;
+
+  const projection = buildMonthlyProjection(monthlyRows);
+  const projectedBalanceClass = projection.totalProjectedBalance >= 0 ? "green" : "red";
+  const badgeClass = projection.totalProjectedBalance >= 0 ? "" : " over";
+  const badgeText = projection.totalProjectedBalance >= 0
+    ? `Projected ${formatCurrency(projection.totalProjectedBalance)} under`
+    : `Projected ${formatCurrency(Math.abs(projection.totalProjectedBalance))} over`;
+
+  const rowsHtml = projection.rows.length
+    ? projection.rows.map(renderProjectionRow).join("")
+    : `<div class="bp-muted">No monthly expense budget rows yet.</div>`;
+
+  container.innerHTML = `
+    <div class="budget-projection-panel">
+      <div class="bproj-header">
+        <div>
+          <h2>Monthly Expense Projection</h2>
+          <p>Expected month-end spend using average daily spending so far this month.</p>
+        </div>
+        <span class="bproj-badge${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="bproj-grid">
+        <div class="bproj-summary">
+          <span>Projected Spend</span>
+          <strong>${formatCurrency(projection.totalProjectedSpend)}</strong>
+        </div>
+        <div class="bproj-summary">
+          <span>Monthly Allocation</span>
+          <strong>${formatCurrency(projection.totalAllocated)}</strong>
+        </div>
+        <div class="bproj-summary">
+          <span>Projected Balance</span>
+          <strong class="${projectedBalanceClass}">${formatCurrency(projection.totalProjectedBalance)}</strong>
+        </div>
+      </div>
+      <div class="bproj-rows">${rowsHtml}</div>
+    </div>`;
+}
+
+function buildMonthlyProjection(rows) {
+  const today = new Date();
+  const dayOfMonth = Math.max(1, today.getDate());
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const projectedRows = rows.map(row => {
+    const dailyAverage = row.spent / dayOfMonth;
+    const projectedSpend = dailyAverage * daysInMonth;
+    const projectedBalance = row.allocated - projectedSpend;
+    return { ...row, dailyAverage, projectedSpend, projectedBalance };
+  }).sort((a, b) => a.projectedBalance - b.projectedBalance || b.projectedSpend - a.projectedSpend);
+
+  return {
+    rows: projectedRows,
+    dayOfMonth,
+    daysInMonth,
+    totalAllocated: projectedRows.reduce((sum, row) => sum + row.allocated, 0),
+    totalProjectedSpend: projectedRows.reduce((sum, row) => sum + row.projectedSpend, 0),
+    totalProjectedBalance: projectedRows.reduce((sum, row) => sum + row.projectedBalance, 0)
+  };
+}
+
+function renderProjectionRow(row) {
+  const balanceClass = row.projectedBalance >= 0 ? "green" : "red";
+  const scale = Math.max(row.allocated, row.projectedSpend, 1);
+  const fillPct = Math.min(100, (row.projectedSpend / scale) * 100);
+  const budgetPct = Math.min(100, (row.allocated / scale) * 100);
+  return `
+    <div class="bproj-row">
+      <div class="bproj-row-top">
+        <span class="bproj-row-name">${escapeHtml(row.category)}</span>
+        <strong class="bproj-row-val ${balanceClass}">${formatCurrency(row.projectedBalance)}</strong>
+      </div>
+      <div class="bproj-track">
+        <span class="bproj-fill ${row.projectedBalance < 0 ? "over" : ""}" style="width:${fillPct.toFixed(2)}%;"></span>
+        <span class="bproj-budget-line" style="left:${budgetPct.toFixed(2)}%;"></span>
+      </div>
+      <div class="bproj-row-detail">
+        <span>${formatCurrency(row.spent)} spent · ${formatCurrency(row.dailyAverage)}/day</span>
+        <span>${formatCurrency(row.projectedSpend)} projected vs ${formatCurrency(row.allocated)}</span>
+      </div>
     </div>`;
 }
 
@@ -297,12 +435,19 @@ function buildSaveValues(list) {
   return values;
 }
 
-function updateBudgetCards(rows) {
+function updateBudgetCards(billsRows, monthlyRows) {
+  const rows = [...billsRows, ...monthlyRows];
+  const bills = summariseBudgetRows(billsRows);
+  const monthly = summariseBudgetRows(monthlyRows);
+  const billReserve = buildBillReallocationPlan(bills, monthly)
+    .cuts
+    .reduce((sum, cut) => sum + cut.cut, 0);
+  const monthlyFreeBalance = monthly.balance - billReserve;
   const totalAllocated = rows.reduce((s, r) => s + r.allocated, 0);
   const totalSpent     = rows.reduce((s, r) => s + r.spent,     0);
   const totalBalance   = rows.reduce((s, r) => s + r.balance,   0);
 
-  const foodRow     = rows.find(r => clean(r.category).toLowerCase() === "food");
+  const foodRow     = monthlyRows.find(r => clean(r.category).toLowerCase() === "food");
   const foodBalance = foodRow ? foodRow.balance : 0;
   const daysLeft    = getDaysRemainingInMonth();
 
@@ -310,7 +455,13 @@ function updateBudgetCards(rows) {
   setCurrencyValue("totalSpent", totalSpent, "red");
   setCurrencyValue("totalBalance", totalBalance, totalBalance < 0 ? "red" : "green");
   setCurrencyValue("foodPerDay", foodBalance / daysLeft, foodBalance < 0 ? "red" : "green");
-  setCurrencyValue("monthlyPerDay", totalBalance / daysLeft, totalBalance < 0 ? "red" : "green");
+  setCurrencyValue("monthlyPerDay", monthlyFreeBalance / daysLeft, monthlyFreeBalance < 0 ? "red" : "green");
+  setTextValue(
+    "monthlyPerDayNote",
+    billReserve > 0
+      ? `Monthly expenses only; ${formatCurrency(billReserve)} reserved for bills.`
+      : "Monthly expenses only; bills excluded."
+  );
 }
 
 function setCurrencyValue(id, value, tone = "") {
@@ -318,6 +469,12 @@ function setCurrencyValue(id, value, tone = "") {
   if (!el) return;
   el.innerText = formatCurrency(value);
   el.style.color = tone === "red" ? "var(--red)" : tone === "green" ? "var(--green)" : "";
+}
+
+function setTextValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerText = value;
 }
 
 function renderBudgetPressurePanel(billsRows, monthlyRows) {
@@ -352,16 +509,50 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
     : `<div class="bp-muted">No categories are currently over budget.</div>`;
 
   const monthlyNames = overMonthly.map(row => row.category).slice(0, 3).join(", ");
+  const reallocationPlan = buildBillReallocationPlan(bills, monthly);
+  const coveredFromMonthly = reallocationPlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const billCoverageTotal = coveredFromMonthly + reallocationPlan.uncovered;
+  const billReserveHtml = billCoverageTotal > 0
+    ? `<div class="bp-reserve-strip ${reallocationPlan.uncovered > 0 ? "danger" : ""}">
+        <div>
+          <span>Bills overspent</span>
+          <strong class="red">${formatCurrency(billCoverageTotal)}</strong>
+        </div>
+        <div>
+          <span>Reserved from monthly balance</span>
+          <strong>${formatCurrency(coveredFromMonthly)}</strong>
+        </div>
+        <div>
+          <span>Still uncovered</span>
+          <strong class="${reallocationPlan.uncovered > 0 ? "red" : "green"}">${formatCurrency(reallocationPlan.uncovered)}</strong>
+        </div>
+      </div>`
+    : "";
   const actions = [];
 
   if (billsCategoryOver > 0) {
     const billAction = bills.balance < 0
       ? "Top up the bill budget or reduce goal allocations before cutting required payments."
       : "Move allocation from under-used bill lines, or top up the bill budget if this is a permanent increase.";
+    const reallocationHtml = reallocationPlan.cuts.length
+      ? `<div class="bp-cut-list">
+          ${reallocationPlan.cuts.map(cut => `
+            <div class="bp-cut-row">
+              <span>${escapeHtml(cut.category)} <small>least spent so far</small></span>
+              <strong>Cut ${formatCurrency(cut.cut)}</strong>
+            </div>`).join("")}
+          ${reallocationPlan.uncovered > 0 ? `
+            <div class="bp-cut-row">
+              <span>Still uncovered</span>
+              <strong>${formatCurrency(reallocationPlan.uncovered)}</strong>
+            </div>` : ""}
+        </div>`
+      : "";
     actions.push(`
       <div class="bp-action danger">
         <strong>Protect bills first.</strong>
         Bill categories are ${formatCurrency(billsCategoryOver)} over. These are fixed commitments. ${billAction}
+        ${reallocationHtml}
       </div>`);
   } else {
     actions.push(`
@@ -416,6 +607,7 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
           <span class="bp-detail">More flexible categories</span>
         </div>
       </div>
+      ${billReserveHtml}
       <div class="bp-content">
         <div>
           <div class="bp-section-title">Over-budget categories</div>
@@ -427,6 +619,37 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
         </div>
       </div>
     </div>`;
+}
+
+function buildBillReallocationPlan(bills, monthly) {
+  let remaining = bills.rows.reduce((sum, row) => sum + row.over, 0);
+  const cuts = [];
+  if (remaining <= 0) return { cuts, uncovered: 0 };
+
+  monthly.rows
+    .filter(row => row.balance > 0)
+    .sort((a, b) => a.spent - b.spent || b.balance - a.balance)
+    .forEach(row => {
+      if (remaining <= 0) return;
+      const cut = Math.min(row.balance, remaining);
+      if (cut <= 0) return;
+      cuts.push({ category: row.category, cut });
+      remaining = Math.max(0, remaining - cut);
+    });
+
+  return { cuts, uncovered: remaining };
+}
+
+function buildBillCoverageMap(plan) {
+  return plan.cuts.reduce((map, cut) => {
+    const key = budgetCategoryKey(cut.category);
+    map[key] = (map[key] || 0) + cut.cut;
+    return map;
+  }, {});
+}
+
+function budgetCategoryKey(category) {
+  return clean(category).toLowerCase();
 }
 
 function summariseBudgetRows(rows) {
@@ -478,11 +701,7 @@ function getBudgetImpactAmount(row) {
   const claimableKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claimable") || "Claimable";
   const claimable = clean(row[claimableKey]).toLowerCase();
   if (claimable !== "yes") return amount;
-
-  const claimAmountKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim amount") || "Claim Amount";
-  const claimAmountRaw = getAmount(row[claimAmountKey]);
-  const claimAmount = claimAmountRaw > 0 ? claimAmountRaw : amount;
-  return Math.max(0, amount - Math.min(amount, claimAmount));
+  return 0;
 }
 
 function toNumber(value) {

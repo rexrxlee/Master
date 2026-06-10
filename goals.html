@@ -85,10 +85,47 @@
     }
     .balance-row.sub-row { font-size: 13px; color: var(--muted); }
     .balance-row.warn-row { background: #fef2f2; border-radius: 6px; padding: 6px 8px; }
+    .balance-row.claim-row {
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 6px;
+      padding: 7px 8px;
+      margin: 5px 0;
+    }
+    .balance-row.claim-cash-row {
+      margin-top: 4px;
+    }
     .bal-label { color: inherit; }
     .bal-val { font-family: 'DM Mono', monospace; font-weight: 600; }
     .bal-val.green { color: var(--green); }
     .bal-val.red   { color: var(--red); }
+    .bal-val.amber { color: #b45309; }
+    .claim-risk-note {
+      margin-top: 8px;
+      max-width: 480px;
+      border-radius: 7px;
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .claim-risk-note.active {
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      color: #78350f;
+    }
+    .claim-risk-note.safe {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .claim-risk-note strong {
+      color: inherit;
+      font-size: 12.5px;
+    }
 
     /* Stats */
     .stats-panel .panel-header { margin-bottom: 14px; }
@@ -547,8 +584,17 @@
     }
     .alloc-currency { padding: 0 6px; font-size: 13px; color: var(--muted); background: var(--bg); border-right: 1px solid var(--border); line-height: 34px; }
     .alloc-input { width: 80px; padding: 7px 8px; border: none; font-size: 13px; font-family: 'DM Mono', monospace; color: var(--text); background: transparent; outline: none; }
+    .alloc-tag-stack {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      max-width: 230px;
+    }
     .alloc-need-tag   { font-size: 11px; color: #ea580c; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 20px; padding: 1px 8px; white-space: nowrap; }
     .alloc-done-tag   { font-size: 11px; color: #16a34a; background: #f0fdf4; border: 1px solid #86efac; border-radius: 20px; padding: 1px 8px; white-space: nowrap; }
+    .alloc-claim-tag  { font-size: 11px; color: #92400e; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 20px; padding: 1px 8px; white-space: nowrap; }
 
     .alloc-footer {
       display: flex;
@@ -705,12 +751,12 @@
       background: #fff;
     }
     .gantt {
-      min-width: 860px;
+      min-width: 980px;
     }
     .gantt-months,
     .gantt-row {
       display: grid;
-      grid-template-columns: 230px minmax(620px, 1fr) 280px;
+      grid-template-columns: var(--gantt-label-width, 230px) minmax(var(--gantt-axis-width, 620px), 1fr) var(--gantt-status-width, 280px);
       border-bottom: 1px solid var(--border);
     }
     .gantt-row:last-child { border-bottom: none; }
@@ -733,12 +779,19 @@
     .gantt-status-head {
       border-right: none;
       border-left: 1px solid var(--border);
+      background: var(--bg);
+      position: relative;
+      z-index: 2;
     }
-    .gantt-month-grid,
-    .gantt-track {
+    .gantt-month-grid {
       display: grid;
       position: relative;
       min-height: 38px;
+    }
+    .gantt-track {
+      position: relative;
+      min-height: 38px;
+      overflow: hidden;
     }
     .gantt-month {
       padding: 9px 0;
@@ -784,30 +837,32 @@
       background-size: calc(100% / var(--gantt-months)) 100%;
     }
     .gantt-bar {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
       height: 18px;
       border-radius: 20px;
-      grid-row: 1;
-      align-self: center;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.65);
       min-width: 10px;
+      z-index: 1;
     }
     .gantt-bar.ok { opacity: 0.82; }
     .gantt-bar.warn { background: #f59e0b !important; opacity: 0.75; }
     .gantt-bar.danger { background: #ef4444 !important; opacity: 0.75; }
     .gantt-bar.neutral { background: #94a3b8 !important; opacity: 0.75; }
     .gantt-line {
-      grid-row: 1;
-      align-self: stretch;
-      justify-self: start;
+      position: absolute;
+      top: 6px;
+      bottom: 6px;
       width: 0;
       z-index: 2;
     }
     .gantt-line.today { border-left: 2px solid #111827; opacity: 0.5; }
     .gantt-line.deadline { border-left: 2px dashed currentColor; }
     .gantt-complete-marker {
-      grid-row: 1;
-      align-self: center;
-      justify-self: center;
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
       width: 11px;
       height: 11px;
       border-radius: 50%;
@@ -819,6 +874,9 @@
     .gantt-status {
       padding: 9px 12px;
       border-left: 1px solid var(--border);
+      background: #fff;
+      position: relative;
+      z-index: 2;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -1020,7 +1078,7 @@
       .alloc-col-label-bar { display: none; }
       .timeline-impact-row { grid-template-columns: 1fr; align-items: stretch; }
       .gm-grid { grid-template-columns: 1fr; }
-      .gantt-months, .gantt-row { grid-template-columns: 190px minmax(520px, 1fr) 230px; }
+      .gantt-months, .gantt-row { grid-template-columns: var(--gantt-label-width, 190px) minmax(var(--gantt-axis-width, 520px), 1fr) var(--gantt-status-width, 230px); }
       .boost-row, .boost-table-header { grid-template-columns: 1fr; }
       .boost-del-cell { justify-self: end; }
     }
@@ -1906,8 +1964,7 @@
       <a href="goals.html"          class="nav-item active"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
       <a href="add-transaction.html"class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
-      <a href="accounts.html"       class="nav-item"><span class="nav-icon">▣</span> Accounts</a>
-      <a href="setup.html"          class="nav-item"><span class="nav-icon">⚙</span> Setup</a>
+      <a href="accounts.html"       class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
     <div class="sidebar-status">
       <p id="status"></p>

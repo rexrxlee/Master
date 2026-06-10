@@ -32,10 +32,7 @@
         <span class="nav-icon">＋</span> Add Transaction
       </a>
       <a href="accounts.html" class="nav-item">
-        <span class="nav-icon">▣</span> Accounts
-      </a>
-      <a href="setup.html" class="nav-item">
-        <span class="nav-icon">⚙</span> Setup
+        <span class="nav-icon">▣</span> Accounts & Setup
       </a>
     </nav>
     <div class="sidebar-status">
@@ -127,13 +124,19 @@
       </div>
       <div class="accounts-card">
         <div class="card-header">
-          <h2 class="card-title">Savings Accounts</h2>
+          <h2 class="card-title">Assets & Accounts</h2>
+          <span class="card-badge" id="assetScopeBadge">All included</span>
         </div>
         <table id="savingsTable" class="accounts-table"></table>
+        <div id="pendingClaimsAssets" class="pending-claims-assets"></div>
         <div class="accounts-footer">
           <div class="account-line">
             <span class="acc-label">Credit Cards (owed)</span>
             <span class="acc-val" id="uobOneBalance">$0</span>
+          </div>
+          <div class="account-line claim-line" id="pendingClaimsLine" style="display:none;">
+            <span class="acc-label">Pending claims receivable</span>
+            <span class="acc-val positive" id="pendingClaimsBalance">$0</span>
           </div>
           <div class="account-line total-line">
             <span class="acc-label">Net Assets</span>

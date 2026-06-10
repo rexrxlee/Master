@@ -154,7 +154,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  margin: -8px -4px 10px;
+  padding: 8px 4px;
+  background: rgba(244,245,247,0.96);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(232,234,237,0.75);
 }
 
 .filter-group {
@@ -212,6 +219,13 @@ body {
 }
 .checkbox-option:hover { background: var(--bg); }
 .checkbox-option input[type="checkbox"] { accent-color: var(--accent); }
+.checkbox-option.select-all-option {
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 5px;
+  padding-bottom: 9px;
+}
 
 .clear-btn {
   padding: 8px 14px;
@@ -414,11 +428,34 @@ body {
   border-collapse: collapse;
   padding: 0;
 }
+.accounts-table th {
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+.accounts-table th:first-child {
+  width: 56px;
+  text-align: center;
+}
+.accounts-table th:last-child { text-align: right; }
 .accounts-table td {
   padding: 10px 20px;
   font-size: 13.5px;
   border-bottom: 1px solid var(--border);
   color: var(--text);
+}
+.accounts-table td.asset-include-cell {
+  width: 56px;
+  text-align: center;
+  padding-right: 8px;
+}
+.accounts-table td.asset-include-cell input {
+  accent-color: var(--accent);
 }
 .accounts-table td:last-child {
   text-align: right;
@@ -426,6 +463,51 @@ body {
   font-weight: 500;
 }
 .accounts-table tr:last-child td { border-bottom: none; }
+.accounts-table tr.excluded-account td {
+  color: var(--muted);
+  background: #f8fafc;
+}
+.accounts-table tr.excluded-account td:last-child {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.card-badge.warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.pending-claims-assets {
+  display: none;
+  padding: 10px 20px 12px;
+  border-top: 1px solid var(--border);
+  background: #fffbeb;
+}
+.pending-claims-title,
+.pending-claim-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pending-claims-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+.pending-claims-title strong,
+.pending-claim-row strong,
+.acc-val.positive {
+  color: var(--green);
+  font-family: 'DM Mono', monospace;
+}
+.pending-claim-row {
+  font-size: 12.5px;
+  color: #78350f;
+  padding: 3px 0;
+}
 
 .accounts-footer {
   padding: 12px 20px;
@@ -443,6 +525,7 @@ body {
   margin-top: 6px;
   padding-top: 10px;
 }
+.claim-line .acc-label { color: #92400e; }
 .acc-label { font-size: 13px; color: var(--muted); }
 .acc-val { font-size: 13.5px; font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text); }
 .total-line .acc-label, .total-line .acc-val { font-weight: 600; color: var(--text); font-size: 14px; }

@@ -2,6 +2,10 @@ let allTransactions = [];
 let isUpdatingFilters = false;
 let savingsAccountNames = [];
 let creditCardAccountNames = [];
+let configuredAccounts = [];
+let assetAccountSelections = {};
+const ASSET_SCOPE_STORAGE_KEY = "fintrack.dashboard.assetAccountSelections.v1";
+const NO_FILTER_SELECTION = "__FINTRACK_NONE_SELECTED__";
 
 async function loadDashboard() {
   try {
@@ -17,7 +21,7 @@ async function loadDashboard() {
     const budgetSheet = workbook.Sheets["Budget Setup"];
     if (budgetSheet) {
       const allRows = XLSX.utils.sheet_to_json(budgetSheet, { header: 1, blankrows: false });
-      const configuredAccounts = allRows.slice(1)
+      configuredAccounts = allRows.slice(1)
         .map(row => ({
           name: clean(row[9]),
           type: clean(row[10] || "Savings")
@@ -32,6 +36,7 @@ async function loadDashboard() {
         .filter(account => account.type.toLowerCase() === "credit card")
         .map(account => account.name);
     }
+    loadAssetAccountSelections();
     setupFilters();
     const filters = getCurrentFilters();
     refreshAllFilters(filters);
@@ -46,14 +51,64 @@ async function loadDashboard() {
 }
 
 function clean(value) { return String(value ?? "").trim(); }
+function accountKey(value) { return clean(value).toLowerCase().replace(/\s+/g, " "); }
+function fieldKey(value) { return clean(value).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function getRowValue(row, fieldName) {
+  const wanted = fieldKey(fieldName);
+  const key = Object.keys(row || {}).find(k => fieldKey(k) === wanted);
+  return key ? row[key] : undefined;
+}
 
 function prepareTransactions(rows) {
   const headers = rows[0].map(header => clean(header));
+  const canonicalHeaders = [
+    "Date",
+    "Transaction",
+    "Amount",
+    "Main Category",
+    "Sub Category",
+    "Account",
+    "Claimable",
+    "Claim Status",
+    "Claim Amount"
+  ];
   allTransactions = rows.slice(1).map(row => {
     const obj = {};
-    headers.forEach((header, index) => { obj[header] = row[index]; });
+    headers.forEach((header, index) => {
+      if (header) obj[header] = row[index];
+    });
+    canonicalHeaders.forEach((header, index) => {
+      if (obj[header] === undefined && row[index] !== undefined) obj[header] = row[index];
+    });
     return obj;
   });
+}
+
+function loadAssetAccountSelections() {
+  try {
+    assetAccountSelections = JSON.parse(localStorage.getItem(ASSET_SCOPE_STORAGE_KEY) || "{}") || {};
+  } catch {
+    assetAccountSelections = {};
+  }
+}
+
+function saveAssetAccountSelections() {
+  try {
+    localStorage.setItem(ASSET_SCOPE_STORAGE_KEY, JSON.stringify(assetAccountSelections));
+  } catch {
+    // Local storage is a convenience only; dashboard still works without it.
+  }
+}
+
+function isAssetAccountIncluded(account) {
+  const key = accountKey(account);
+  return assetAccountSelections[key] !== false;
+}
+
+function toggleAssetAccount(account, checked) {
+  assetAccountSelections[accountKey(account)] = !!checked;
+  saveAssetAccountSelections();
+  updateFinanceCards(allTransactions);
 }
 
 function setupFilters() {
@@ -120,7 +175,24 @@ function toDateInputValue(d) {
 }
 
 function getCheckedValues(menuId) {
-  return Array.from(document.querySelectorAll(`#${menuId} input[type="checkbox"]:checked`)).map(input => clean(input.value));
+  const checkboxes = Array.from(document.querySelectorAll(`#${menuId} input[type="checkbox"]:not([data-select-all])`));
+  const checked = checkboxes.filter(input => input.checked).map(input => clean(input.value));
+  if (checkboxes.length > 0 && checked.length === 0) return [NO_FILTER_SELECTION];
+  return checkboxes.length > 0 && checked.length === checkboxes.length ? [] : checked;
+}
+
+function hasNoFilterSelection(values) {
+  return Array.isArray(values) && values.includes(NO_FILTER_SELECTION);
+}
+
+function cleanFilterValues(values) {
+  return (values || []).filter(value => value !== NO_FILTER_SELECTION);
+}
+
+function filterAllowsValue(values, rowValue) {
+  if (hasNoFilterSelection(values)) return false;
+  const selected = cleanFilterValues(values);
+  return selected.length === 0 || selected.includes(clean(rowValue));
 }
 
 function getCurrentFilters() {
@@ -146,6 +218,47 @@ function isExpenseRow(row) {
   return cat !== "income" && cat !== "transfer" && cat !== "saving goals";
 }
 
+function isClaimableRow(row) {
+  return clean(getRowValue(row, "Claimable")).toLowerCase() === "yes";
+}
+
+function isSpendAnalyticsRow(row) {
+  return isExpenseRow(row) && !isClaimableRow(row);
+}
+
+function getClaimAmount(row) {
+  const expenseAmount = getAmount(getRowValue(row, "Amount"));
+  const storedClaimAmount = getAmount(getRowValue(row, "Claim Amount"));
+  const claimAmount = storedClaimAmount > 0 ? storedClaimAmount : expenseAmount;
+  return Math.min(expenseAmount, claimAmount);
+}
+
+function getPendingClaimReceivableAmount(row) {
+  if (!isClaimableRow(row)) return 0;
+  if (clean(getRowValue(row, "Claim Status")).toLowerCase() !== "pending") return 0;
+  return getClaimAmount(row);
+}
+
+function computePendingClaimsByAccount(rows, shouldIncludeAccount = () => true) {
+  const byAccount = {};
+  let total = 0;
+  let count = 0;
+
+  (rows || []).forEach(row => {
+    const amount = getPendingClaimReceivableAmount(row);
+    if (amount <= 0) return;
+
+    const account = clean(row["Account"]) || "(No account)";
+    if (!shouldIncludeAccount(account)) return;
+
+    byAccount[account] = (byAccount[account] || 0) + amount;
+    total += amount;
+    count += 1;
+  });
+
+  return { byAccount, total, count };
+}
+
 function isIncomeRow(row) {
   return clean(row["Main Category"]).toLowerCase() === "income"
     && clean(row["Sub Category"]) !== "Opening Balance";
@@ -154,9 +267,9 @@ function isIncomeRow(row) {
 function rowMatchesFilters(row, filters, ignoreField = null) {
   const rowDate = parseExcelDate(row["Date"]);
   if (!rowDate) return false;
-  if (ignoreField !== "mainCategory" && filters.mainCategories.length > 0 && !filters.mainCategories.includes(clean(row["Main Category"]))) return false;
-  if (ignoreField !== "subCategory" && filters.subCategories.length > 0 && !filters.subCategories.includes(clean(row["Sub Category"]))) return false;
-  if (ignoreField !== "transaction" && filters.transactions.length > 0 && !filters.transactions.includes(clean(row["Transaction"]))) return false;
+  if (ignoreField !== "mainCategory" && !filterAllowsValue(filters.mainCategories, row["Main Category"])) return false;
+  if (ignoreField !== "subCategory" && !filterAllowsValue(filters.subCategories, row["Sub Category"])) return false;
+  if (ignoreField !== "transaction" && !filterAllowsValue(filters.transactions, row["Transaction"])) return false;
   if (ignoreField !== "date" && filters.fromDate) {
     const [fy, fm, fd] = filters.fromDate.split("-").map(Number);
     if (rowDate < new Date(fy, fm - 1, fd)) return false;
@@ -170,7 +283,7 @@ function rowMatchesFilters(row, filters, ignoreField = null) {
 
 function refreshAllFilters(filters = getCurrentFilters()) {
   isUpdatingFilters = true;
-  const expenseOnly = allTransactions.filter(isExpenseRow);
+  const expenseOnly = allTransactions.filter(isSpendAnalyticsRow);
   rebuildCheckboxMenu("mainCategoryMenu", "Main Category", expenseOnly.filter(row => rowMatchesFilters(row, filters, "mainCategory")), filters.mainCategories);
   rebuildCheckboxMenu("subCategoryMenu", "Sub Category", expenseOnly.filter(row => rowMatchesFilters(row, filters, "subCategory")), filters.subCategories);
   rebuildCheckboxMenu("transactionMenu", "Transaction", expenseOnly.filter(row => rowMatchesFilters(row, filters, "transaction")), filters.transactions);
@@ -179,19 +292,47 @@ function refreshAllFilters(filters = getCurrentFilters()) {
 
 function rebuildCheckboxMenu(menuId, columnName, rows, selectedValues) {
   const menu = document.getElementById(menuId);
+  const noneSelected = hasNoFilterSelection(selectedValues);
+  const selected = cleanFilterValues(selectedValues);
   const values = [...new Set([
     ...rows.map(row => clean(row[columnName])).filter(v => v !== ""),
-    ...selectedValues
+    ...selected
   ])].sort();
   menu.innerHTML = "";
+
+  const allSelected = !noneSelected && (selected.length === 0 || values.every(value => selected.includes(value)));
+  const allLabel = document.createElement("label");
+  allLabel.className = "checkbox-option select-all-option";
+  const allCheckbox = document.createElement("input");
+  allCheckbox.type = "checkbox";
+  allCheckbox.dataset.selectAll = "true";
+  allCheckbox.checked = allSelected;
+  allCheckbox.indeterminate = !noneSelected && selected.length > 0 && !allSelected;
+  allCheckbox.addEventListener("change", () => {
+    menu.querySelectorAll("input[type='checkbox']:not([data-select-all])").forEach(input => {
+      input.checked = allCheckbox.checked;
+    });
+    allCheckbox.indeterminate = false;
+    handleFilterChange();
+  });
+  allLabel.appendChild(allCheckbox);
+  allLabel.appendChild(document.createTextNode(" Select all"));
+  menu.appendChild(allLabel);
+
   values.forEach(value => {
     const label = document.createElement("label");
     label.className = "checkbox-option";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = value;
-    checkbox.checked = selectedValues.includes(value);
-    checkbox.addEventListener("change", handleFilterChange);
+    checkbox.checked = !noneSelected && (selected.length === 0 || selected.includes(value));
+    checkbox.addEventListener("change", () => {
+      const itemCheckboxes = Array.from(menu.querySelectorAll("input[type='checkbox']:not([data-select-all])"));
+      const checkedCount = itemCheckboxes.filter(input => input.checked).length;
+      allCheckbox.checked = itemCheckboxes.length > 0 && checkedCount === itemCheckboxes.length;
+      allCheckbox.indeterminate = checkedCount > 0 && checkedCount < itemCheckboxes.length;
+      handleFilterChange();
+    });
     label.appendChild(checkbox);
     label.appendChild(document.createTextNode(" " + value));
     menu.appendChild(label);
@@ -200,9 +341,9 @@ function rebuildCheckboxMenu(menuId, columnName, rows, selectedValues) {
 
 function updateActiveFilterBadges(filters = getCurrentFilters()) {
   const badges = [];
-  if (filters.mainCategories.length > 0) badges.push(...filters.mainCategories.map(v => `Main: ${v}`));
-  if (filters.subCategories.length > 0) badges.push(...filters.subCategories.map(v => `Sub: ${v}`));
-  if (filters.transactions.length > 0) badges.push(...filters.transactions.map(v => `Tx: ${v}`));
+  addFilterBadges(badges, "Main", filters.mainCategories);
+  addFilterBadges(badges, "Sub", filters.subCategories);
+  addFilterBadges(badges, "Tx", filters.transactions);
   if (filters.fromDate) badges.push(`From: ${filters.fromDate}`);
   if (filters.toDate) badges.push(`To: ${filters.toDate}`);
 
@@ -219,8 +360,22 @@ function updateActiveFilterBadges(filters = getCurrentFilters()) {
   if (clearBtn) clearBtn.style.display = badges.length > 0 ? "inline-block" : "none";
 }
 
+function addFilterBadges(badges, label, values) {
+  if (!values || values.length === 0) return;
+  if (hasNoFilterSelection(values)) {
+    badges.push(`${label}: none selected`);
+    return;
+  }
+  const selected = cleanFilterValues(values);
+  if (selected.length > 3) {
+    badges.push(`${label}: ${selected.length} selected`);
+  } else {
+    badges.push(...selected.map(v => `${label}: ${v}`));
+  }
+}
+
 function updateDashboard(filters = getCurrentFilters()) {
-  const filtered = allTransactions.filter(row => isExpenseRow(row) && rowMatchesFilters(row, filters));
+  const filtered = allTransactions.filter(row => isSpendAnalyticsRow(row) && rowMatchesFilters(row, filters));
   const incomeFiltered = allTransactions.filter(row => {
       if (!isIncomeRow(row)) return false;
       const rowDate = parseExcelDate(row["Date"]);
@@ -270,6 +425,7 @@ function updateDashboard(filters = getCurrentFilters()) {
 function updateFinanceCards(data) {
   const savingsAccounts = savingsAccountNames;
   const balances = {};
+  const savingsAccountKeys = new Set(savingsAccounts.map(accountKey));
 
   savingsAccounts.forEach(account => {
     const accountRows = data.filter(row => clean(row["Account"]) === account);
@@ -285,27 +441,29 @@ function updateFinanceCards(data) {
       return d && d >= openingDate;
     });
 
-    const income = subsequent.filter(row => clean(row["Main Category"]).toLowerCase() === "income")
-      .reduce((sum, row) => sum + getSignedAmount(row["Amount"]), 0);
-    const nonIncome = subsequent.filter(row => clean(row["Main Category"]).toLowerCase() !== "income")
-      .reduce((sum, row) => sum + getSignedAmount(row["Amount"]), 0);
+    const movement = subsequent.reduce((sum, row) => sum + getAccountBalanceImpact(row), 0);
 
-    balances[account] = openingBalance + income - nonIncome;
+    balances[account] = openingBalance + movement;
   });
 
-  const savingsTotal = savingsAccounts.reduce((sum, account) => sum + (balances[account] || 0), 0);
+  const includedSavingsAccounts = savingsAccounts.filter(isAssetAccountIncluded);
+  const savingsTotal = includedSavingsAccounts.reduce((sum, account) => sum + (balances[account] || 0), 0);
+  const excludedSavingsTotal = savingsAccounts
+    .filter(account => !isAssetAccountIncluded(account))
+    .reduce((sum, account) => sum + (balances[account] || 0), 0);
 
   // ── Credit card balance ────────────────────────────────────────────────────
-  // Outstanding CC balance = opening balance + charges on the card - payments made to the card.
+  // Outstanding CC balance = opening balance + charges, adjusted by transfer direction.
   // Opening balance row is stored as Income/Opening Balance with a positive amount (what you owe).
   // Expense rows on the CC account add to what you owe.
-  // CC-pay rows (Main Category = "Transfer", Account = CC) reduce what you owe.
+  // Transfer/CC payment rows into the CC reduce what you owe; transfers out increase it.
   // We know the CC accounts from Budget Setup (type = "Credit Card").
   // Fall back to the old "not savings" inference only if no credit-card accounts are configured.
   const allAccountsInData = [...new Set(data.map(row => clean(row["Account"])).filter(Boolean))];
+  const creditCardAccountKeys = new Set(creditCardAccountNames.map(accountKey));
   const ccAccounts = creditCardAccountNames.length > 0
-    ? creditCardAccountNames.filter(a => allAccountsInData.includes(a))
-    : allAccountsInData.filter(a => !savingsAccounts.includes(a));
+    ? allAccountsInData.filter(a => creditCardAccountKeys.has(accountKey(a)))
+    : allAccountsInData.filter(a => !savingsAccountKeys.has(accountKey(a)));
 
   const ccBalances = {};
   ccAccounts.forEach(account => {
@@ -333,27 +491,34 @@ function updateFinanceCards(data) {
       })
       .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
 
-    // Payments: transfer rows where this CC is the destination (reduce balance owed)
-    // These show up as Main Category = Transfer with Account = CC name
-    const payments = subsequent
+    // Transfers into a CC reduce what is owed; transfers out of a CC increase it.
+    const transferImpact = subsequent
       .filter(row => clean(row["Main Category"]).toLowerCase() === "transfer")
-      .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
+      .reduce((sum, row) => sum + getCreditCardTransferOwedImpact(row), 0);
 
-    ccBalances[account] = openingBalance + charges - payments;
-    log(`CC [${account}]: opening=${openingBalance.toFixed(2)}, charges=${charges.toFixed(2)}, payments=${payments.toFixed(2)}, total=${ccBalances[account].toFixed(2)}, rows=${subsequent.length}`);
+    ccBalances[account] = openingBalance + charges + transferImpact;
+    log(`CC [${account}]: opening=${openingBalance.toFixed(2)}, charges=${charges.toFixed(2)}, transferImpact=${transferImpact.toFixed(2)}, total=${ccBalances[account].toFixed(2)}, rows=${subsequent.length}`);
   });
 
   // Total CC outstanding (what you owe)
   const totalCcOwed = ccAccounts.reduce((sum, a) => sum + (ccBalances[a] || 0), 0);
   log(`CC accounts detected: ${ccAccounts.join(", ") || "(none)"} | Savings: ${savingsAccounts.join(", ")}`);
 
+  const pendingClaims = computePendingClaimsByAccount(data, account => {
+    const key = accountKey(account);
+    if (savingsAccountKeys.has(key)) return isAssetAccountIncluded(account);
+    return true;
+  });
+
   // For backward-compat the HTML still uses uobOneBalance / assetsBalance IDs;
-  // show total CC owed and net assets (savings minus CC debt)
-  const assetsBalance = savingsTotal - totalCcOwed;
+  // show total CC owed and personal net assets (included savings minus CC debt plus pending receivables).
+  const assetsBalance = savingsTotal - totalCcOwed + pendingClaims.total;
 
   // If there's exactly one CC account keep the label; otherwise show total
   const uobOneEl = document.getElementById("uobOneBalance");
   if (uobOneEl) uobOneEl.innerText = formatCurrency(totalCcOwed);
+  renderPendingClaimsAssets(pendingClaims);
+  updateAssetScopeBadge(savingsAccounts.length - includedSavingsAccounts.length, excludedSavingsTotal);
   document.getElementById("assetsBalance").innerText = formatCurrency(assetsBalance);
   drawSavingsTable(savingsAccounts, balances, savingsTotal);
 }
@@ -361,18 +526,93 @@ function updateFinanceCards(data) {
 function drawSavingsTable(accounts, balances, total) {
   const table = document.getElementById("savingsTable");
   table.innerHTML = "";
+  const header = document.createElement("tr");
+  header.className = "accounts-head-row";
+  header.innerHTML = `<th>Use</th><th>Account</th><th>Balance</th>`;
+  table.appendChild(header);
+
   accounts.forEach(account => {
+    const included = isAssetAccountIncluded(account);
     const tr = document.createElement("tr");
-    const accountTd = document.createElement("td"); accountTd.innerText = account;
-    const amountTd = document.createElement("td"); amountTd.innerText = formatCurrency(balances[account]); amountTd.className = "amount-cell";
-    tr.appendChild(accountTd); tr.appendChild(amountTd);
+    if (!included) tr.className = "excluded-account";
+
+    const includeTd = document.createElement("td");
+    includeTd.className = "asset-include-cell";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = included;
+    checkbox.title = included ? "Included in Net Assets" : "Excluded from Net Assets";
+    checkbox.addEventListener("change", () => toggleAssetAccount(account, checkbox.checked));
+    includeTd.appendChild(checkbox);
+
+    const accountTd = document.createElement("td");
+    accountTd.innerText = account;
+    const amountTd = document.createElement("td");
+    amountTd.innerText = formatCurrency(balances[account]);
+    amountTd.className = "amount-cell";
+
+    tr.appendChild(includeTd);
+    tr.appendChild(accountTd);
+    tr.appendChild(amountTd);
     table.appendChild(tr);
   });
+
   const totalRow = document.createElement("tr"); totalRow.className = "total-row";
-  const totalLabel = document.createElement("td"); totalLabel.innerText = "Total";
+  const totalCount = document.createElement("td"); totalCount.innerText = "";
+  const totalLabel = document.createElement("td"); totalLabel.innerText = "Included savings";
   const totalAmount = document.createElement("td"); totalAmount.innerText = formatCurrency(total); totalAmount.className = "amount-cell";
-  totalRow.appendChild(totalLabel); totalRow.appendChild(totalAmount);
+  totalRow.appendChild(totalCount); totalRow.appendChild(totalLabel); totalRow.appendChild(totalAmount);
   table.appendChild(totalRow);
+}
+
+function renderPendingClaimsAssets(summary) {
+  const section = document.getElementById("pendingClaimsAssets");
+  const line = document.getElementById("pendingClaimsLine");
+  const balance = document.getElementById("pendingClaimsBalance");
+
+  if (balance) balance.innerText = "+" + formatCurrency(summary.total);
+  if (line) line.style.display = summary.total > 0 ? "flex" : "none";
+  if (!section) return;
+
+  section.innerHTML = "";
+  if (summary.total <= 0) {
+    section.style.display = "none";
+    return;
+  }
+
+  section.style.display = "block";
+  const title = document.createElement("div");
+  title.className = "pending-claims-title";
+  title.innerHTML = `<span>Pending Claims Receivable</span><strong>+${formatCurrency(summary.total)}</strong>`;
+  section.appendChild(title);
+
+  Object.entries(summary.byAccount)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([account, amount]) => {
+      const row = document.createElement("div");
+      row.className = "pending-claim-row";
+      const label = document.createElement("span");
+      label.textContent = account;
+      const value = document.createElement("strong");
+      value.textContent = "+" + formatCurrency(amount);
+      row.appendChild(label);
+      row.appendChild(value);
+      section.appendChild(row);
+    });
+}
+
+function updateAssetScopeBadge(excludedCount, excludedTotal) {
+  const badge = document.getElementById("assetScopeBadge");
+  if (!badge) return;
+  if (excludedCount > 0) {
+    badge.textContent = `${excludedCount} excluded`;
+    badge.title = `${formatCurrency(excludedTotal)} excluded from Net Assets`;
+    badge.classList.add("warn");
+  } else {
+    badge.textContent = "All included";
+    badge.title = "All savings accounts are counted in Net Assets";
+    badge.classList.remove("warn");
+  }
 }
 
 // ─── Tables ────────────────────────────────────────────────────────────────────
@@ -495,7 +735,7 @@ function getBreakdownMonthCount(months, filters) {
 // ─── Insight Cards ─────────────────────────────────────────────────────────────
 
 function renderInsightCards(data, incomeData, allExpenses) {
-  allExpenses = (allExpenses || data).filter(isExpenseRow);
+  allExpenses = (allExpenses || data).filter(isSpendAnalyticsRow);
   const today = new Date();
 
   const filteredDates = data.map(r => parseExcelDate(r["Date"])).filter(Boolean);
@@ -545,7 +785,10 @@ function renderInsightCards(data, incomeData, allExpenses) {
 // ─── Reset Filters ─────────────────────────────────────────────────────────────
 
 function resetFilters() {
-  document.querySelectorAll(".checkbox-menu input[type='checkbox']").forEach(input => { input.checked = false; });
+  document.querySelectorAll(".checkbox-menu input[type='checkbox']").forEach(input => {
+    input.checked = true;
+    input.indeterminate = false;
+  });
   document.getElementById("fromDate").value = "";
   document.getElementById("toDate").value = "";
   const filters = getCurrentFilters();
@@ -575,6 +818,28 @@ function parseExcelDate(value) {
 
 function getAmount(value) { const n = Number(String(value).replace(/[$,]/g,"")); return isNaN(n) ? 0 : Math.abs(n); }
 function getSignedAmount(value) { if (typeof value === "number") return value; const n = Number(String(value).replace(/\$/g,"").replace(/,/g,"").trim()); return isNaN(n) ? 0 : n; }
+
+function getAccountBalanceImpact(row) {
+  const amount = Math.abs(getSignedAmount(row["Amount"]));
+  const main = clean(row["Main Category"]).toLowerCase();
+  const sub = clean(row["Sub Category"]).toLowerCase();
+
+  if (main === "income") return amount;
+  if (main === "transfer") {
+    if (sub === "transfer in" || sub === "cc payment in") return amount;
+    if (sub === "transfer out" || sub === "cc payment out") return -amount;
+    return 0;
+  }
+  return -amount;
+}
+
+function getCreditCardTransferOwedImpact(row) {
+  const amount = Math.abs(getSignedAmount(row["Amount"]));
+  const sub = clean(row["Sub Category"]).toLowerCase();
+  if (sub === "transfer in" || sub === "cc payment in") return -amount;
+  if (sub === "transfer out" || sub === "cc payment out") return amount;
+  return 0;
+}
 function formatCurrency(value) { return value.toLocaleString("en-SG", { style:"currency", currency:"SGD", minimumFractionDigits:2, maximumFractionDigits:2 }); }
 
 function formatKpiCurrency(value) {

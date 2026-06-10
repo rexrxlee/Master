@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Accounts — Fintrack</title>
+  <title>Accounts & Setup — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,7 +11,7 @@
   <style>
     .accounts-layout {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
       gap: 24px;
       align-items: start;
     }
@@ -84,6 +84,50 @@
       transition: opacity 0.15s;
     }
     .save-all-btn:hover { opacity: 0.85; }
+    .accounts-table-wrap {
+      overflow-x: auto;
+    }
+    #accountsTable {
+      min-width: 820px;
+    }
+    #accountsTable input,
+    #accountsTable select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 9px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff;
+    }
+    .acct-name-col { min-width: 190px; }
+    .acct-type-col { width: 140px; }
+    .acct-date-col { width: 150px; }
+    .acct-balance-col { width: 150px; }
+    .acct-action-col { width: 76px; }
+    .acct-delete-btn {
+      padding: 6px 10px;
+      border: 1px solid #fca5a5;
+      background: #fef2f2;
+      color: #dc2626;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .acct-delete-btn:hover { background: #fee2e2; }
+    .merged-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
     @media (max-width: 900px) {
       .accounts-layout { grid-template-columns: 1fr; }
     }
@@ -101,8 +145,7 @@
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
       <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
-      <a href="accounts.html" class="nav-item active"><span class="nav-icon">▣</span> Accounts</a>
-      <a href="setup.html" class="nav-item"><span class="nav-icon">⚙</span> Setup</a>
+      <a href="accounts.html" class="nav-item active"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
     <div class="sidebar-status">
       <p id="status"></p>
@@ -112,11 +155,11 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <h1 class="page-title">Accounts</h1>
-        <p class="page-subtitle">Manage your accounts and income categories</p>
+        <h1 class="page-title">Accounts & Setup</h1>
+        <p class="page-subtitle">Manage accounts, income categories, and opening balances</p>
       </div>
       <div class="topbar-right">
-        <button class="save-all-btn" onclick="saveAccountsToExcel()">💾 Save All to Excel</button>
+        <button class="save-all-btn" onclick="saveAccountsToExcel()">💾 Save All</button>
       </div>
     </header>
 
@@ -128,11 +171,16 @@
     <div class="accounts-layout">
 
       <!-- Accounts section -->
-      <div class="section-card">
+      <div class="section-card" id="openingBalances">
         <div class="card-header">
           <h2 class="card-title">Accounts</h2>
         </div>
-        <table class="budget-table" id="accountsTable"></table>
+        <p class="merged-note">
+          <span>Opening balances belong to the account row. They are saved as Opening Balance transactions so your starting totals stay correct.</span>
+        </p>
+        <div class="accounts-table-wrap">
+          <table class="budget-table" id="accountsTable"></table>
+        </div>
         <div class="section-add-row">
           <input id="accountNameInput" placeholder="Account name">
           <select id="accountTypeInput">
@@ -157,10 +205,14 @@
       </div>
 
     </div>
+    <div id="setupSuccess" class="success-message" style="display:none;margin-top:16px;">
+      Saved.
+    </div>
   </main>
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
   <script src="accounts.js"></script>
+  <script src="setup.js"></script>
 </body>
 </html>
