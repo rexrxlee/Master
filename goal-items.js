@@ -23,6 +23,8 @@ let _giGoalNames    = [];   // goal names pulled from goalsData (parent module)
 let _giAccounts     = [];   // accounts from allAccounts (parent module)
 let _giExpanded     = {};   // { goalName: bool } collapse state
 let _giSheetExists  = false;
+let _giAutoSaveTimer = null;
+let _giAutoSaveInFlight = false;
 
 // ─── Entry Point (called from tab switch) ─────────────────────────
 
@@ -98,7 +100,7 @@ function _renderPlannerTab(container) {
   let html = `
     <div class="gi-header-bar">
       <div class="gi-header-summary" id="giHeaderSummary"></div>
-      <button class="gi-save-btn" onclick="saveAllGoalItems()">💾 Save to Excel</button>
+      <span class="gi-autosave-status" id="goalItemsAutosaveStatus">Autosaves to Excel</span>
     </div>
     <div class="gi-goals-list" id="giGoalsList"></div>
   `;
@@ -473,6 +475,7 @@ function addGoalItem(goalName) {
   // Close the add form
   const details = document.getElementById("giAddDetails_" + slug);
   if (details) details.removeAttribute("open");
+  scheduleGoalItemsAutoSave();
 }
 
 // ─── Edit Item ─────────────────────────────────────────────────────
@@ -512,6 +515,7 @@ function saveEditGoalItem(itemId) {
 
   _reRenderGoalSection(item.goalName);
   _renderGoalsSummaryBar();
+  scheduleGoalItemsAutoSave();
 }
 
 // ─── Checkbox quick-action ─────────────────────────────────────────
@@ -534,6 +538,7 @@ function cancelGoalItem(itemId) {
   item.status = "Cancelled";
   _reRenderGoalSection(item.goalName);
   _renderGoalsSummaryBar();
+  scheduleGoalItemsAutoSave();
 }
 
 function undoGoalItem(itemId) {
@@ -544,6 +549,7 @@ function undoGoalItem(itemId) {
   item.purchasedDate   = "";
   _reRenderGoalSection(item.goalName);
   _renderGoalsSummaryBar();
+  scheduleGoalItemsAutoSave();
 }
 
 function deleteGoalItem(itemId) {
@@ -553,6 +559,7 @@ function deleteGoalItem(itemId) {
   _goalItems = _goalItems.filter(i => i.itemId !== itemId);
   _reRenderGoalSection(item.goalName);
   _renderGoalsSummaryBar();
+  scheduleGoalItemsAutoSave();
 }
 
 // ─── Purchase Modal ────────────────────────────────────────────────
@@ -693,14 +700,14 @@ async function confirmPurchase(itemId) {
 
 // ─── Bump goal target ──────────────────────────────────────────────
 
-function bumpGoalTarget(goalName) {
+async function bumpGoalTarget(goalName) {
   const goal = (typeof goalsData !== "undefined" ? goalsData : []).find(g => g.name === goalName);
   if (!goal) return;
 
   const items    = _goalItems.filter(i => i.goalName === goalName && i.status !== "Cancelled");
   const subTotal = items.reduce((s,i) => s + i.estAmount, 0);
 
-  if (!confirm(`Bump target for "${goalName}" from ${_fmtCurrency(goal.target)} to ${_fmtCurrency(subTotal)}?\n\nThis updates the goal target to match your sub-items. Remember to Save All Goals to Excel afterwards.`)) return;
+  if (!confirm(`Bump target for "${goalName}" from ${_fmtCurrency(goal.target)} to ${_fmtCurrency(subTotal)}?`)) return;
 
   goal.target = subTotal;
   // Update the input in the allocator row if visible
@@ -709,16 +716,68 @@ function bumpGoalTarget(goalName) {
 
   _reRenderGoalSection(goalName);
   _renderGoalsSummaryBar();
-  alert(`Target updated to ${_fmtCurrency(subTotal)}. Remember to click "Save All Goals to Excel" to persist this change.`);
+  if (typeof refreshGoalCardsGrid === "function") refreshGoalCardsGrid();
+  if (typeof refreshGoalInsightPanels === "function") refreshGoalInsightPanels();
+  if (typeof persistGoalsToExcel === "function") {
+    const saved = await persistGoalsToExcel({ silent: true, includeBoosts: false });
+    if (!saved) {
+      alert("Target updated on this page, but Excel autosave failed. Check the autosave status and try again.");
+      return;
+    }
+  }
+  alert(`Target updated to ${_fmtCurrency(subTotal)}.`);
 }
 
-// ─── Save All to Excel ─────────────────────────────────────────────
+// ─── Autosave / Save All to Excel ─────────────────────────────────
+
+function setGoalItemsAutoSaveStatus(message, tone = "") {
+  const el = document.getElementById("goalItemsAutosaveStatus");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "gi-autosave-status" + (tone ? " " + tone : "");
+}
+
+function scheduleGoalItemsAutoSave(delay = 700) {
+  clearTimeout(_giAutoSaveTimer);
+  setGoalItemsAutoSaveStatus("Saving soon...");
+  _giAutoSaveTimer = setTimeout(() => {
+    persistGoalItemsToExcel({ silent: true });
+  }, delay);
+}
+
+async function persistGoalItemsToExcel(options = {}) {
+  if (_giAutoSaveInFlight) {
+    scheduleGoalItemsAutoSave(1000);
+    return false;
+  }
+
+  const silent = options.silent === true;
+  _giAutoSaveInFlight = true;
+
+  try {
+    setGoalItemsAutoSaveStatus("Saving...");
+    await _writeGoalItemsSheet();
+    setGoalItemsAutoSaveStatus("Saved to Excel", "ok");
+    return true;
+  } catch (err) {
+    setGoalItemsAutoSaveStatus("Save failed", "error");
+    if (!silent) alert("Save failed: " + err.message);
+    console.error(err);
+    return false;
+  } finally {
+    _giAutoSaveInFlight = false;
+  }
+}
 
 async function saveAllGoalItems() {
   const btn = document.querySelector(".gi-save-btn");
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Saving…"; }
   try {
-    await _writeGoalItemsSheet();
+    const saved = await persistGoalItemsToExcel({ silent: false });
+    if (!saved) {
+      if (btn) { btn.disabled = false; btn.textContent = "💾 Save to Excel"; }
+      return;
+    }
     if (btn) { btn.disabled = false; btn.textContent = "💾 Save to Excel"; }
     // Flash success
     const bar = document.getElementById("giHeaderSummary");

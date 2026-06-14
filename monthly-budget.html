@@ -118,7 +118,7 @@
         .bp-detail { font-size: 12px; color: var(--muted); }
         .bp-reserve-strip {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
           margin-bottom: 14px;
           padding: 10px 12px;
@@ -401,7 +401,7 @@
         .bv-legend .over { background: #ef4444; }
         .bv-cover-banner {
           display: grid;
-          grid-template-columns: minmax(130px, 0.7fr) minmax(180px, 0.9fr) minmax(240px, 1.4fr);
+          grid-template-columns: repeat(3, minmax(130px, 0.7fr)) minmax(240px, 1.4fr);
           gap: 12px;
           align-items: stretch;
           border: 1px solid #fbbf24;
@@ -450,6 +450,10 @@
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        .bv-cover-row small {
+          color: var(--muted);
+          margin-left: 4px;
         }
         .bv-cover-row strong {
           font-family: 'DM Mono', monospace;
@@ -600,6 +604,36 @@
           background: var(--text);
           opacity: 0.45;
         }
+        .topbar-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .autosave-status {
+          display: inline-flex;
+          align-items: center;
+          min-height: 34px;
+          padding: 7px 11px;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          background: var(--surface);
+          color: var(--muted);
+          font-size: 12.5px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .autosave-status.ok {
+          border-color: #86efac;
+          background: #f0fdf4;
+          color: #14532d;
+        }
+        .autosave-status.error {
+          border-color: #fca5a5;
+          background: #fef2f2;
+          color: #7f1d1d;
+        }
         @media (max-width: 900px) {
           .budget-page-grid { grid-template-columns: 1fr; }
           .bv-summary-grid,
@@ -623,6 +657,7 @@
       <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item active"><span class="nav-icon">▤</span> Budget</a>
+      <a href="insurance.html" class="nav-item"><span class="nav-icon">▥</span> Insurance</a>
       <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
       <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
@@ -639,7 +674,7 @@
       </div>
       <div class="topbar-right">
         <button class="reload-btn" onclick="loadBudgetPage()">↻ Reload</button>
-        <button class="reload-btn" onclick="saveBudgetSetupToExcel()" style="margin-left:8px;background:var(--text);color:#fff;border-color:var(--text);">💾 Save to Excel</button>
+        <span class="autosave-status" id="budgetAutosaveStatus">Autosaves to Excel</span>
       </div>
     </header>
 

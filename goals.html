@@ -38,6 +38,27 @@
     .panel-header h2 { font-size: 15px; font-weight: 600; margin: 0; }
     .panel-icon { font-size: 16px; flex-shrink: 0; }
     .panel-hint { font-size: 12.5px; color: var(--muted); margin-left: 4px; }
+    .goals-autosave-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .goals-autosave-status.ok {
+      color: #14532d;
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+    .goals-autosave-status.error {
+      color: #7f1d1d;
+      border-color: #fca5a5;
+      background: #fef2f2;
+    }
 
     /* Account selector */
     .acct-selector-panel .panel-header { margin-bottom: 14px; }
@@ -1203,6 +1224,29 @@
     }
     .gi-save-btn:hover { opacity: 0.85; }
     .gi-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .gi-autosave-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .gi-autosave-status.ok {
+      color: #14532d;
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+    .gi-autosave-status.error {
+      color: #7f1d1d;
+      border-color: #fca5a5;
+      background: #fef2f2;
+    }
 
     /* Goal sections */
     .gi-goals-list {
@@ -1963,6 +2007,7 @@
       <a href="index.html"          class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
       <a href="goals.html"          class="nav-item active"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
+      <a href="insurance.html"      class="nav-item"><span class="nav-icon">▥</span> Insurance</a>
       <a href="add-transaction.html"class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
       <a href="accounts.html"       class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>

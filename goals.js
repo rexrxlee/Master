@@ -28,6 +28,9 @@ let historicalStats = { avgMonthlyIncome:0, avgMonthlyExpenses:0, avgMonthlySavi
 let budgetSummary   = { billsTotal:0, monthlyTotal:0, billsRows:[], monthlyRows:[] };
 let ccOwed          = 0;           // total credit-card balance owed
 let savingsBalances = {};          // { accountName: balance } from transactions
+let insuranceRenewalsForGoals = [];
+let goalsAutoSaveTimer = null;
+let goalsAutoSaveInFlight = false;
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
@@ -39,6 +42,7 @@ async function loadGoalsPage() {
     const workbook    = XLSX.read(arrayBuffer, { type:"array" });
     const budgetSheet = workbook.Sheets["Budget Setup"];
     const txSheet     = workbook.Sheets[CONFIG.sheetName];
+    const insuranceSheet = workbook.Sheets["Insurance"];
     if (!budgetSheet) throw new Error("Sheet not found: Budget Setup");
     if (!txSheet)     throw new Error("Sheet not found: " + CONFIG.sheetName);
 
@@ -71,6 +75,7 @@ async function loadGoalsPage() {
 
     // Goals
     goalsData = readGoalsFromSheet(budgetSheet);
+    insuranceRenewalsForGoals = insuranceSheet ? readInsuranceRenewalsForGoals(insuranceSheet) : [];
     loadIncomeBoosts(budgetSheet);
 
     renderGoalsPage();
@@ -116,7 +121,8 @@ function readAllTx(sheet) {
     "Account",
     "Claimable",
     "Claim Status",
-    "Claim Amount"
+    "Claim Amount",
+    "Claim Account"
   ];
   return rows.slice(1).map(row => {
     const obj = {};
@@ -151,6 +157,260 @@ function readGoalsFromSheet(sheet) {
     goalBuffer:  Number(row[9] ?? 0)  || 0,   // extra % buffer above target (0-100)
     priority:    Number(row[10] ?? 0) || 0,
   })).filter(g => g.name !== "");
+}
+
+function readInsuranceRenewalsForGoals(sheet) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header:1, blankrows:false });
+  if (rows.length === 0) return [];
+
+  const headerMap = {};
+  (rows[0] || []).forEach((header, index) => {
+    const key = normaliseInsuranceGoalHeader(header);
+    if (key) headerMap[key] = index;
+  });
+
+  if (getInsuranceGoalHeaderIndex(headerMap, "Owner") < 0 ||
+      getInsuranceGoalHeaderIndex(headerMap, "Policy Name") < 0 ||
+      getInsuranceGoalHeaderIndex(headerMap, "Annual Premium") < 0) {
+    return [];
+  }
+
+  const currentYear = new Date().getFullYear();
+  return rows.slice(1)
+    .map(row => {
+      const policyName = getInsuranceGoalCell(row, headerMap, "Policy Name");
+      const owner = getInsuranceGoalCell(row, headerMap, "Owner");
+      const policyNo = getInsuranceGoalCell(row, headerMap, "Policy No");
+      if (!owner && !policyName && !policyNo) return null;
+
+      const status = getInsuranceGoalCell(row, headerMap, "Status") || "Active";
+      if (status.toLowerCase() === "inactive") return null;
+
+      const startDate = parseInsuranceGoalDate(getInsuranceGoalCell(row, headerMap, "Cover Start Date"));
+      const renewalMonth = getInsuranceGoalCell(row, headerMap, "Renewal Month");
+      let dueDate = computeInsuranceGoalDueDate(startDate, renewalMonth);
+      let dueYear = dueDate ? dueDate.getFullYear() : currentYear;
+      const annualPremium = parseInsuranceGoalAmount(getInsuranceGoalCell(row, headerMap, "Annual Premium"));
+      let paidForDueYear = getInsuranceGoalYearAmount(row, headerMap, "Paid", dueYear, 0);
+
+      while (dueDate && paidForDueYear > 0) {
+        dueDate = new Date(dueDate.getFullYear() + 1, dueDate.getMonth(), dueDate.getDate());
+        dueYear = dueDate.getFullYear();
+        paidForDueYear = getInsuranceGoalYearAmount(row, headerMap, "Paid", dueYear, 0);
+      }
+
+      const renewalPremium = getInsuranceGoalYearAmount(row, headerMap, "Premium", dueYear, annualPremium);
+      const premiumType = getInsuranceGoalCell(row, headerMap, "Premium Type");
+      const isCash = premiumType.toLowerCase().includes("cash");
+      const isCpf = premiumType.toLowerCase().includes("cpf") || premiumType.toLowerCase().includes("medisave");
+
+      return {
+        owner,
+        policyName,
+        policyNo,
+        premiumType,
+        renewalPremium,
+        paidForDueYear,
+        dueDate,
+        dueYear,
+        isCash,
+        isCpf,
+        goalName: getInsuranceGoalCell(row, headerMap, "Goal Name") ||
+          (dueDate ? `Insurance ${dueDate.toLocaleString("en-SG", { month: "short", year: "numeric" })}` : `Insurance ${dueYear}`),
+        comments: getInsuranceGoalCell(row, headerMap, "Comments"),
+        claimsPossible: getInsuranceGoalCell(row, headerMap, "Claims Possible")
+      };
+    })
+    .filter(Boolean)
+    .filter(row => row.dueDate && row.renewalPremium > 0)
+    .sort((a, b) => a.dueDate - b.dueDate || a.owner.localeCompare(b.owner));
+}
+
+function groupInsuranceRenewalsForGoals(rows) {
+  const groups = {};
+  rows.forEach(row => {
+    const key = row.dueDate.getFullYear() + "-" + String(row.dueDate.getMonth() + 1).padStart(2, "0");
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        dueDate: new Date(row.dueDate.getFullYear(), row.dueDate.getMonth(), 1),
+        rows: [],
+        cashTotal: 0,
+        cashPending: 0,
+        cashPaid: 0,
+        cpfTotal: 0,
+        linkedGoalNames: new Set()
+      };
+    }
+
+    groups[key].rows.push(row);
+    if (row.isCash) {
+      groups[key].cashTotal += row.renewalPremium;
+      if (row.paidForDueYear > 0) groups[key].cashPaid += row.paidForDueYear;
+      else groups[key].cashPending += row.renewalPremium;
+    }
+    if (row.isCpf) groups[key].cpfTotal += row.renewalPremium;
+    if (row.goalName) groups[key].linkedGoalNames.add(row.goalName);
+  });
+
+  return Object.values(groups).sort((a, b) => a.dueDate - b.dueDate);
+}
+
+function renderInsuranceRenewalGoalPanel(container) {
+  if (!insuranceRenewalsForGoals.length) return;
+
+  const groups = groupInsuranceRenewalsForGoals(insuranceRenewalsForGoals);
+  const totalCashPending = groups.reduce((sum, group) => sum + group.cashPending, 0);
+  const totalCashPaid = groups.reduce((sum, group) => sum + group.cashPaid, 0);
+  const totalCpf = groups.reduce((sum, group) => sum + group.cpfTotal, 0);
+
+  const groupHtml = groups.map(group => {
+    const linkedGoalNames = Array.from(group.linkedGoalNames).filter(Boolean);
+    const linkedGoals = linkedGoalNames
+      .map(name => goalsData.find(goal => clean(goal.name).toLowerCase() === clean(name).toLowerCase()))
+      .filter(Boolean);
+    const linkedSaved = linkedGoals.reduce((sum, goal) => sum + goal.manualSaved + getSavedViaTransactions(goal.name), 0);
+    const linkedTarget = group.cashTotal;
+    const pct = linkedTarget > 0 ? Math.min(100, linkedSaved / linkedTarget * 100) : 100;
+    const goalLabel = linkedGoalNames.length
+      ? linkedGoalNames.map(escapeHtml).join(", ")
+      : `Insurance ${group.dueDate.getFullYear()}`;
+    const matchText = linkedGoals.length
+      ? `${formatCurrency(linkedSaved)} saved against ${formatCurrency(linkedTarget)} cash premium`
+      : `No matching saved goal yet. Use Goal Name "${escapeHtml(goalLabel)}" in Insurance or create that goal.`;
+
+    const policyHtml = group.rows.map(row => {
+      const paid = row.paidForDueYear > 0;
+      return `
+        <div class="insurance-goal-policy">
+          <div>
+            <strong>${escapeHtml(row.owner)} - ${escapeHtml(row.policyName)}</strong>
+            <span>${escapeHtml(row.premiumType)} · ${formatCurrency(row.renewalPremium)}</span>
+          </div>
+          <span class="insurance-goal-status ${paid ? "paid" : "pending"}">${paid ? "Paid" : "Pending"}</span>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="insurance-goal-group">
+        <div class="insurance-goal-group-head">
+          <div>
+            <h3>${formatInsuranceGoalMonth(group.dueDate)}</h3>
+            <p>Linked goal: <strong>${goalLabel}</strong></p>
+          </div>
+          <div class="insurance-goal-group-money">
+            <strong>${formatCurrency(group.cashPending)}</strong>
+            <span>cash pending</span>
+          </div>
+        </div>
+        <div class="insurance-goal-progress">
+          <div class="insurance-goal-track"><div class="insurance-goal-fill" style="width:${pct.toFixed(1)}%;"></div></div>
+          <span>${matchText}</span>
+        </div>
+        <div class="insurance-goal-metrics">
+          <span>Cash total: <strong>${formatCurrency(group.cashTotal)}</strong></span>
+          <span>Cash paid: <strong>${formatCurrency(group.cashPaid)}</strong></span>
+          <span>CPF: <strong>${formatCurrency(group.cpfTotal)}</strong></span>
+        </div>
+        <div class="insurance-goal-policies">${policyHtml}</div>
+      </div>
+    `;
+  }).join("");
+
+  container.innerHTML += `
+    <div class="goals-panel insurance-goal-panel">
+      <div class="panel-header">
+        <span class="panel-icon">▥</span>
+        <h2>Insurance Renewal Reserve</h2>
+        <span class="panel-hint">Grouped by renewal date from the Insurance sheet. CPF premiums are shown but excluded from cash reserve pressure.</span>
+      </div>
+      <div class="insurance-goal-summary">
+        <div><span>Cash pending</span><strong class="${totalCashPending > 0 ? "red" : "green"}">${formatCurrency(totalCashPending)}</strong></div>
+        <div><span>Cash paid</span><strong class="green">${formatCurrency(totalCashPaid)}</strong></div>
+        <div><span>CPF renewals</span><strong>${formatCurrency(totalCpf)}</strong></div>
+        <a href="insurance.html">Open Insurance</a>
+      </div>
+      <div class="insurance-goal-groups">${groupHtml}</div>
+    </div>
+  `;
+}
+
+function getInsuranceGoalCell(row, headerMap, headerName) {
+  const index = getInsuranceGoalHeaderIndex(headerMap, headerName);
+  return index >= 0 ? clean(row[index]) : "";
+}
+
+function getInsuranceGoalHeaderIndex(headerMap, headerName) {
+  const direct = headerMap[normaliseInsuranceGoalHeader(headerName)];
+  if (Number.isInteger(direct)) return direct;
+
+  const yearly = clean(headerName).match(/^(Premium|Paid|Remark)\s+(\d{4})$/i);
+  if (yearly) {
+    const shortYear = yearly[2].slice(-2);
+    const shortKey = headerMap[normaliseInsuranceGoalHeader(yearly[1] + shortYear)];
+    if (Number.isInteger(shortKey)) return shortKey;
+  }
+
+  return -1;
+}
+
+function normaliseInsuranceGoalHeader(value) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getInsuranceGoalYearAmount(row, headerMap, prefix, year, fallback = 0) {
+  const value = parseInsuranceGoalAmount(getInsuranceGoalCell(row, headerMap, `${prefix} ${year}`));
+  return value > 0 ? value : fallback;
+}
+
+function parseInsuranceGoalAmount(value) {
+  const amount = Number(String(value ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function parseInsuranceGoalDate(value) {
+  const parsed = _parseGoalDateValue(value);
+  if (parsed) return parsed;
+
+  const text = clean(value);
+  const ddMmm = text.match(/^(\d{1,2})[-\s/]([A-Za-z]{3,})[-\s/](\d{2,4})$/);
+  if (ddMmm) {
+    const month = insuranceGoalMonthNumber(ddMmm[2]);
+    const year = Number(ddMmm[3].length === 2 ? "20" + ddMmm[3] : ddMmm[3]);
+    if (month) return new Date(year, month - 1, Number(ddMmm[1]));
+  }
+
+  return null;
+}
+
+function computeInsuranceGoalDueDate(startDate, renewalMonth) {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (!startDate && !renewalMonth) return null;
+  const monthNumber = insuranceGoalMonthNumber(renewalMonth);
+  const baseMonth = monthNumber ? monthNumber - 1 : (startDate ? startDate.getMonth() : today.getMonth());
+  const baseDay = startDate ? startDate.getDate() : 1;
+  const firstYear = startDate ? startDate.getFullYear() + 1 : todayStart.getFullYear();
+  let due = new Date(firstYear, baseMonth, Math.min(baseDay, 28));
+  while (due < todayStart || (startDate && due < startDate)) {
+    due = new Date(due.getFullYear() + 1, baseMonth, Math.min(baseDay, 28));
+  }
+  return due;
+}
+
+function insuranceGoalMonthNumber(value) {
+  const text = clean(value);
+  if (!text) return null;
+  const numeric = Number(text);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) return numeric;
+  const names = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const index = names.findIndex(name => text.toLowerCase().startsWith(name));
+  return index >= 0 ? index + 1 : null;
+}
+
+function formatInsuranceGoalMonth(date) {
+  return date.toLocaleString("en-SG", { month: "short", year: "numeric" });
 }
 
 function getSignedAmount(value) {
@@ -304,7 +564,7 @@ function computeDeployableBalance() {
   const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
 
   // Step 3: reserve positive unspent budget for the rest of the month.
-  // Budget-page visuals handle category-level bill overspend; Goals keeps this panel clean.
+  // Budget-page visuals handle category-level overspend reserves; Goals keeps this panel clean.
   const budgetPosition         = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance   = budgetPosition.total.balance;
   const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
@@ -400,7 +660,7 @@ function computeCurrentMonthBudgetPosition() {
 function computePendingClaimReceivableForAccounts(txData, accountNames) {
   const affectedAccounts = new Set((accountNames || []).map(accountKey));
   return (txData || []).reduce((sum, row) => {
-    if (!affectedAccounts.has(accountKey(row["Account"]))) return sum;
+    if (!affectedAccounts.has(accountKey(getClaimReceivableAccount(row)))) return sum;
     return sum + getPendingClaimReceivableAmount(row);
   }, 0);
 }
@@ -670,11 +930,13 @@ function renderGoalsPage() {
                 style="width:${dep.deployable>0?Math.min(100,Math.max(0,(unassigned/dep.deployable)*100)).toFixed(1):0}%;"></div>
             </div>
           </div>
-          <button class="btn-primary btn-sm" onclick="saveAllocations()" style="white-space:nowrap;">💾 Save Allocations</button>
+          <span class="panel-hint goals-autosave-status" id="allocAutosaveStatus" style="white-space:nowrap;">Autosaves to Excel</span>
         </div>
       </div>` : ""}
     </div>
   `;
+
+  renderInsuranceRenewalGoalPanel(container);
 
   // ── 3. Historical snapshot ──
   container.innerHTML += `
@@ -789,10 +1051,10 @@ function renderGoalsPage() {
     sorted.forEach(goal => renderGoalCard(goal, goal.originalIdx, goalsGrid));
   }
 
-  // ── 7. Save button ──
+  // ── 7. Autosave status ──
   container.innerHTML += `
     <div style="margin-top:8px;padding-bottom:40px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-      <button class="btn-primary" onclick="saveGoalsToExcel()">💾 Save All Goals to Excel</button>
+      <span class="panel-hint goals-autosave-status" id="goalsAutosaveStatus">Autosaves to Excel</span>
     </div>
   `;
 
@@ -909,6 +1171,7 @@ function onAllocInput(idx, value) {
   _refreshAllocUI();
   refreshGoalCardsGrid();
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function onAllocChange(idx, value) {
@@ -919,6 +1182,7 @@ function onAllocChange(idx, value) {
   _refreshAllocUI();
   refreshGoalCardsGrid();
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function onBufferChange(idx, value) {
@@ -929,6 +1193,7 @@ function onBufferChange(idx, value) {
   _refreshAllocUI();
   refreshGoalCardsGrid();
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 /**
@@ -983,23 +1248,13 @@ function smartAssign() {
   const remaining = dep.deployable - totalAssigned;
   const finalRisk = computeGoalClaimRisk(dep, totalAssigned);
   log("Smart Assign complete. Unassigned: " + formatCurrency(remaining) + (finalRisk.assignedFromPendingClaims > 0 ? " | pending-claim backed: " + formatCurrency(finalRisk.assignedFromPendingClaims) : ""));
+  scheduleGoalsAutoSave(150);
 }
 
 async function saveAllocations() {
   try {
     log("Saving allocations...");
-    const values = [];
-    for (let i = 0; i < MAX_GOALS; i++) {
-      if (i < goalsData.length) {
-        const g = goalsData[i];
-        values.push([g.name, g.target, g.manualSaved, g.monthlyAlloc,
-                     g.startDate, g.endDate, g.urgency, g.notes, g.color,
-                     g.goalBuffer || 0, g.priority]);
-      } else {
-        values.push(["","","","","","","","","","",""]);
-      }
-    }
-    await writeBudgetSetupRange(GOALS_RANGE, values);
+    await persistGoalsToExcel({ silent: false, includeBoosts: false });
     log("Allocations saved.");
     const btns = document.querySelectorAll(".alloc-footer .btn-primary");
     btns.forEach(b => { const orig = b.textContent; b.textContent = "✅ Saved!"; setTimeout(()=>{ b.textContent = orig; }, 2000); });
@@ -1137,6 +1392,7 @@ function _setBoostDate(index, field, dateValue) {
   incomeBoosts[index][field] = _dateValueToMonth(dateValue);
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _setBoostKind(index, kind) {
@@ -1144,36 +1400,42 @@ function _setBoostKind(index, kind) {
   if (incomeBoosts[index].kind === "reduce") incomeBoosts[index].toGoal = "any";
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _setBoostLabel(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].label = value;
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _setBoostAmount(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].amount = Math.abs(Number(value) || 0);
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _setBoostGoal(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].toGoal = value;
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _addIncomeBoost(kind) {
   incomeBoosts.push({ label:"", kind, amount:0, fromMonth:"", toMonth:"", toGoal:"any" });
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _deleteIncomeBoost(index) {
   incomeBoosts.splice(index, 1);
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
+  scheduleGoalsAutoSave();
 }
 
 function _redrawBoostsPanel(panel) {
@@ -1261,7 +1523,7 @@ function _redrawBoostsPanel(panel) {
       <button class="btn-secondary btn-sm" onclick="_addIncomeBoost('reduce')">
         − Add Reduction
       </button>
-      <button class="btn-primary btn-sm" onclick="saveIncomeBoosts().then(()=>{renderGoalsPage();})">💾 Save Changes</button>
+      <span class="panel-hint goals-autosave-status" id="boostAutosaveStatus">Autosaves to Excel</span>
     </div>
   `;
 }
@@ -3124,6 +3386,17 @@ function renderGoalCard(goal, idx, container) {
 
   const div = document.createElement("div");
   div.className = "goal-card";
+  div.dataset.goalName = goal.name;
+  div.dataset.goalTarget = String(goal.target || 0);
+  div.dataset.goalSaved = String(goal.manualSaved || 0);
+  div.dataset.goalAlloc = String(goal.monthlyAlloc || 0);
+  div.dataset.goalStart = goal.startDate || "";
+  div.dataset.goalEnd = goal.endDate || "";
+  div.dataset.goalUrgency = goal.urgency || "Medium";
+  div.dataset.goalNotes = goal.notes || "";
+  div.dataset.goalColor = goal.color || "";
+  div.dataset.goalBuffer = String(goal.goalBuffer || 0);
+  div.dataset.goalPriority = String(goal.priority || 0);
   div.style.cssText = `border-top: 3px solid ${urgColor[goal.urgency]||"#ca8a04"};`;
   div.innerHTML = `
     <div class="goal-card-top">
@@ -3415,12 +3688,67 @@ async function toggleGoalAccount(checkbox) {
   }
 }
 
+function buildGoalsSaveValues() {
+  const values = goalsData.map(g => [
+    g.name, g.target, g.manualSaved, g.monthlyAlloc,
+    g.startDate, g.endDate, g.urgency, g.notes, g.color,
+    g.goalBuffer || 0, g.priority
+  ]);
+  while (values.length < MAX_GOALS) values.push(["","","","","","","","","","",""]);
+  return values;
+}
+
+function setGoalsAutoSaveStatus(message, tone = "") {
+  ["goalsAutosaveStatus", "allocAutosaveStatus", "boostAutosaveStatus"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = message;
+    el.className = "panel-hint goals-autosave-status" + (tone ? " " + tone : "");
+  });
+}
+
+function scheduleGoalsAutoSave(delay = 700) {
+  clearTimeout(goalsAutoSaveTimer);
+  setGoalsAutoSaveStatus("Saving soon...");
+  goalsAutoSaveTimer = setTimeout(() => {
+    persistGoalsToExcel({ silent: true });
+  }, delay);
+}
+
+async function persistGoalsToExcel(options = {}) {
+  if (goalsAutoSaveInFlight) {
+    scheduleGoalsAutoSave(1000);
+    return false;
+  }
+
+  const silent = options.silent === true;
+  const includeBoosts = options.includeBoosts !== false;
+  goalsAutoSaveInFlight = true;
+
+  try {
+    setGoalsAutoSaveStatus("Saving...");
+    await writeBudgetSetupRange(GOALS_RANGE, buildGoalsSaveValues());
+    if (includeBoosts) await saveIncomeBoosts();
+    setGoalsAutoSaveStatus("Saved to Excel", "ok");
+    log("Goals saved.");
+    return true;
+  } catch (err) {
+    setGoalsAutoSaveStatus("Save failed", "error");
+    log("SAVE ERROR: " + err.message);
+    if (!silent) throw err;
+    return false;
+  } finally {
+    goalsAutoSaveInFlight = false;
+  }
+}
+
 // ─── CRUD ─────────────────────────────────────────────────────────
 
-function addGoal() {
+async function addGoal() {
   const name   = document.getElementById("gf_name").value.trim();
   const target = parseFloat(document.getElementById("gf_target").value) || 0;
-  const saved  = parseFloat(document.getElementById("gf_saved").value)  || 0;
+  const savedInput = document.getElementById("gf_saved");
+  const saved  = savedInput ? (parseFloat(savedInput.value) || 0) : 0;
   const start  = document.getElementById("gf_start").value;
   const end    = document.getElementById("gf_end").value;
   const urg    = document.getElementById("gf_urgency").value;
@@ -3440,9 +3768,10 @@ function addGoal() {
 
   goalsData.push({ name, target, manualSaved:saved, monthlyAlloc:alloc, startDate:start, endDate:end, urgency:urg, notes, color, goalBuffer:0, priority:0 });
   renderGoalsPage();
+  await persistGoalsToExcel({ silent: true });
 }
 
-function saveEditGoal(idx) {
+async function saveEditGoal(idx) {
   goalsData[idx] = {
     name:         document.getElementById("eg_name_"   +idx).value.trim(),
     target:       parseFloat(document.getElementById("eg_target_"+idx).value) || 0,
@@ -3457,12 +3786,14 @@ function saveEditGoal(idx) {
     priority:     goalsData[idx].priority,
   };
   renderGoalsPage();
+  await persistGoalsToExcel({ silent: true });
 }
 
-function deleteGoal(idx) {
+async function deleteGoal(idx) {
   if (!confirm(`Delete goal "${goalsData[idx].name}"?`)) return;
   goalsData.splice(idx, 1);
   renderGoalsPage();
+  await persistGoalsToExcel({ silent: true });
 }
 
 async function saveDeductGoal(idx) {
@@ -3495,18 +3826,12 @@ async function saveDeductGoal(idx) {
 
 // ─── Save to Excel ─────────────────────────────────────────────────
 
-async function saveGoalsToExcel() {
+async function saveGoalsToExcel(options = {}) {
   try {
     log("Saving goals...");
-    const values = goalsData.map(g => [
-      g.name, g.target, g.manualSaved, g.monthlyAlloc,
-      g.startDate, g.endDate, g.urgency, g.notes, g.color,
-      g.goalBuffer || 0, g.priority
-    ]);
-    while (values.length < MAX_GOALS) values.push(["","","","","","","","","","",""]);
-    await writeBudgetSetupRange(GOALS_RANGE, values);
-    await saveIncomeBoosts();
-    alert("Goals saved to Excel.");
+    const saved = await persistGoalsToExcel(options);
+    if (!saved) return;
+    if (options.silent !== true) alert("Goals saved to Excel.");
     log("Done.");
   } catch(err) { log("SAVE ERROR: " + err.message); alert(err.message); }
 }
@@ -3555,6 +3880,9 @@ function getPendingClaimReceivableAmount(row) {
   if (!isClaimableRow(row)) return 0;
   if (clean(getRowValue(row, "Claim Status")).toLowerCase() !== "pending") return 0;
   return getClaimAmount(row);
+}
+function getClaimReceivableAccount(row) {
+  return clean(getRowValue(row, "Claim Account"));
 }
 function getClaimAdjustedExpenseAmount(row) {
   const amount = getAmount(row["Amount"]);

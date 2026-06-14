@@ -220,7 +220,7 @@ async function saveOpeningBalances(options = {}) {
 
   } catch (err) {
     log("ERROR: " + err.message);
-    alert("Failed to save: " + err.message);
+    if (!options.silentError) alert("Failed to save: " + err.message);
     console.error(err);
     if (options.rethrow) throw err;
     return false;

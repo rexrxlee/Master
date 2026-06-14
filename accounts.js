@@ -3,6 +3,8 @@ let incomeSubCategoryList = [];
 let openingBalanceTxSheet = null;
 let existingOpeningEntries = [];
 let openingBalanceDrafts = {};
+let accountsAutoSaveTimer = null;
+let accountsAutoSaveInFlight = false;
 
 const ACCOUNTS_FULL_RANGE = "J2:K10";
 const INCOME_SUBS_RANGE = "Q2:Q10";
@@ -58,6 +60,7 @@ function addAccount() {
   accountsList.push({ name, type });
   document.getElementById("accountNameInput").value = "";
   renderAccountsTable();
+  scheduleAccountsAutoSave();
 }
 
 function deleteAccount(index) {
@@ -66,6 +69,7 @@ function deleteAccount(index) {
   if (key) delete openingBalanceDrafts[key];
   accountsList.splice(index, 1);
   renderAccountsTable();
+  scheduleAccountsAutoSave();
 }
 
 function updateAccountName(index, value) {
@@ -76,10 +80,12 @@ function updateAccountName(index, value) {
   const newKey = accountKey(accountsList[index].name);
   if (newKey) openingBalanceDrafts[newKey] = draft;
   if (oldKey && oldKey !== newKey) delete openingBalanceDrafts[oldKey];
+  scheduleAccountsAutoSave();
 }
 
 function updateAccountType(index, value) {
   accountsList[index].type = value;
+  scheduleAccountsAutoSave();
 }
 
 function renderAccountsTable() {
@@ -140,6 +146,7 @@ function updateOpeningDraft(index, field, value) {
   const draft = openingBalanceDrafts[key] || readOpeningBalanceRow(index);
   draft[field] = value;
   openingBalanceDrafts[key] = draft;
+  scheduleAccountsAutoSave();
 }
 
 function captureOpeningBalanceDrafts() {
@@ -204,10 +211,18 @@ function addIncomeSub() {
   incomeSubCategoryList.push(name);
   document.getElementById("incomeSubInput").value = "";
   renderIncomeSubsTable();
+  scheduleAccountsAutoSave();
 }
 
-function deleteIncomeSub(index) { incomeSubCategoryList.splice(index, 1); renderIncomeSubsTable(); }
-function updateIncomeSub(index, value) { incomeSubCategoryList[index] = value.trim(); }
+function deleteIncomeSub(index) {
+  incomeSubCategoryList.splice(index, 1);
+  renderIncomeSubsTable();
+  scheduleAccountsAutoSave();
+}
+function updateIncomeSub(index, value) {
+  incomeSubCategoryList[index] = value.trim();
+  scheduleAccountsAutoSave();
+}
 
 function renderIncomeSubsTable() {
   const table = document.getElementById("incomeSubsTable");
@@ -222,8 +237,31 @@ function renderIncomeSubsTable() {
   });
 }
 
-async function saveAccountsToExcel() {
+function scheduleAccountsAutoSave(delay = 900) {
+  clearTimeout(accountsAutoSaveTimer);
+  setAccountsAutoSaveStatus("Saving soon...");
+  accountsAutoSaveTimer = setTimeout(() => {
+    saveAccountsToExcel({ silent: true });
+  }, delay);
+}
+
+function setAccountsAutoSaveStatus(message, tone = "") {
+  const el = document.getElementById("accountsAutosaveStatus");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "accounts-autosave-status" + (tone ? " " + tone : "");
+}
+
+async function saveAccountsToExcel(options = {}) {
+  if (accountsAutoSaveInFlight) {
+    scheduleAccountsAutoSave(1200);
+    return false;
+  }
+
+  const silent = options.silent === true;
+  accountsAutoSaveInFlight = true;
   try {
+    setAccountsAutoSaveStatus("Saving...");
     captureOpeningBalanceDrafts();
     syncOpeningBalanceAccounts();
 
@@ -240,12 +278,13 @@ async function saveAccountsToExcel() {
 
     let openingSaved = false;
     const shouldSaveOpeningBalances = typeof saveOpeningBalances === "function" &&
-      (hasOpeningBalanceInput() || existingOpeningEntries.length > 0);
+      (hasOpeningBalanceInput() || (!silent && existingOpeningEntries.length > 0));
     if (shouldSaveOpeningBalances) {
       openingSaved = await saveOpeningBalances({
         allowEmpty: true,
         replaceExistingWhenEmpty: existingOpeningEntries.length > 0,
         rethrow: true,
+        silentError: silent,
         silentSuccess: true,
         skipReload: true
       });
@@ -253,7 +292,7 @@ async function saveAccountsToExcel() {
     }
 
     const successEl = document.getElementById("setupSuccess");
-    if (successEl) {
+    if (successEl && !silent) {
       successEl.textContent = openingSaved
         ? "Accounts, categories, and opening balances saved."
         : "Accounts and categories saved.";
@@ -261,12 +300,18 @@ async function saveAccountsToExcel() {
       setTimeout(() => { successEl.style.display = "none"; }, 3000);
     }
 
-    alert(openingSaved ? "Accounts, categories, and opening balances saved." : "Accounts and categories saved.");
+    setAccountsAutoSaveStatus("Saved to Excel", "ok");
+    if (!silent) alert(openingSaved ? "Accounts, categories, and opening balances saved." : "Accounts and categories saved.");
     log("Done.");
+    return true;
   } catch (err) {
+    setAccountsAutoSaveStatus("Save failed", "error");
     log("SAVE ERROR: " + err.message);
-    alert(err.message);
+    if (!silent) alert(err.message);
     console.error(err);
+    return false;
+  } finally {
+    accountsAutoSaveInFlight = false;
   }
 }
 

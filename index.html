@@ -28,6 +28,9 @@
       <a href="monthly-budget.html" class="nav-item">
         <span class="nav-icon">▤</span> Budget
       </a>
+      <a href="insurance.html" class="nav-item">
+        <span class="nav-icon">▥</span> Insurance
+      </a>
       <a href="add-transaction.html" class="nav-item">
         <span class="nav-icon">＋</span> Add Transaction
       </a>
@@ -93,138 +96,233 @@
 
     <div id="activeFilterBadges" class="filter-badges"></div>
 
-    <section class="kpi-row">
-      <div class="kpi-card income">
-        <div class="kpi-label">Total Income</div>
-        <div class="kpi-value" id="totalIncome">$0</div>
-      </div>
-      <div class="kpi-card expense">
-        <div class="kpi-label">Total Expenses</div>
-        <div class="kpi-value" id="totalExpenses">$0</div>
-      </div>
-      <div class="kpi-card net">
-        <div class="kpi-label">Net Cashflow</div>
-        <div class="kpi-value" id="netSavings">$0</div>
-        <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
-      </div>
-      <div class="kpi-card neutral">
-        <div class="kpi-label">Transactions</div>
-        <div class="kpi-value" id="transactionCount">0</div>
-      </div>
-    </section>
+    <nav class="dashboard-tabs" aria-label="Dashboard views">
+      <button type="button" id="expensesDashboardTab" class="dashboard-tab-btn active" onclick="switchDashboardView('expenses')">Expenses</button>
+      <button type="button" id="incomeDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('income')">Income</button>
+    </nav>
 
-    <section class="charts-row">
-      <div class="chart-card wide">
-        <div class="card-header">
-          <h2 class="card-title">Monthly Overview</h2>
+    <section id="expensesDashboardView" class="dashboard-view active">
+      <section class="kpi-row">
+        <div class="kpi-card income">
+          <div class="kpi-label">Total Income</div>
+          <div class="kpi-value" id="totalIncome">$0</div>
         </div>
-        <div class="chart-wrap">
-          <canvas id="expenseChart"></canvas>
+        <div class="kpi-card expense">
+          <div class="kpi-label">Total Expenses</div>
+          <div class="kpi-value" id="totalExpenses">$0</div>
         </div>
-      </div>
-      <div class="accounts-card">
-        <div class="card-header">
-          <h2 class="card-title">Assets & Accounts</h2>
-          <span class="card-badge" id="assetScopeBadge">All included</span>
+        <div class="kpi-card net">
+          <div class="kpi-label">Net Cashflow</div>
+          <div class="kpi-value" id="netSavings">$0</div>
+          <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
         </div>
-        <table id="savingsTable" class="accounts-table"></table>
-        <div id="pendingClaimsAssets" class="pending-claims-assets"></div>
-        <div class="accounts-footer">
-          <div class="account-line">
-            <span class="acc-label">Credit Cards (owed)</span>
-            <span class="acc-val" id="uobOneBalance">$0</span>
-          </div>
-          <div class="account-line claim-line" id="pendingClaimsLine" style="display:none;">
-            <span class="acc-label">Pending claims receivable</span>
-            <span class="acc-val positive" id="pendingClaimsBalance">$0</span>
-          </div>
-          <div class="account-line total-line">
-            <span class="acc-label">Net Assets</span>
-            <span class="acc-val" id="assetsBalance">$0</span>
-          </div>
+        <div class="kpi-card neutral">
+          <div class="kpi-label">Transactions</div>
+          <div class="kpi-value" id="transactionCount">0</div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="chart-card full">
-      <div class="card-header">
-        <h2 class="card-title">Expenses by Sub Category</h2>
-      </div>
-      <div class="chart-wrap tall">
-        <canvas id="subCategoryChart"></canvas>
-      </div>
-    </section>
+      <section class="kpi-row budget-kpi-row">
+        <div class="kpi-card net">
+          <div class="kpi-label">Monthly Expenses Balance</div>
+          <div class="kpi-value" id="monthlyExpenseBalance">$0</div>
+          <div class="kpi-note">From Budget Setup monthly expenses only</div>
+        </div>
+        <div class="kpi-card expense">
+          <div class="kpi-label">Monthly Expenses Spent</div>
+          <div class="kpi-value" id="monthlyExpenseSpent">$0</div>
+          <div class="kpi-note">Claimable spending excluded</div>
+        </div>
+        <div class="kpi-card income">
+          <div class="kpi-label">Monthly Left / Day</div>
+          <div class="kpi-value" id="monthlyExpenseLeftPerDay">$0</div>
+          <div class="kpi-note">Budget balance spread across days left</div>
+        </div>
+        <div class="kpi-card neutral">
+          <div class="kpi-label">Projected Month End</div>
+          <div class="kpi-value" id="monthlyExpenseProjected">$0</div>
+          <div class="kpi-note" id="monthlyExpenseProjectedNote">Based on current daily trend</div>
+        </div>
+      </section>
 
-    <section class="income-breakdown-row">
-      <div class="chart-card">
+      <section class="table-card full monthly-budget-card">
         <div class="card-header">
-          <h2 class="card-title">Income by Sub Category</h2>
-        </div>
-        <div class="chart-wrap income-chart">
-          <canvas id="incomeSubCategoryChart"></canvas>
-        </div>
-      </div>
-      <div class="table-card">
-        <div class="card-header">
-          <h2 class="card-title">Income Breakdown</h2>
-          <span class="card-badge" id="incomeBreakdownTotal">$0</span>
+          <h2 class="card-title">Monthly Expenses Budget Balance</h2>
+          <span class="card-badge" id="monthlyExpenseBudgetBadge">$0 left</span>
         </div>
         <div class="table-wrap">
-          <table class="data-table" id="incomeBreakdownTable"></table>
+          <table class="data-table" id="monthlyExpenseBudgetTable"></table>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="insight-row">
-      <div class="insight-card">
-        <div class="insight-label">Highest Spending Month</div>
-        <div class="insight-value" id="highestMonthCard">—</div>
-      </div>
-      <div class="insight-card">
-        <div class="insight-label">vs Last Month</div>
-        <div class="insight-value" id="vsLastMonthCard">—</div>
-      </div>
-      <div class="insight-card">
-        <div class="insight-label">Top Category This Month</div>
-        <div class="insight-value" id="topCategoryCard">—</div>
-      </div>
-      <div class="insight-card">
-        <div class="insight-label">Daily Avg This Month</div>
-        <div class="insight-value" id="dailyAvgCard">—</div>
-      </div>
-      <div class="insight-card">
-        <div class="insight-label">Net Cashflow This Month</div>
-        <div class="insight-value" id="thisMonthNetCard">—</div>
-      </div>
-    </section>
+      <section class="charts-row">
+        <div class="chart-card wide">
+          <div class="card-header">
+            <h2 class="card-title">Monthly Overview</h2>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="expenseChart"></canvas>
+          </div>
+        </div>
+        <div class="accounts-card">
+          <div class="card-header">
+            <h2 class="card-title">Assets & Accounts</h2>
+            <span class="card-badge" id="assetScopeBadge">All included</span>
+          </div>
+          <table id="savingsTable" class="accounts-table"></table>
+          <div id="pendingClaimsAssets" class="pending-claims-assets"></div>
+          <div class="accounts-footer">
+            <div class="account-line">
+              <span class="acc-label">Credit Cards (owed)</span>
+              <span class="acc-val" id="uobOneBalance">$0</span>
+            </div>
+            <div class="account-line claim-line" id="pendingClaimsLine" style="display:none;">
+              <span class="acc-label">Pending claims receivable</span>
+              <span class="acc-val positive" id="pendingClaimsBalance">$0</span>
+            </div>
+            <div class="account-line total-line">
+              <span class="acc-label">Net Assets</span>
+              <span class="acc-val" id="assetsBalance">$0</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-    <section class="tables-row">
-      <div class="table-card">
+      <section class="chart-card full">
         <div class="card-header">
-          <h2 class="card-title">Recent Transactions</h2>
-          <span class="card-badge">Last 10</span>
+          <h2 class="card-title">Expenses by Sub Category</h2>
+        </div>
+        <div class="chart-wrap tall">
+          <canvas id="subCategoryChart"></canvas>
+        </div>
+      </section>
+
+      <section class="insight-row">
+        <div class="insight-card">
+          <div class="insight-label">Highest Spending Month</div>
+          <div class="insight-value" id="highestMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">vs Last Month</div>
+          <div class="insight-value" id="vsLastMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Top Category This Month</div>
+          <div class="insight-value" id="topCategoryCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Daily Avg This Month</div>
+          <div class="insight-value" id="dailyAvgCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Net Cashflow This Month</div>
+          <div class="insight-value" id="thisMonthNetCard">-</div>
+        </div>
+      </section>
+
+      <section class="tables-row">
+        <div class="table-card">
+          <div class="card-header">
+            <h2 class="card-title">Recent Transactions</h2>
+            <span class="card-badge">Last 10</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="recentTransactionsTable"></table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="card-header">
+            <h2 class="card-title">Top 5 by Amount</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="top5Table"></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="table-card full" style="margin-bottom: 40px;">
+        <div class="card-header">
+          <h2 class="card-title">Monthly Average by Sub Category</h2>
         </div>
         <div class="table-wrap">
-          <table class="data-table" id="recentTransactionsTable"></table>
+          <table class="data-table" id="avgCategoryTable"></table>
         </div>
-      </div>
-      <div class="table-card">
-        <div class="card-header">
-          <h2 class="card-title">Top 5 by Amount</h2>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table" id="top5Table"></table>
-        </div>
-      </div>
+      </section>
     </section>
 
-    <section class="table-card full" style="margin-bottom: 40px;">
-      <div class="card-header">
-        <h2 class="card-title">Monthly Average by Sub Category</h2>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table" id="avgCategoryTable"></table>
-      </div>
+    <section id="incomeDashboardView" class="dashboard-view">
+      <section class="kpi-row income-kpi-row">
+        <div class="kpi-card income">
+          <div class="kpi-label">Income in View</div>
+          <div class="kpi-value" id="incomePeriodTotal">$0</div>
+        </div>
+        <div class="kpi-card net">
+          <div class="kpi-label">Avg Income / Month</div>
+          <div class="kpi-value" id="incomeMonthlyAverage">$0</div>
+        </div>
+        <div class="kpi-card neutral">
+          <div class="kpi-label">Income Sources</div>
+          <div class="kpi-value" id="incomeSourceCount">0</div>
+        </div>
+        <div class="kpi-card income">
+          <div class="kpi-label">Best Income Month</div>
+          <div class="kpi-value" id="incomeBestMonth">$0</div>
+          <div class="kpi-note" id="incomeBestMonthNote">-</div>
+        </div>
+      </section>
+
+      <section class="income-breakdown-row">
+        <div class="chart-card">
+          <div class="card-header">
+            <h2 class="card-title">Income by Sub Category</h2>
+          </div>
+          <div class="chart-wrap income-chart">
+            <canvas id="incomeSubCategoryChart"></canvas>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="card-header">
+            <h2 class="card-title">Income Breakdown</h2>
+            <span class="card-badge" id="incomeBreakdownTotal">$0</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="incomeBreakdownTable"></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="insight-row income-insight-row">
+        <div class="insight-card">
+          <div class="insight-label">Income This Month</div>
+          <div class="insight-value" id="incomeThisMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">vs Last Month</div>
+          <div class="insight-value" id="incomeVsLastMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Top Income Source</div>
+          <div class="insight-value" id="incomeTopSourceCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Source Concentration</div>
+          <div class="insight-value" id="incomeConcentrationCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Income Entries</div>
+          <div class="insight-value" id="incomeFilteredCountCard">0</div>
+        </div>
+      </section>
+
+      <section class="table-card full" style="margin-bottom: 40px;">
+        <div class="card-header">
+          <h2 class="card-title">Income by Month</h2>
+          <span class="card-badge" id="incomeMonthlyTotal">$0</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="incomeMonthlyTable"></table>
+        </div>
+      </section>
     </section>
 
   </main>

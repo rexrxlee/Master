@@ -1,6 +1,8 @@
 let budgetTransactions = [];
 let billsBudget = [];
 let monthlyBudget = [];
+let budgetAutoSaveTimer = null;
+let budgetAutoSaveInFlight = false;
 
 const BUDGET_SHEET = "Budget Setup";
 
@@ -69,21 +71,25 @@ function addBudgetItem() {
   document.getElementById("subCategoryInput").value = "";
   document.getElementById("allocatedInput").value   = "";
   renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function deleteBudgetItem(type, index) {
   (type === "Bills" ? billsBudget : monthlyBudget).splice(index, 1);
   renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function updateBudgetCategory(type, index, value) {
   (type === "Bills" ? billsBudget : monthlyBudget)[index].category = clean(value);
   renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function updateBudgetAllocated(type, index, value) {
   (type === "Bills" ? billsBudget : monthlyBudget)[index].allocated = Number(value) || 0;
   renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function renderBudget() {
@@ -181,7 +187,10 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
   const total = summariseBudgetRows(allRows);
   const billCoveragePlan = buildBillReallocationPlan(bills, monthly);
   const billCoverageMap = buildBillCoverageMap(billCoveragePlan);
+  const monthlyCoveragePlan = buildMonthlyReallocationPlan(monthly, billCoverageMap);
+  const monthlyCoverageMap = mergeReserveMaps(billCoverageMap, buildBillCoverageMap(monthlyCoveragePlan));
   const coveredFromMonthly = billCoveragePlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const coveredMonthlyOverspend = monthlyCoveragePlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
   const topOver = allRows
     .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
     .filter(row => row.over > 0)
@@ -196,19 +205,19 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
       <div class="bv-header">
         <div>
           <h2>Budget Visuals</h2>
-          <p>Allocated, spent, reserved, and balance by category. Amber means monthly balance is absorbing bill overspend.</p>
+          <p>Allocated, spent, reserved, and balance by category. Amber means monthly balance is blocked for overspend elsewhere.</p>
         </div>
         ${alertHtml}
       </div>
       <div class="bv-summary-grid">
         ${renderBudgetSummaryMeter("Total Budget", total)}
         ${renderBudgetSummaryMeter("Bills", bills)}
-        ${renderBudgetSummaryMeter("Monthly Expenses", monthly, coveredFromMonthly)}
+        ${renderBudgetSummaryMeter("Monthly Expenses", monthly, coveredFromMonthly + coveredMonthlyOverspend)}
       </div>
-      ${renderBillCoverageBanner(billCoveragePlan)}
+      ${renderBudgetReserveBanner(billCoveragePlan, monthlyCoveragePlan)}
       <div class="bv-legend">
         <span><i class="spent"></i> Spent inside budget</span>
-        <span><i class="reserve"></i> Reserved for bill overspend</span>
+        <span><i class="reserve"></i> Reserved for overspend</span>
         <span><i class="balance"></i> Balance left</span>
         <span><i class="over"></i> Overspent</span>
       </div>
@@ -219,7 +228,7 @@ function renderBudgetVisualPanel(billsRows, monthlyRows) {
         </div>
         <div>
           <div class="bv-section-title">Monthly Expenses</div>
-          <div class="bv-rows">${renderBudgetVisualRows(monthlyRows, billCoverageMap)}</div>
+          <div class="bv-rows">${renderBudgetVisualRows(monthlyRows, monthlyCoverageMap)}</div>
         </div>
       </div>
     </div>`;
@@ -257,7 +266,7 @@ function renderBudgetVisualRows(rows, reserveMap = {}) {
       const balanceClass = row.balance < 0 ? "red" : "green";
       const rowClass = row.balance < 0 ? "bv-row over" : "bv-row";
       const reserveDetail = reserved > 0
-        ? `<span>${formatCurrency(reserved)} reserved for bills · ${formatCurrency(freeBalance)} free</span>`
+        ? `<span>${formatCurrency(reserved)} reserved for overspend · ${formatCurrency(freeBalance)} free</span>`
         : `<span>${formatCurrency(row.allocated)} allocated</span>`;
       return `
         <div class="${rowClass}">
@@ -296,35 +305,48 @@ function renderBudgetMeter(row, reserved = 0) {
     </div>`;
 }
 
-function renderBillCoverageBanner(plan) {
-  const covered = plan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
-  const totalNeeded = covered + plan.uncovered;
+function renderBudgetReserveBanner(billPlan, monthlyPlan) {
+  const billCovered = billPlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const monthlyCovered = monthlyPlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const billNeeded = billCovered + billPlan.uncovered;
+  const monthlyNeeded = monthlyCovered + monthlyPlan.uncovered;
+  const covered = billCovered + monthlyCovered;
+  const uncovered = billPlan.uncovered + monthlyPlan.uncovered;
+  const totalNeeded = billNeeded + monthlyNeeded;
   if (totalNeeded <= 0) return "";
 
-  const cutRows = plan.cuts.length
-    ? plan.cuts.map(cut => `
+  const cuts = [
+    ...billPlan.cuts.map(cut => ({ ...cut, reason: cut.reason || "bill overspend" })),
+    ...monthlyPlan.cuts.map(cut => ({ ...cut, reason: cut.reason || "monthly overspend" }))
+  ];
+  const cutRows = cuts.length
+    ? cuts.map(cut => `
         <div class="bv-cover-row">
-          <span>${escapeHtml(cut.category)}</span>
+          <span>${escapeHtml(cut.category)} <small>${escapeHtml(cut.reason)}</small></span>
           <strong>${formatCurrency(cut.cut)}</strong>
         </div>`).join("")
     : `<div class="bp-muted">No monthly balance available to reserve.</div>`;
 
   return `
-    <div class="bv-cover-banner ${plan.uncovered > 0 ? "danger" : ""}">
+    <div class="bv-cover-banner ${uncovered > 0 ? "danger" : ""}">
       <div class="bv-cover-main">
         <span>Bills overspent</span>
-        <strong>${formatCurrency(totalNeeded)}</strong>
+        <strong>${formatCurrency(billNeeded)}</strong>
       </div>
       <div class="bv-cover-main">
-        <span>Reserved from monthly balance</span>
+        <span>Monthly overspent</span>
+        <strong>${formatCurrency(monthlyNeeded)}</strong>
+      </div>
+      <div class="bv-cover-main">
+        <span>Total reserved</span>
         <strong>${formatCurrency(covered)}</strong>
       </div>
       <div class="bv-cover-list">
         ${cutRows}
-        ${plan.uncovered > 0 ? `
+        ${uncovered > 0 ? `
           <div class="bv-cover-row danger">
             <span>Still uncovered</span>
-            <strong>${formatCurrency(plan.uncovered)}</strong>
+            <strong>${formatCurrency(uncovered)}</strong>
           </div>` : ""}
       </div>
     </div>`;
@@ -415,17 +437,44 @@ function renderProjectionRow(row) {
     </div>`;
 }
 
-async function saveBudgetSetupToExcel() {
+function scheduleBudgetAutoSave(delay = 700) {
+  clearTimeout(budgetAutoSaveTimer);
+  setBudgetAutoSaveStatus("Saving soon...");
+  budgetAutoSaveTimer = setTimeout(() => {
+    saveBudgetSetupToExcel({ silent: true });
+  }, delay);
+}
+
+function setBudgetAutoSaveStatus(message, tone = "") {
+  const el = document.getElementById("budgetAutosaveStatus");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "autosave-status" + (tone ? " " + tone : "");
+}
+
+async function saveBudgetSetupToExcel(options = {}) {
+  if (budgetAutoSaveInFlight) {
+    scheduleBudgetAutoSave(1000);
+    return;
+  }
+
+  const silent = options.silent === true;
+  budgetAutoSaveInFlight = true;
   try {
+    setBudgetAutoSaveStatus("Saving...");
     log("Saving Budget Setup to Excel...");
     await writeBudgetSetupRange("A2:B13", buildSaveValues(billsBudget));
     await writeBudgetSetupRange("F2:G13", buildSaveValues(monthlyBudget));
-    alert("Budget saved to Excel.");
+    setBudgetAutoSaveStatus("Saved to Excel", "ok");
+    if (!silent) alert("Budget saved to Excel.");
     log("Budget saved.");
   } catch (err) {
+    setBudgetAutoSaveStatus("Save failed", "error");
     log("SAVE ERROR: " + err.message);
-    alert(err.message);
+    if (!silent) alert(err.message);
     console.error(err);
+  } finally {
+    budgetAutoSaveInFlight = false;
   }
 }
 
@@ -439,10 +488,12 @@ function updateBudgetCards(billsRows, monthlyRows) {
   const rows = [...billsRows, ...monthlyRows];
   const bills = summariseBudgetRows(billsRows);
   const monthly = summariseBudgetRows(monthlyRows);
-  const billReserve = buildBillReallocationPlan(bills, monthly)
-    .cuts
+  const billPlan = buildBillReallocationPlan(bills, monthly);
+  const billReserveMap = buildBillCoverageMap(billPlan);
+  const monthlyPlan = buildMonthlyReallocationPlan(monthly, billReserveMap);
+  const totalReserve = [...billPlan.cuts, ...monthlyPlan.cuts]
     .reduce((sum, cut) => sum + cut.cut, 0);
-  const monthlyFreeBalance = monthly.balance - billReserve;
+  const monthlyFreeBalance = monthly.balance - totalReserve;
   const totalAllocated = rows.reduce((s, r) => s + r.allocated, 0);
   const totalSpent     = rows.reduce((s, r) => s + r.spent,     0);
   const totalBalance   = rows.reduce((s, r) => s + r.balance,   0);
@@ -458,8 +509,8 @@ function updateBudgetCards(billsRows, monthlyRows) {
   setCurrencyValue("monthlyPerDay", monthlyFreeBalance / daysLeft, monthlyFreeBalance < 0 ? "red" : "green");
   setTextValue(
     "monthlyPerDayNote",
-    billReserve > 0
-      ? `Monthly expenses only; ${formatCurrency(billReserve)} reserved for bills.`
+    totalReserve > 0
+      ? `Monthly expenses only; ${formatCurrency(totalReserve)} reserved for overspend.`
       : "Monthly expenses only; bills excluded."
   );
 }
@@ -510,21 +561,31 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
 
   const monthlyNames = overMonthly.map(row => row.category).slice(0, 3).join(", ");
   const reallocationPlan = buildBillReallocationPlan(bills, monthly);
+  const billCoverageMap = buildBillCoverageMap(reallocationPlan);
+  const monthlyReallocationPlan = buildMonthlyReallocationPlan(monthly, billCoverageMap);
   const coveredFromMonthly = reallocationPlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
+  const coveredMonthlyOverspend = monthlyReallocationPlan.cuts.reduce((sum, cut) => sum + cut.cut, 0);
   const billCoverageTotal = coveredFromMonthly + reallocationPlan.uncovered;
-  const billReserveHtml = billCoverageTotal > 0
-    ? `<div class="bp-reserve-strip ${reallocationPlan.uncovered > 0 ? "danger" : ""}">
+  const monthlyCoverageTotal = coveredMonthlyOverspend + monthlyReallocationPlan.uncovered;
+  const totalReserved = coveredFromMonthly + coveredMonthlyOverspend;
+  const totalUncovered = reallocationPlan.uncovered + monthlyReallocationPlan.uncovered;
+  const reserveHtml = (billCoverageTotal + monthlyCoverageTotal) > 0
+    ? `<div class="bp-reserve-strip ${totalUncovered > 0 ? "danger" : ""}">
         <div>
           <span>Bills overspent</span>
           <strong class="red">${formatCurrency(billCoverageTotal)}</strong>
         </div>
         <div>
+          <span>Monthly overspent</span>
+          <strong class="${monthlyCoverageTotal > 0 ? "red" : "green"}">${formatCurrency(monthlyCoverageTotal)}</strong>
+        </div>
+        <div>
           <span>Reserved from monthly balance</span>
-          <strong>${formatCurrency(coveredFromMonthly)}</strong>
+          <strong>${formatCurrency(totalReserved)}</strong>
         </div>
         <div>
           <span>Still uncovered</span>
-          <strong class="${reallocationPlan.uncovered > 0 ? "red" : "green"}">${formatCurrency(reallocationPlan.uncovered)}</strong>
+          <strong class="${totalUncovered > 0 ? "red" : "green"}">${formatCurrency(totalUncovered)}</strong>
         </div>
       </div>`
     : "";
@@ -563,10 +624,25 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
   }
 
   if (monthlyCategoryOver > 0) {
+    const monthlyReserveHtml = monthlyReallocationPlan.cuts.length
+      ? `<div class="bp-cut-list">
+          ${monthlyReallocationPlan.cuts.map(cut => `
+            <div class="bp-cut-row">
+              <span>${escapeHtml(cut.category)} <small>available monthly balance</small></span>
+              <strong>Block ${formatCurrency(cut.cut)}</strong>
+            </div>`).join("")}
+          ${monthlyReallocationPlan.uncovered > 0 ? `
+            <div class="bp-cut-row">
+              <span>Still uncovered</span>
+              <strong>${formatCurrency(monthlyReallocationPlan.uncovered)}</strong>
+            </div>` : ""}
+        </div>`
+      : "";
     actions.push(`
       <div class="bp-action warn">
         <strong>Trim flexible spend next.</strong>
         Monthly expense categories are ${formatCurrency(monthlyCategoryOver)} over${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}. Put a short cap on those categories for the rest of the month.
+        ${monthlyReserveHtml}
       </div>`);
   } else {
     actions.push(`
@@ -607,7 +683,7 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
           <span class="bp-detail">More flexible categories</span>
         </div>
       </div>
-      ${billReserveHtml}
+      ${reserveHtml}
       <div class="bp-content">
         <div>
           <div class="bp-section-title">Over-budget categories</div>
@@ -633,7 +709,29 @@ function buildBillReallocationPlan(bills, monthly) {
       if (remaining <= 0) return;
       const cut = Math.min(row.balance, remaining);
       if (cut <= 0) return;
-      cuts.push({ category: row.category, cut });
+      cuts.push({ category: row.category, cut, reason: "bill overspend" });
+      remaining = Math.max(0, remaining - cut);
+    });
+
+  return { cuts, uncovered: remaining };
+}
+
+function buildMonthlyReallocationPlan(monthly, existingReserveMap = {}) {
+  let remaining = monthly.rows.reduce((sum, row) => sum + row.over, 0);
+  const cuts = [];
+  if (remaining <= 0) return { cuts, uncovered: 0 };
+
+  monthly.rows
+    .filter(row => row.balance > 0)
+    .sort((a, b) => a.spent - b.spent || b.balance - a.balance)
+    .forEach(row => {
+      if (remaining <= 0) return;
+      const key = budgetCategoryKey(row.category);
+      const alreadyReserved = Math.max(0, existingReserveMap[key] || 0);
+      const availableBalance = Math.max(0, row.balance - alreadyReserved);
+      const cut = Math.min(availableBalance, remaining);
+      if (cut <= 0) return;
+      cuts.push({ category: row.category, cut, reason: "monthly overspend" });
       remaining = Math.max(0, remaining - cut);
     });
 
@@ -645,6 +743,15 @@ function buildBillCoverageMap(plan) {
     const key = budgetCategoryKey(cut.category);
     map[key] = (map[key] || 0) + cut.cut;
     return map;
+  }, {});
+}
+
+function mergeReserveMaps(...maps) {
+  return maps.reduce((merged, map) => {
+    Object.entries(map || {}).forEach(([key, value]) => {
+      merged[key] = (merged[key] || 0) + value;
+    });
+    return merged;
   }, {});
 }
 

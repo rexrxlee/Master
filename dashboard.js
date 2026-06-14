@@ -3,7 +3,9 @@ let isUpdatingFilters = false;
 let savingsAccountNames = [];
 let creditCardAccountNames = [];
 let configuredAccounts = [];
+let monthlyExpenseBudgetRows = [];
 let assetAccountSelections = {};
+let activeDashboardView = "expenses";
 const ASSET_SCOPE_STORAGE_KEY = "fintrack.dashboard.assetAccountSelections.v1";
 const NO_FILTER_SELECTION = "__FINTRACK_NONE_SELECTED__";
 
@@ -20,6 +22,7 @@ async function loadDashboard() {
     prepareTransactions(rows);
     const budgetSheet = workbook.Sheets["Budget Setup"];
     if (budgetSheet) {
+      monthlyExpenseBudgetRows = readDashboardBudgetSection(budgetSheet, "F2:G13");
       const allRows = XLSX.utils.sheet_to_json(budgetSheet, { header: 1, blankrows: false });
       configuredAccounts = allRows.slice(1)
         .map(row => ({
@@ -35,6 +38,8 @@ async function loadDashboard() {
       creditCardAccountNames = configuredAccounts
         .filter(account => account.type.toLowerCase() === "credit card")
         .map(account => account.name);
+    } else {
+      monthlyExpenseBudgetRows = [];
     }
     loadAssetAccountSelections();
     setupFilters();
@@ -53,6 +58,16 @@ async function loadDashboard() {
 function clean(value) { return String(value ?? "").trim(); }
 function accountKey(value) { return clean(value).toLowerCase().replace(/\s+/g, " "); }
 function fieldKey(value) { return clean(value).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+function readDashboardBudgetSection(sheet, range) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range, blankrows: false });
+  return rows
+    .map(row => ({
+      category: clean(row[0]),
+      allocated: Number(String(row[1] ?? "").replace(/[$,]/g, "")) || 0
+    }))
+    .filter(row => row.category !== "");
+}
 function getRowValue(row, fieldName) {
   const wanted = fieldKey(fieldName);
   const key = Object.keys(row || {}).find(k => fieldKey(k) === wanted);
@@ -70,7 +85,8 @@ function prepareTransactions(rows) {
     "Account",
     "Claimable",
     "Claim Status",
-    "Claim Amount"
+    "Claim Amount",
+    "Claim Account"
   ];
   allTransactions = rows.slice(1).map(row => {
     const obj = {};
@@ -123,6 +139,41 @@ function setupFilters() {
       if (drp) drp.style.display = "none";
     }
   });
+}
+
+function switchDashboardView(view) {
+  if (!["expenses", "income"].includes(view)) return;
+  if (activeDashboardView !== view) {
+    const current = getCurrentFilters();
+    activeDashboardView = view;
+    const resetNonDateFilters = {
+      mainCategories: [],
+      subCategories: [],
+      transactions: [],
+      fromDate: current.fromDate,
+      toDate: current.toDate
+    };
+    refreshAllFilters(resetNonDateFilters);
+  } else {
+    syncDashboardViewVisibility();
+  }
+
+  const filters = getCurrentFilters();
+  updateDashboard(filters);
+  updateActiveFilterBadges(filters);
+}
+
+function syncDashboardViewVisibility() {
+  const isIncome = activeDashboardView === "income";
+  const expensesView = document.getElementById("expensesDashboardView");
+  const incomeView = document.getElementById("incomeDashboardView");
+  const expensesTab = document.getElementById("expensesDashboardTab");
+  const incomeTab = document.getElementById("incomeDashboardTab");
+
+  if (expensesView) expensesView.classList.toggle("active", !isIncome);
+  if (incomeView) incomeView.classList.toggle("active", isIncome);
+  if (expensesTab) expensesTab.classList.toggle("active", !isIncome);
+  if (incomeTab) incomeTab.classList.toggle("active", isIncome);
 }
 
 function toggleDropdown(menuId) {
@@ -239,6 +290,10 @@ function getPendingClaimReceivableAmount(row) {
   return getClaimAmount(row);
 }
 
+function getClaimReceivableAccount(row) {
+  return clean(getRowValue(row, "Claim Account")) || "(Claim account not set)";
+}
+
 function computePendingClaimsByAccount(rows, shouldIncludeAccount = () => true) {
   const byAccount = {};
   let total = 0;
@@ -248,7 +303,7 @@ function computePendingClaimsByAccount(rows, shouldIncludeAccount = () => true) 
     const amount = getPendingClaimReceivableAmount(row);
     if (amount <= 0) return;
 
-    const account = clean(row["Account"]) || "(No account)";
+    const account = getClaimReceivableAccount(row);
     if (!shouldIncludeAccount(account)) return;
 
     byAccount[account] = (byAccount[account] || 0) + amount;
@@ -281,12 +336,24 @@ function rowMatchesFilters(row, filters, ignoreField = null) {
   return true;
 }
 
+function rowMatchesDateFilters(row, filters) {
+  return rowMatchesFilters(row, {
+    mainCategories: [],
+    subCategories: [],
+    transactions: [],
+    fromDate: filters.fromDate,
+    toDate: filters.toDate
+  });
+}
+
 function refreshAllFilters(filters = getCurrentFilters()) {
   isUpdatingFilters = true;
-  const expenseOnly = allTransactions.filter(isSpendAnalyticsRow);
-  rebuildCheckboxMenu("mainCategoryMenu", "Main Category", expenseOnly.filter(row => rowMatchesFilters(row, filters, "mainCategory")), filters.mainCategories);
-  rebuildCheckboxMenu("subCategoryMenu", "Sub Category", expenseOnly.filter(row => rowMatchesFilters(row, filters, "subCategory")), filters.subCategories);
-  rebuildCheckboxMenu("transactionMenu", "Transaction", expenseOnly.filter(row => rowMatchesFilters(row, filters, "transaction")), filters.transactions);
+  const filterRows = activeDashboardView === "income"
+    ? allTransactions.filter(isIncomeRow)
+    : allTransactions.filter(isSpendAnalyticsRow);
+  rebuildCheckboxMenu("mainCategoryMenu", "Main Category", filterRows.filter(row => rowMatchesFilters(row, filters, "mainCategory")), filters.mainCategories);
+  rebuildCheckboxMenu("subCategoryMenu", "Sub Category", filterRows.filter(row => rowMatchesFilters(row, filters, "subCategory")), filters.subCategories);
+  rebuildCheckboxMenu("transactionMenu", "Transaction", filterRows.filter(row => rowMatchesFilters(row, filters, "transaction")), filters.transactions);
   isUpdatingFilters = false;
 }
 
@@ -375,24 +442,19 @@ function addFilterBadges(badges, label, values) {
 }
 
 function updateDashboard(filters = getCurrentFilters()) {
+  syncDashboardViewVisibility();
+
   const filtered = allTransactions.filter(row => isSpendAnalyticsRow(row) && rowMatchesFilters(row, filters));
+  const incomeByDate = allTransactions.filter(row => isIncomeRow(row) && rowMatchesDateFilters(row, filters));
   const incomeFiltered = allTransactions.filter(row => {
-      if (!isIncomeRow(row)) return false;
-      const rowDate = parseExcelDate(row["Date"]);
-      if (!rowDate) return false;
-      if (filters.fromDate) {
-        const [fy, fm, fd] = filters.fromDate.split("-").map(Number);
-        if (rowDate < new Date(fy, fm - 1, fd)) return false;
-      }
-      if (filters.toDate) {
-        const [ty, tm, td] = filters.toDate.split("-").map(Number);
-        if (rowDate > new Date(ty, tm - 1, td, 23, 59, 59)) return false;
-      }
-      return true;
-    });
+    if (!isIncomeRow(row)) return false;
+    return activeDashboardView === "income"
+      ? rowMatchesFilters(row, filters)
+      : rowMatchesDateFilters(row, filters);
+  });
 
   const totalExpenses = filtered.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
-  const totalIncome = incomeFiltered.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+  const totalIncome = incomeByDate.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
   const netSavings = totalIncome - totalExpenses;
 
   document.getElementById("totalExpenses").innerText = formatKpiCurrency(totalExpenses);
@@ -410,14 +472,153 @@ function updateDashboard(filters = getCurrentFilters()) {
   document.getElementById("transactionCount").innerText = filtered.length;
 
   updateFinanceCards(allTransactions);
-  drawMonthlyExpenseChart(filtered, incomeFiltered, filters);
-  drawSubCategoryMonthlyChart(filtered, filters);
-  drawIncomeSubCategoryChart(incomeFiltered, filters);
+  renderMonthlyExpenseBudgetInsight(computeMonthlyExpenseBudgetPosition(allTransactions));
+  if (activeDashboardView === "income") {
+    drawIncomeSubCategoryChart(incomeFiltered, filters);
+  } else {
+    drawMonthlyExpenseChart(filtered, incomeByDate, filters);
+    drawSubCategoryMonthlyChart(filtered, filters);
+  }
   renderRecentTransactions(filtered);
   renderTop5Transactions(filtered);
   renderMonthlyAvgByCategory(filtered);
   renderIncomeBreakdown(incomeFiltered, filters);
-  renderInsightCards(filtered, incomeFiltered, allTransactions);
+  renderIncomeSummaryCards(incomeFiltered, filters);
+  renderIncomeInsightCards(incomeFiltered, allTransactions, filters);
+  renderIncomeMonthlyTable(incomeFiltered);
+  renderInsightCards(filtered, incomeByDate, allTransactions);
+}
+
+// ─── Monthly Expenses Budget Insight ──────────────────────────────────────────
+
+function computeMonthlyExpenseBudgetPosition(data) {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const daysElapsed = Math.max(1, today.getDate());
+  const daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
+
+  const allocatedByCategory = {};
+  monthlyExpenseBudgetRows.forEach(row => {
+    const category = clean(row.category);
+    if (!category) return;
+    allocatedByCategory[category] = (allocatedByCategory[category] || 0) + row.allocated;
+  });
+
+  const spentByCategory = {};
+  (data || []).forEach(row => {
+    const rowDate = parseExcelDate(row["Date"]);
+    if (!rowDate) return;
+    if (rowDate.getFullYear() !== currentYear || rowDate.getMonth() !== currentMonth) return;
+    if (clean(row["Main Category"]).toLowerCase() !== "monthly expenses") return;
+    if (isClaimableRow(row)) return;
+
+    const category = clean(row["Sub Category"]) || "Uncategorised";
+    spentByCategory[category] = (spentByCategory[category] || 0) + getAmount(row["Amount"]);
+  });
+
+  const categories = [...new Set([
+    ...Object.keys(allocatedByCategory),
+    ...Object.keys(spentByCategory)
+  ])];
+
+  const rows = categories.map(category => {
+    const allocated = allocatedByCategory[category] || 0;
+    const spent = spentByCategory[category] || 0;
+    const balance = allocated - spent;
+    const projectedSpend = spent / daysElapsed * daysInMonth;
+    const projectedBalance = allocated - projectedSpend;
+    return {
+      category,
+      allocated,
+      spent,
+      balance,
+      leftPerDay: balance / daysLeft,
+      projectedSpend,
+      projectedBalance,
+      status: getMonthlyBudgetStatus(allocated, spent, balance, projectedBalance)
+    };
+  }).sort((a, b) => {
+    if (a.balance < 0 && b.balance >= 0) return -1;
+    if (b.balance < 0 && a.balance >= 0) return 1;
+    return a.balance - b.balance;
+  });
+
+  const allocated = rows.reduce((sum, row) => sum + row.allocated, 0);
+  const spent = rows.reduce((sum, row) => sum + row.spent, 0);
+  const balance = allocated - spent;
+  const projectedSpend = spent / daysElapsed * daysInMonth;
+  const projectedBalance = allocated - projectedSpend;
+
+  return {
+    rows,
+    allocated,
+    spent,
+    balance,
+    leftPerDay: balance / daysLeft,
+    projectedSpend,
+    projectedBalance,
+    monthLabel: today.toLocaleString("en-SG", { month: "short", year: "2-digit" })
+  };
+}
+
+function getMonthlyBudgetStatus(allocated, spent, balance, projectedBalance) {
+  if (allocated <= 0 && spent > 0) return { label: "Unbudgeted", className: "over" };
+  if (balance < 0) return { label: "Over", className: "over" };
+  if (projectedBalance < 0) return { label: "Watch", className: "watch" };
+  return { label: "On track", className: "ok" };
+}
+
+function renderMonthlyExpenseBudgetInsight(summary) {
+  setMoneyText("monthlyExpenseBalance", summary.balance, true);
+  setMoneyText("monthlyExpenseSpent", summary.spent, false);
+  setMoneyText("monthlyExpenseLeftPerDay", summary.leftPerDay, true);
+  setMoneyText("monthlyExpenseProjected", summary.projectedBalance, true);
+
+  const projectedNote = document.getElementById("monthlyExpenseProjectedNote");
+  if (projectedNote) {
+    projectedNote.textContent = `Projected spend ${formatCurrency(summary.projectedSpend)} this month`;
+  }
+
+  const badge = document.getElementById("monthlyExpenseBudgetBadge");
+  if (badge) {
+    badge.textContent = summary.balance >= 0
+      ? `${summary.monthLabel}: ${formatCurrency(summary.balance)} left`
+      : `${summary.monthLabel}: ${formatCurrency(Math.abs(summary.balance))} over`;
+    badge.classList.toggle("warn", summary.balance < 0 || summary.projectedBalance < 0);
+  }
+
+  const table = document.getElementById("monthlyExpenseBudgetTable");
+  if (!table) return;
+
+  table.innerHTML = `<tr><th>Sub Category</th><th>Allocated</th><th>Spent</th><th>Balance</th><th>Left / Day</th><th>Status</th></tr>`;
+  if (!summary.rows.length) {
+    table.innerHTML += `<tr><td colspan="6" style="text-align:center;color:#999;">No monthly expense budget rows found</td></tr>`;
+    return;
+  }
+
+  summary.rows.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.category}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;">${formatCurrency(row.allocated)}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;font-weight:bold;">${formatCurrency(row.spent)}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;color:${row.balance >= 0 ? "#16a34a" : "#dc2626"};font-weight:bold;">${formatCurrency(row.balance)}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;color:${row.leftPerDay >= 0 ? "#16a34a" : "#dc2626"};">${formatCurrency(row.leftPerDay)}</td>
+      <td><span class="budget-status ${row.status.className}">${row.status.label}</span></td>
+    `;
+    table.appendChild(tr);
+  });
+}
+
+function setMoneyText(elementId, value, positiveIsGood = true, suffix = "") {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  element.textContent = formatKpiCurrency(value) + suffix;
+  element.style.color = value >= 0
+    ? (positiveIsGood ? "#16a34a" : "#1a1d23")
+    : "#dc2626";
 }
 
 // ─── Finance Cards ─────────────────────────────────────────────────────────────
@@ -719,6 +920,196 @@ function renderIncomeBreakdown(data, filters = {}) {
     `;
     table.appendChild(tr);
   });
+}
+
+function renderIncomeSummaryCards(data, filters = {}) {
+  const stats = getIncomeStats(data, filters);
+  setMoneyText("incomePeriodTotal", stats.total, true);
+  setMoneyText("incomeMonthlyAverage", stats.avgPerMonth, true);
+
+  const sourceCount = document.getElementById("incomeSourceCount");
+  if (sourceCount) sourceCount.textContent = stats.sourceCount;
+
+  const bestMonth = document.getElementById("incomeBestMonth");
+  const bestMonthNote = document.getElementById("incomeBestMonthNote");
+  if (bestMonth) {
+    bestMonth.textContent = stats.bestMonth
+      ? formatKpiCurrency(stats.bestMonth.total)
+      : "$0.00";
+    bestMonth.style.color = "#16a34a";
+  }
+  if (bestMonthNote) {
+    bestMonthNote.textContent = stats.bestMonth
+      ? formatDashboardMonth(stats.bestMonth.month)
+      : "No income in view";
+  }
+}
+
+function renderIncomeInsightCards(data, allRows, filters = {}) {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+  const scopedIncomeRows = (allRows || [])
+    .filter(isIncomeRow)
+    .filter(row => matchesIncomeNonDateFilters(row, filters));
+
+  const thisMonthIncome = scopedIncomeRows
+    .filter(row => {
+      const d = parseExcelDate(row["Date"]);
+      return d && d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    })
+    .reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+
+  const lastMonthIncome = scopedIncomeRows
+    .filter(row => {
+      const d = parseExcelDate(row["Date"]);
+      return d && d.getFullYear() === lastMonthYear && d.getMonth() === lastMonth;
+    })
+    .reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+
+  const incomeThisMonthCard = document.getElementById("incomeThisMonthCard");
+  if (incomeThisMonthCard) {
+    incomeThisMonthCard.textContent = formatCurrency(thisMonthIncome);
+    incomeThisMonthCard.style.color = "#16a34a";
+  }
+
+  const incomeDiff = thisMonthIncome - lastMonthIncome;
+  const incomeVsLastMonthCard = document.getElementById("incomeVsLastMonthCard");
+  if (incomeVsLastMonthCard) {
+    incomeVsLastMonthCard.textContent = incomeDiff >= 0
+      ? `${formatCurrency(incomeDiff)} more`
+      : `${formatCurrency(Math.abs(incomeDiff))} less`;
+    incomeVsLastMonthCard.style.color = incomeDiff >= 0 ? "#16a34a" : "#dc2626";
+  }
+
+  const sourceTotals = {};
+  (data || []).forEach(row => {
+    const source = clean(row["Sub Category"]) || "Uncategorised";
+    sourceTotals[source] = (sourceTotals[source] || 0) + getAmount(row["Amount"]);
+  });
+
+  const totalIncome = Object.values(sourceTotals).reduce((sum, amount) => sum + amount, 0);
+  const topSource = Object.entries(sourceTotals).sort((a, b) => b[1] - a[1])[0];
+
+  const topSourceCard = document.getElementById("incomeTopSourceCard");
+  if (topSourceCard) {
+    topSourceCard.textContent = topSource
+      ? `${topSource[0]} - ${formatCurrency(topSource[1])}`
+      : "-";
+  }
+
+  const concentrationCard = document.getElementById("incomeConcentrationCard");
+  if (concentrationCard) {
+    concentrationCard.textContent = topSource && totalIncome > 0
+      ? `${(topSource[1] / totalIncome * 100).toFixed(1)}% from top source`
+      : "-";
+  }
+
+  const countCard = document.getElementById("incomeFilteredCountCard");
+  if (countCard) countCard.textContent = String((data || []).length);
+}
+
+function renderIncomeMonthlyTable(data) {
+  const table = document.getElementById("incomeMonthlyTable");
+  if (!table) return;
+
+  const byMonth = {};
+  (data || []).forEach(row => {
+    const date = parseExcelDate(row["Date"]);
+    if (!date) return;
+    const key = dashboardMonthKey(date);
+    const source = clean(row["Sub Category"]) || "Uncategorised";
+    if (!byMonth[key]) byMonth[key] = { total: 0, count: 0, sources: {} };
+    byMonth[key].total += getAmount(row["Amount"]);
+    byMonth[key].count += 1;
+    byMonth[key].sources[source] = (byMonth[key].sources[source] || 0) + getAmount(row["Amount"]);
+  });
+
+  const rows = Object.entries(byMonth)
+    .map(([month, value]) => {
+      const topSource = Object.entries(value.sources).sort((a, b) => b[1] - a[1])[0];
+      return {
+        month,
+        total: value.total,
+        count: value.count,
+        topSource: topSource ? topSource[0] : "-",
+        topSourceAmount: topSource ? topSource[1] : 0
+      };
+    })
+    .sort((a, b) => b.month.localeCompare(a.month));
+
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  const totalEl = document.getElementById("incomeMonthlyTotal");
+  if (totalEl) totalEl.textContent = formatCurrency(total);
+
+  table.innerHTML = `<tr><th>Month</th><th>Income</th><th>Entries</th><th>Top Source</th></tr>`;
+  if (!rows.length) {
+    table.innerHTML += `<tr><td colspan="4" style="text-align:center;color:#999;">No income data found</td></tr>`;
+    return;
+  }
+
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${formatDashboardMonth(row.month)}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;font-weight:bold;color:#16a34a;">${formatCurrency(row.total)}</td>
+      <td style="text-align:right;font-family:'DM Mono', monospace;">${row.count}</td>
+      <td style="text-align:left;font-family:'DM Sans', sans-serif;font-weight:500;">${row.topSource} (${formatCurrency(row.topSourceAmount)})</td>
+    `;
+    table.appendChild(tr);
+  });
+}
+
+function getIncomeStats(data, filters = {}) {
+  const months = new Set();
+  const sourceTotals = {};
+  const monthTotals = {};
+  let total = 0;
+
+  (data || []).forEach(row => {
+    const amount = getAmount(row["Amount"]);
+    total += amount;
+
+    const source = clean(row["Sub Category"]) || "Uncategorised";
+    sourceTotals[source] = (sourceTotals[source] || 0) + amount;
+
+    const date = parseExcelDate(row["Date"]);
+    if (!date) return;
+    const month = dashboardMonthKey(date);
+    months.add(month);
+    monthTotals[month] = (monthTotals[month] || 0) + amount;
+  });
+
+  const monthCount = getBreakdownMonthCount(months, filters);
+  const bestMonth = Object.entries(monthTotals)
+    .map(([month, monthTotal]) => ({ month, total: monthTotal }))
+    .sort((a, b) => b.total - a.total)[0] || null;
+
+  return {
+    total,
+    avgPerMonth: total / monthCount,
+    sourceCount: Object.keys(sourceTotals).length,
+    bestMonth
+  };
+}
+
+function matchesIncomeNonDateFilters(row, filters = {}) {
+  return filterAllowsValue(filters.mainCategories || [], row["Main Category"])
+    && filterAllowsValue(filters.subCategories || [], row["Sub Category"])
+    && filterAllowsValue(filters.transactions || [], row["Transaction"]);
+}
+
+function dashboardMonthKey(date) {
+  return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0");
+}
+
+function formatDashboardMonth(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
+  return new Date(year, month - 1, 1).toLocaleString("en-SG", { month: "short", year: "2-digit" });
 }
 
 function getBreakdownMonthCount(months, filters) {

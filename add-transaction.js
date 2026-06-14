@@ -34,7 +34,7 @@ async function loadAddTransactionPage() {
     const txSheet = workbook.Sheets[CONFIG.sheetName];
     if (txSheet) {
       const allTxRows = XLSX.utils.sheet_to_json(txSheet, { header: 1, blankrows: false });
-      // headers: A=Date B=Transaction C=Amount D=MainCategory E=SubCategory F=Account G=Claimable H=ClaimStatus I=ClaimAmount
+      // headers: A=Date B=Transaction C=Amount D=MainCategory E=SubCategory F=Account G=Claimable H=ClaimStatus I=ClaimAmount J=ClaimAccount
       recentRows = allTxRows.slice(1)
         .map((row, i) => ({
           _rowIndex: i + 2, // 1-based Excel row (header is row 1)
@@ -47,6 +47,7 @@ async function loadAddTransactionPage() {
           claimable:   String(row[6] ?? "").trim(),   // "Yes" or ""
           claimStatus: String(row[7] ?? "").trim(),   // "Pending" | "Claimed" | ""
           claimAmount: row[8] ?? "",
+          claimAccount:String(row[9] ?? "").trim(),
         }))
         .filter(r => r.date !== "" && r.transaction !== "Opening Balance");
     }
@@ -129,6 +130,7 @@ function populateAccountDropdowns() {
   const allAccounts      = accounts;
 
   fillSelect("txAccount",        allAccounts);
+  fillSelect("txClaimAccount",   allAccounts, "Select credited account");
   fillSelect("inAccount",        savingsAccounts);
   fillSelect("trFromAccount",    allAccounts);
   fillSelect("trToAccount",      allAccounts);
@@ -136,10 +138,16 @@ function populateAccountDropdowns() {
   fillSelect("ccPayToAccount",   ccAccounts);
 }
 
-function fillSelect(id, list) {
+function fillSelect(id, list, placeholder = "") {
   const sel = document.getElementById(id);
   if (!sel) return;
   sel.innerHTML = "";
+  if (placeholder) {
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = placeholder;
+    sel.appendChild(placeholderOption);
+  }
   list.forEach(a => {
     const opt = document.createElement("option");
     opt.value = a.name;
@@ -220,6 +228,8 @@ function resetClaimableUi() {
   if (details) details.classList.remove("open");
   const claimInput = document.getElementById("txClaimAmount");
   if (claimInput) claimInput.value = "";
+  const claimAccount = document.getElementById("txClaimAccount");
+  if (claimAccount) claimAccount.value = "";
 }
 
 // ── Date formatting helper ────────────────────────────────────────────────────
@@ -247,17 +257,19 @@ async function saveTransaction() {
   const claimFlag   = isClaimable ? "Yes" : "";
   const claimStatus = isClaimable ? "Pending" : "";
   let claimAmount = "";
+  let claimAccount = "";
 
   if (isClaimable) {
     const rawClaimAmount = parseFloat(document.getElementById("txClaimAmount")?.value);
+    claimAccount = document.getElementById("txClaimAccount")?.value || "";
     claimAmount = isNaN(rawClaimAmount) ? amount : rawClaimAmount;
     if (claimAmount <= 0) { alert("Claim amount must be more than $0."); return; }
     if (claimAmount > amount) { alert("Claim amount cannot be more than the expense amount."); return; }
     claimAmount = Number(claimAmount.toFixed(2));
   }
 
-  // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus, I=ClaimAmount
-  const row = [dateStr, txDesc, amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount];
+  // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus, I=ClaimAmount, J=ClaimAccount
+  const row = [dateStr, txDesc, amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount, claimAccount];
 
   try {
     log("Saving transaction...");
@@ -268,8 +280,8 @@ async function saveTransaction() {
     const data = await graphGetJson(url, token);
     const nextRow = data.rowCount + 1;
 
-    await ensureClaimAmountHeader();
-    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:I${nextRow}`, [row]);
+    await ensureClaimHeaders();
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:J${nextRow}`, [row]);
 
     resetClaimableUi();
 
@@ -462,7 +474,8 @@ function applyTxFilter() {
     const matchesText = !text ||
       r.transaction.toLowerCase().includes(text) ||
       r.subCat.toLowerCase().includes(text) ||
-      r.account.toLowerCase().includes(text);
+      r.account.toLowerCase().includes(text) ||
+      r.claimAccount.toLowerCase().includes(text);
     return matchesCat && matchesText;
   });
 
@@ -521,6 +534,8 @@ function renderRecentTransactionsTable() {
       `<option value="${c}" ${c === row.mainCat ? "selected" : ""}>${c}</option>`).join("");
     const acctOptions  = allAccounts.map(a =>
       `<option value="${a}" ${a === row.account ? "selected" : ""}>${a}</option>`).join("");
+    const claimAcctOptions = `<option value="">-- Not set --</option>` + allAccounts.map(a =>
+      `<option value="${a}" ${a === row.claimAccount ? "selected" : ""}>${a}</option>`).join("");
 
     html += `
       <div class="tx-row" id="tx-row-${idx}" onclick="toggleEditPanel(${idx})">
@@ -553,6 +568,7 @@ function renderRecentTransactionsTable() {
             </select>
           </div>
           <div class="ef"><label>Claim Amount</label><input type="number" step="0.01" min="0" id="edit-claimamt-${idx}" value="${row.claimable === "Yes" ? getClaimAmount(row) : ""}" placeholder="Full amount if blank"></div>
+          <div class="ef"><label>Claim Paid To</label><select id="edit-claimacc-${idx}">${claimAcctOptions}</select></div>
         </div>
         <div class="tx-edit-actions">
           <button class="btn-edit-save" onclick="saveRow(${idx}); event.stopPropagation();">💾 Save</button>
@@ -597,6 +613,9 @@ async function saveRow(excelRowNumber) {
   const account   = document.getElementById("edit-acc-" + excelRowNumber).value;
   const claimable = document.getElementById("edit-claim-" + excelRowNumber).value;
   const claimSt   = document.getElementById("edit-claimst-" + excelRowNumber).value;
+  const claimAccount = claimable === "Yes"
+    ? document.getElementById("edit-claimacc-" + excelRowNumber).value
+    : "";
   let claimAmount = "";
 
   if (!dateInput) { alert("Please enter a date."); return; }
@@ -607,16 +626,17 @@ async function saveRow(excelRowNumber) {
     claimAmount = isNaN(rawClaimAmount) ? amt : rawClaimAmount;
     if (claimAmount <= 0) { alert("Claim amount must be more than $0."); return; }
     if (claimAmount > amt) { alert("Claim amount cannot be more than the expense amount."); return; }
+    if (claimSt === "Claimed" && !claimAccount) { alert("Please select the account where the claim was paid."); return; }
     claimAmount = Number(claimAmount.toFixed(2));
   }
 
   try {
     log("Saving row " + excelRowNumber + "...");
-    await ensureClaimAmountHeader();
+    await ensureClaimHeaders();
     await writeExcelRange(
       CONFIG.sheetName,
-      `A${excelRowNumber}:I${excelRowNumber}`,
-      [[dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount]]
+      `A${excelRowNumber}:J${excelRowNumber}`,
+      [[dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount]]
     );
     log("Row " + excelRowNumber + " saved.");
     // Flash the row green briefly
@@ -662,8 +682,9 @@ function renderClaimsTracker() {
 
   if (pending.length > 0) {
     html += `<table class="data-table" style="max-width:680px;margin-bottom:24px;"><tr>
-      <th>Date</th><th>Description</th><th>Claim</th><th>Expense</th><th>Category</th><th>Account</th><th></th></tr>`;
+      <th>Date</th><th>Description</th><th>Claim</th><th>Expense</th><th>Category</th><th>Spent From</th><th>Claim Paid To</th><th></th></tr>`;
     pending.forEach(row => {
+      const selectedOptions = accountOptionsHtml(row.claimAccount);
       html += `<tr>
         <td>${formatDisplayDate(row.date)}</td>
         <td>${escapeHtml(row.transaction)}</td>
@@ -671,6 +692,7 @@ function renderClaimsTracker() {
         <td>${formatAmount(row.amount)}</td>
         <td>${escapeHtml(row.subCat)}</td>
         <td>${escapeHtml(row.account)}</td>
+        <td><select id="claim-account-${row._rowIndex}" style="min-width:150px;">${selectedOptions}</select></td>
         <td><button onclick="markClaimed(${row._rowIndex})"
           style="background:#27ae60;color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;">
           ✓ Mark Claimed</button></td>
@@ -682,7 +704,7 @@ function renderClaimsTracker() {
   if (claimed.length > 0) {
     html += `<details style="max-width:680px;"><summary style="cursor:pointer;color:#888;font-size:13px;margin-bottom:8px;">
       ✅ ${claimed.length} claimed transaction(s)</summary>
-      <table class="data-table"><tr><th>Date</th><th>Description</th><th>Claim</th><th>Expense</th><th>Account</th></tr>`;
+      <table class="data-table"><tr><th>Date</th><th>Description</th><th>Claim</th><th>Expense</th><th>Spent From</th><th>Paid To</th></tr>`;
     claimed.forEach(row => {
       html += `<tr style="opacity:0.6;">
         <td>${formatDisplayDate(row.date)}</td>
@@ -690,6 +712,7 @@ function renderClaimsTracker() {
         <td>${formatAmount(getClaimAmount(row))}</td>
         <td>${formatAmount(row.amount)}</td>
         <td>${escapeHtml(row.account)}</td>
+        <td>${escapeHtml(row.claimAccount || "-")}</td>
       </tr>`;
     });
     html += `</table></details>`;
@@ -698,12 +721,27 @@ function renderClaimsTracker() {
   container.innerHTML = html;
 }
 
-// ── Mark a row as Claimed (writes col H) ─────────────────────────────────────
+function accountOptionsHtml(selectedAccount = "") {
+  return `<option value="">Select account</option>` + accounts.map(account => {
+    const label = account.name + (account.type === "Credit Card" ? " (CC)" : "");
+    return `<option value="${escapeHtml(account.name)}" ${account.name === selectedAccount ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
+// ── Mark a row as Claimed (writes status and claim account) ──────────────────
 async function markClaimed(excelRowNumber) {
+  const row = recentRows.find(item => item._rowIndex === excelRowNumber);
+  const claimAccount = document.getElementById("claim-account-" + excelRowNumber)?.value || row?.claimAccount || "";
+  if (!claimAccount) {
+    alert("Please select the account where the claim was paid.");
+    return;
+  }
+
   try {
     log("Marking row " + excelRowNumber + " as Claimed...");
-    // Write "Claimed" to column H of that row
+    await ensureClaimHeaders();
     await writeExcelRange(CONFIG.sheetName, `H${excelRowNumber}:H${excelRowNumber}`, [["Claimed"]]);
+    await writeExcelRange(CONFIG.sheetName, `J${excelRowNumber}:J${excelRowNumber}`, [[claimAccount]]);
     log("Marked as Claimed.");
     await loadAddTransactionPage();
   } catch (err) {
@@ -718,7 +756,7 @@ async function deleteRow(excelRowNumber) {
   try {
     log("Deleting row " + excelRowNumber + "...");
     // Overwrite with blank row
-    await writeExcelRange(CONFIG.sheetName, `A${excelRowNumber}:I${excelRowNumber}`, [["","","","","","","","",""]]);
+    await writeExcelRange(CONFIG.sheetName, `A${excelRowNumber}:J${excelRowNumber}`, [["","","","","","","","","",""]]);
     log("Row cleared.");
     await loadAddTransactionPage();
   } catch (err) {
@@ -754,8 +792,8 @@ function getClaimAmount(row) {
   return Math.min(expenseAmount, claimAmount);
 }
 
-async function ensureClaimAmountHeader() {
-  await writeExcelRange(CONFIG.sheetName, "I1:I1", [["Claim Amount"]]);
+async function ensureClaimHeaders() {
+  await writeExcelRange(CONFIG.sheetName, "I1:J1", [["Claim Amount", "Claim Account"]]);
 }
 
 function escapeHtml(v) {

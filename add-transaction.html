@@ -133,7 +133,7 @@
     .claim-details.open { display: block; }
     .claim-details-row {
       display: grid;
-      grid-template-columns: minmax(160px, 1fr) auto auto;
+      grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) auto auto;
       gap: 8px;
       align-items: end;
     }
@@ -147,7 +147,8 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .claim-details input {
+    .claim-details input,
+    .claim-details select {
       padding: 8px 10px;
       border: 1px solid #f0c080;
       border-radius: 6px;
@@ -339,6 +340,7 @@
       <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
+      <a href="insurance.html" class="nav-item"><span class="nav-icon">▥</span> Insurance</a>
       <a href="add-transaction.html" class="nav-item active"><span class="nav-icon">＋</span> Add Transaction</a>
       <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
@@ -411,11 +413,15 @@
               Claim Amount (SGD)
               <input type="number" step="0.01" min="0" id="txClaimAmount" placeholder="Leave blank for full amount">
             </label>
+            <label>
+              Claim Paid To
+              <select id="txClaimAccount"></select>
+            </label>
             <button type="button" class="claim-preset-btn" onclick="setClaimAmountPreset('full')">Full</button>
             <button type="button" class="claim-preset-btn" onclick="setClaimAmountPreset('half')">Half</button>
           </div>
           <div class="claim-details-note">
-            Example: if expense is $100 and claim amount is $40, only $60 counts against your budget.
+            Example: if expense is $100 and claim amount is $40, only $60 counts against your budget. Claim account is where reimbursement will be received, not necessarily where you spent.
           </div>
         </div>
       </div>

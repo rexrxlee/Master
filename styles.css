@@ -121,6 +121,12 @@ body {
   transition: all 0.15s;
 }
 .reload-btn:hover { background: var(--bg); border-color: #ccc; }
+.reload-btn.primary-action {
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
+}
+.reload-btn.primary-action:hover { opacity: 0.86; }
 
 /* ── Debug Panel ───────────────────────────────────────────────────────────── */
 .debug-panel {
@@ -259,6 +265,41 @@ body {
   font-weight: 500;
 }
 
+/* ── Dashboard Views ──────────────────────────────────────────────────────── */
+.dashboard-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 18px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.dashboard-tab-btn {
+  min-width: 120px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.dashboard-tab-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.dashboard-tab-btn.active {
+  background: var(--text);
+  color: #fff;
+}
+.dashboard-view { display: none; }
+.dashboard-view.active { display: block; }
+
 /* ── Date Range Panel ──────────────────────────────────────────────────────── */
 .date-range-panel {
   position: absolute;
@@ -362,6 +403,9 @@ body {
   font-size: 11px;
   line-height: 1.35;
   color: var(--muted);
+}
+.budget-kpi-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* ── Cards ─────────────────────────────────────────────────────────────────── */
@@ -476,6 +520,35 @@ body {
   color: #92400e;
   background: #fffbeb;
   border-color: #fcd34d;
+}
+
+.monthly-budget-card {
+  margin-bottom: 16px;
+}
+
+.budget-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 86px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.budget-status.ok {
+  color: #166534;
+  background: #dcfce7;
+}
+.budget-status.watch {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+.budget-status.over {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
 }
 
 .pending-claims-assets {
@@ -821,20 +894,524 @@ button, select, input {
 .claims-section { margin-top: 40px; max-width: 680px; }
 .claims-section h2 { display: flex; align-items: center; gap: 10px; font-size: 16px; margin-bottom: 8px; }
 
+/* Insurance */
+.insurance-notice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  color: #92400e;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.insurance-notice span {
+  color: #78350f;
+  font-size: 13px;
+}
+.insurance-notice button,
+.insurance-pay-btn {
+  border: 0;
+  border-radius: 7px;
+  background: var(--text);
+  color: #fff;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.insurance-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.insurance-light-btn,
+.insurance-danger-btn {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.insurance-danger-btn {
+  color: var(--red);
+  background: var(--red-bg);
+  border-color: #fecaca;
+}
+.insurance-kpi-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.insurance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.insurance-bars {
+  padding: 18px 20px 20px;
+}
+.insurance-bar-row + .insurance-bar-row { margin-top: 16px; }
+.insurance-bar-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 13px;
+  color: var(--text);
+}
+.insurance-bar-label strong {
+  font-family: 'DM Mono', monospace;
+}
+.insurance-bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.insurance-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #16a34a);
+}
+.insurance-table-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+.insurance-muted {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.insurance-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.insurance-filters select {
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+}
+.insurance-policy-table td {
+  vertical-align: top;
+  max-width: 280px;
+  white-space: normal;
+}
+.insurance-status {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.insurance-status.paid {
+  color: #166534;
+  background: #dcfce7;
+}
+.insurance-status.unpaid {
+  color: #991b1b;
+  background: #fee2e2;
+}
+.insurance-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+.insurance-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17,24,39,0.45);
+}
+.insurance-modal-card {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 22px;
+}
+.insurance-modal-wide {
+  width: min(980px, 100%);
+}
+.insurance-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.insurance-modal-head h2 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.insurance-modal-head p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.insurance-icon-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+.insurance-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.insurance-form-grid label,
+.insurance-full-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.insurance-form-grid input,
+.insurance-form-grid select,
+.insurance-full-label input,
+.insurance-full-label textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.insurance-form-grid .insurance-goal-name-field {
+  grid-column: span 2;
+}
+.insurance-goal-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.insurance-new-goal-row {
+  grid-column: 1 / -1;
+}
+.insurance-new-goal-row input {
+  width: 100%;
+}
+.insurance-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 39px;
+  padding: 0 12px;
+  border: 1px solid var(--text);
+  border-radius: 7px;
+  background: var(--text);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.insurance-field-hint {
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.insurance-full-label {
+  margin-top: 12px;
+}
+.insurance-full-label textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+.insurance-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.insurance-check-row input { accent-color: var(--accent); }
+.insurance-smart-check {
+  margin-bottom: 10px;
+}
+.insurance-optional-block {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+.insurance-optional-block summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.insurance-optional-block .insurance-form-grid {
+  margin-top: 10px;
+}
+.insurance-conditional-grid {
+  margin-bottom: 12px;
+}
+.insurance-group-pay-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.insurance-group-pay-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text);
+}
+.insurance-group-pay-row input {
+  accent-color: var(--accent);
+}
+.insurance-group-pay-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.insurance-group-pay-row strong {
+  font-size: 13px;
+}
+.insurance-group-pay-row em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+.insurance-group-pay-row b {
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+}
+.insurance-group-pay-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--text);
+  color: #fff;
+}
+.insurance-group-pay-total span {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.insurance-group-pay-total strong {
+  font-family: 'DM Mono', monospace;
+}
+.insurance-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.insurance-goal-panel {
+  margin-bottom: 18px;
+}
+.insurance-goal-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.insurance-goal-summary div,
+.insurance-goal-summary a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text);
+  text-decoration: none;
+}
+.insurance-goal-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.insurance-goal-summary strong {
+  font-family: 'DM Mono', monospace;
+}
+.insurance-goal-summary .green { color: var(--green); }
+.insurance-goal-summary .red { color: var(--red); }
+.insurance-goal-groups {
+  display: grid;
+  gap: 12px;
+}
+.insurance-goal-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
+}
+.insurance-goal-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+.insurance-goal-group-head h3 {
+  font-size: 15px;
+  margin-bottom: 3px;
+}
+.insurance-goal-group-head p {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.insurance-goal-group-money {
+  text-align: right;
+  color: var(--red);
+}
+.insurance-goal-group-money strong {
+  display: block;
+  font-family: 'DM Mono', monospace;
+  font-size: 17px;
+}
+.insurance-goal-group-money span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.insurance-goal-progress {
+  margin-top: 12px;
+}
+.insurance-goal-track {
+  height: 9px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.insurance-goal-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+.insurance-goal-progress span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.insurance-goal-metrics {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.insurance-goal-metrics strong {
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+}
+.insurance-goal-policies {
+  margin-top: 10px;
+  display: grid;
+  gap: 7px;
+}
+.insurance-goal-policy {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #f8fafc;
+}
+.insurance-goal-policy div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.insurance-goal-policy strong {
+  font-size: 13px;
+}
+.insurance-goal-policy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.insurance-goal-status {
+  align-self: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.insurance-goal-status.paid {
+  color: #166534;
+  background: #dcfce7;
+}
+.insurance-goal-status.pending {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
 /* Responsive */
 @media (max-width: 1100px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .insight-row { grid-template-columns: repeat(3, 1fr); }
   .charts-row { grid-template-columns: 1fr; }
   .income-breakdown-row { grid-template-columns: 1fr; }
+  .insurance-grid { grid-template-columns: 1fr; }
+  .insurance-goal-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tables-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
   .brand-name, .nav-item span:not(.nav-icon), .sidebar-status { display: none; }
   .main { margin-left: 60px; padding: 0 16px 24px; }
+  .dashboard-tabs { width: 100%; display: flex; }
+  .dashboard-tab-btn { flex: 1; min-width: 0; }
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .insight-row { grid-template-columns: repeat(2, 1fr); }
+  .insurance-form-grid { grid-template-columns: 1fr; }
+  .insurance-form-grid .insurance-goal-name-field { grid-column: span 1; }
+  .insurance-goal-picker { grid-template-columns: 1fr; }
+  .insurance-goal-summary { grid-template-columns: 1fr; }
+  .insurance-goal-group-head,
+  .insurance-goal-policy { flex-direction: column; }
+  .insurance-modal { align-items: flex-start; padding: 14px; }
 }
 
 /* ── Setup page: existing opening-balance warning ──────────────────────────── */

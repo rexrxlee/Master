@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Insurance — Fintrack</title>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body onload="loadInsurancePage()">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-icon">◈</span>
+      <span class="brand-name">Fintrack</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
+      <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
+      <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
+      <a href="insurance.html" class="nav-item active"><span class="nav-icon">▥</span> Insurance</a>
+      <a href="add-transaction.html" class="nav-item"><span class="nav-icon">＋</span> Add Transaction</a>
+      <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
+    </nav>
+    <div class="sidebar-status">
+      <p id="status"></p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">Insurance</h1>
+        <p class="page-subtitle">Policies, premium payments, claims notes, and annual reserve planning</p>
+      </div>
+      <div class="topbar-right">
+        <button class="reload-btn" onclick="loadInsurancePage()">↻ Reload</button>
+        <button class="reload-btn primary-action" onclick="openInsuranceGroupPayModal()">Group Pay</button>
+        <button class="reload-btn primary-action" onclick="openInsurancePolicyModal()">+ Add Policy</button>
+        <button class="reload-btn primary-action" onclick="createInsuranceSheet()">Create Sheet</button>
+      </div>
+    </header>
+
+    <details class="debug-panel">
+      <summary>System Log</summary>
+      <pre id="debug"></pre>
+    </details>
+
+    <section class="insurance-notice" id="insuranceSetupNotice" style="display:none;"></section>
+
+    <section class="kpi-row insurance-kpi-row">
+      <div class="kpi-card neutral">
+        <div class="kpi-label">Annual Premiums</div>
+        <div class="kpi-value" id="insuranceAnnualTotal">$0</div>
+      </div>
+      <div class="kpi-card expense">
+        <div class="kpi-label">Cash Premiums</div>
+        <div class="kpi-value" id="insuranceCashTotal">$0</div>
+      </div>
+      <div class="kpi-card income">
+        <div class="kpi-label">CPF Medisave</div>
+        <div class="kpi-value" id="insuranceCpfTotal">$0</div>
+      </div>
+      <div class="kpi-card net">
+        <div class="kpi-label">Cash Reserve / Month</div>
+        <div class="kpi-value" id="insuranceCashReserve">$0</div>
+        <div class="kpi-note">This is the part that overlaps with savings goals.</div>
+      </div>
+    </section>
+
+    <section class="insurance-grid">
+      <div class="chart-card">
+        <div class="card-header">
+          <h2 class="card-title">Premiums by Owner</h2>
+          <span class="card-badge" id="insuranceOwnerBadge">0 owners</span>
+        </div>
+        <div class="insurance-bars" id="insuranceOwnerBars"></div>
+      </div>
+
+      <div class="table-card">
+        <div class="card-header">
+          <h2 class="card-title">Due Soon</h2>
+          <span class="card-badge" id="insuranceDueBadge">Next 90 days</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="insuranceDueTable"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="table-card full">
+      <div class="card-header insurance-table-header">
+        <div>
+          <h2 class="card-title">Policies</h2>
+          <p class="insurance-muted">Use Pay to mark the current year paid and record the linked goal transaction.</p>
+        </div>
+        <div class="insurance-filters">
+          <select id="insuranceOwnerFilter" onchange="renderInsurancePage()"></select>
+          <select id="insurancePremiumFilter" onchange="renderInsurancePage()"></select>
+          <select id="insuranceStatusFilter" onchange="renderInsurancePage()"></select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table insurance-policy-table" id="insurancePolicyTable"></table>
+      </div>
+    </section>
+
+    <div class="insurance-modal" id="insurancePayModal" style="display:none;">
+      <div class="insurance-modal-card">
+        <div class="insurance-modal-head">
+          <div>
+            <h2 id="insurancePayTitle">Record Payment</h2>
+            <p id="insurancePaySubtitle"></p>
+          </div>
+          <button class="insurance-icon-btn" onclick="closeInsurancePayModal()">×</button>
+        </div>
+
+        <input type="hidden" id="insurancePayRow">
+
+        <div class="insurance-form-grid">
+          <label>Date
+            <input type="date" id="insurancePayDate">
+          </label>
+          <label>Amount
+            <input type="number" step="0.01" id="insurancePayAmount">
+          </label>
+          <label>Account
+            <select id="insurancePayAccount"></select>
+          </label>
+          <label>Linked Goal
+            <input id="insurancePayGoalName" list="insuranceGoalOptions">
+          </label>
+          <label>Description
+            <input id="insurancePayDescription">
+          </label>
+        </div>
+
+        <label class="insurance-full-label">Insurance Sheet Remark
+          <input id="insurancePayRemark" placeholder="e.g. paid from UOB ONE, receipt saved">
+        </label>
+
+        <div class="insurance-modal-actions">
+          <button class="reload-btn" onclick="closeInsurancePayModal()">Cancel</button>
+          <button class="reload-btn primary-action" onclick="recordInsurancePayment()">Save Payment</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="insurance-modal" id="insuranceGroupPayModal" style="display:none;">
+      <div class="insurance-modal-card">
+        <div class="insurance-modal-head">
+          <div>
+            <h2>Group Pay Insurance</h2>
+            <p>Record one total transaction and mark selected policies paid for <span id="insuranceGroupPayYear"></span>.</p>
+          </div>
+          <button class="insurance-icon-btn" onclick="closeInsuranceGroupPayModal()">×</button>
+        </div>
+
+        <div class="insurance-form-grid">
+          <label>Date
+            <input type="date" id="insuranceGroupPayDate">
+          </label>
+          <label>Account
+            <select id="insuranceGroupPayAccount"></select>
+          </label>
+          <label>Linked Goal
+            <input id="insuranceGroupPayGoalName" list="insuranceGoalOptions">
+          </label>
+          <label>Description
+            <input id="insuranceGroupPayDescription">
+          </label>
+        </div>
+
+        <div class="insurance-group-pay-list" id="insuranceGroupPayList"></div>
+        <div class="insurance-group-pay-total">
+          <span>Total</span>
+          <strong id="insuranceGroupPayTotal">$0.00</strong>
+        </div>
+
+        <label class="insurance-full-label">Insurance Sheet Remark
+          <input id="insuranceGroupPayRemark" placeholder="e.g. paid together from UOB ONE">
+        </label>
+
+        <div class="insurance-modal-actions">
+          <button class="reload-btn" onclick="closeInsuranceGroupPayModal()">Cancel</button>
+          <button class="reload-btn primary-action" onclick="recordInsuranceGroupPayment()">Save Group Payment</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="insurance-modal" id="insurancePolicyModal" style="display:none;">
+      <div class="insurance-modal-card insurance-modal-wide">
+        <div class="insurance-modal-head">
+          <div>
+            <h2 id="insurancePolicyTitle">Add Policy</h2>
+            <p id="insurancePolicySubtitle">Policy details save to the Insurance worksheet.</p>
+          </div>
+          <button class="insurance-icon-btn" onclick="closeInsurancePolicyModal()">×</button>
+        </div>
+
+        <input type="hidden" id="insurancePolicyRow">
+
+        <div class="insurance-form-grid">
+          <label>Owner
+            <input id="insuranceOwnerInput" placeholder="Ren Xiang">
+          </label>
+          <label>Insurer
+            <input id="insuranceInsurerInput" placeholder="Singlife">
+          </label>
+          <label>Policy Name
+            <input id="insurancePolicyNameInput" placeholder="Singlife Shield Plan 2" oninput="handleInsurancePolicyNameInput(); updateInsuranceSmartGoalFields();">
+          </label>
+          <label>Policy No.
+            <input id="insurancePolicyNoInput">
+          </label>
+          <label>Cover Start Date
+            <input type="date" id="insuranceCoverStartInput" oninput="updateInsuranceSmartGoalFields()">
+          </label>
+          <label>Renewal Month
+            <select id="insuranceRenewalMonthInput" onchange="updateInsuranceSmartGoalFields()">
+              <option value="">Use start date month</option>
+              <option value="Jan">Jan</option>
+              <option value="Feb">Feb</option>
+              <option value="Mar">Mar</option>
+              <option value="Apr">Apr</option>
+              <option value="May">May</option>
+              <option value="Jun">Jun</option>
+              <option value="Jul">Jul</option>
+              <option value="Aug">Aug</option>
+              <option value="Sep">Sep</option>
+              <option value="Oct">Oct</option>
+              <option value="Nov">Nov</option>
+              <option value="Dec">Dec</option>
+            </select>
+          </label>
+          <label>Policy Type
+            <input id="insurancePolicyTypeInput" list="insurancePolicyTypeOptions">
+            <datalist id="insurancePolicyTypeOptions">
+              <option value="Hospitalisation"></option>
+              <option value="Cancer"></option>
+              <option value="Critical Illness"></option>
+              <option value="Term Life"></option>
+              <option value="CareShield"></option>
+              <option value="Accident"></option>
+              <option value="Protection"></option>
+            </datalist>
+          </label>
+          <label>Premium Type
+            <select id="insurancePremiumTypeInput" onchange="updateInsuranceSmartGoalFields()">
+              <option value="Cash">Cash</option>
+              <option value="CPF Medisave">CPF Medisave</option>
+            </select>
+          </label>
+          <label>Default Annual Premium
+            <input type="number" step="0.01" id="insuranceAnnualPremiumInput" oninput="updateInsuranceSmartGoalFields()">
+          </label>
+          <label><span id="insuranceCurrentPremiumLabel">Renewal Premium</span>
+            <input type="number" step="0.01" id="insuranceCurrentPremiumInput" oninput="updateInsuranceSmartGoalFields()">
+          </label>
+          <label>Status
+            <select id="insuranceStatusInput">
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="Review">Review</option>
+            </select>
+          </label>
+          <label class="insurance-goal-name-field">Linked Goal Name
+            <div class="insurance-goal-picker">
+              <select id="insuranceGoalExistingSelect" onchange="handleInsuranceGoalSelectChange()">
+                <option value="">No linked goal</option>
+                <option value="__new__">+ Create a different goal</option>
+              </select>
+              <button type="button" class="insurance-inline-btn" id="insuranceCreateGoalBtn" onclick="createInsuranceGoalFromEntry()" style="display:none;">Create Goal</button>
+              <div class="insurance-new-goal-row" id="insuranceNewGoalRow" style="display:none;">
+                <input id="insuranceNewGoalNameInput" list="insuranceGoalOptions" placeholder="New goal name" oninput="handleInsuranceNewGoalNameInput()">
+              </div>
+              <input type="hidden" id="insuranceGoalNameInput">
+            </div>
+            <datalist id="insuranceGoalOptions"></datalist>
+            <span class="insurance-field-hint" id="insuranceGoalHint"></span>
+          </label>
+          <label>Goal Start Date
+            <input type="date" id="insuranceGoalStartInput">
+          </label>
+          <label>Goal Renewal Date
+            <input type="date" id="insuranceGoalEndInput">
+          </label>
+          <label>Document Link
+            <input id="insuranceDocumentLinkInput" placeholder="OneDrive or insurer portal link">
+          </label>
+        </div>
+
+        <label class="insurance-check-row insurance-smart-check">
+          <input type="checkbox" id="insuranceAutoRecurringInput" checked>
+          <span>Recurring renewal goal</span>
+        </label>
+
+        <label class="insurance-check-row insurance-smart-check">
+          <input type="checkbox" id="insurancePaidThisYearInput" onchange="toggleInsurancePaidThisYearFields()">
+          <span id="insurancePaidThisYearLabel">Paid for 2026</span>
+        </label>
+
+        <div class="insurance-form-grid insurance-conditional-grid" id="insurancePaidThisYearFields" style="display:none;">
+          <label>Paid Date
+            <input type="date" id="insurancePaidThisYearDate">
+          </label>
+          <label>Paid From Account
+            <select id="insurancePaidThisYearAccount"></select>
+          </label>
+        </div>
+
+        <label class="insurance-full-label">Claims Possible
+          <textarea id="insuranceClaimsInput" placeholder="Hospitalisation, critical illness payout, death/TPD, accident claim"></textarea>
+        </label>
+        <label class="insurance-full-label">Comments
+          <textarea id="insuranceCommentsInput" placeholder="Notes, exclusions, claim process, reminders"></textarea>
+        </label>
+
+        <div class="insurance-modal-actions">
+          <button type="button" class="reload-btn" onclick="closeInsurancePolicyModal()">Cancel</button>
+          <button type="button" class="reload-btn primary-action" id="insuranceSavePolicyBtn" onclick="saveInsurancePolicy(event)">Save Policy</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="config.js"></script>
+  <script src="onedrive.js"></script>
+  <script src="insurance.js"></script>
+</body>
+</html>

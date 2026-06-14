@@ -147,6 +147,24 @@ async function graphPatch(url, token, body) {
   return response.json();
 }
 
+async function graphPost(url, token, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(response.status + " " + errorText);
+  }
+
+  return response.json();
+}
+
 async function downloadExcelFile() {
   const token = await getToken();
 
@@ -216,4 +234,21 @@ async function readBudgetSetupRange(rangeAddress) {
 
 async function writeBudgetSetupRange(rangeAddress, values) {
   return writeExcelRange("Budget Setup", rangeAddress, values);
+}
+
+async function addExcelWorksheet(sheetName) {
+  const token = await getToken();
+
+  if (!token) {
+    throw new Error("No access token available yet. Please wait for login redirect to complete.");
+  }
+
+  const encodedPath = getEncodedExcelPath();
+
+  const url =
+    "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+    encodedPath +
+    ":/workbook/worksheets/add";
+
+  return graphPost(url, token, { name: sheetName });
 }
