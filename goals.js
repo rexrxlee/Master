@@ -269,15 +269,15 @@ function renderInsuranceRenewalGoalPanel(container) {
     const linkedGoals = linkedGoalNames
       .map(name => goalsData.find(goal => clean(goal.name).toLowerCase() === clean(name).toLowerCase()))
       .filter(Boolean);
-    const linkedSaved = linkedGoals.reduce((sum, goal) => sum + goal.manualSaved + getSavedViaTransactions(goal.name), 0);
+    const linkedAllocated = linkedGoals.reduce((sum, goal) => sum + goal.manualSaved + getSavedViaTransactions(goal.name), 0);
     const linkedTarget = group.cashTotal;
-    const pct = linkedTarget > 0 ? Math.min(100, linkedSaved / linkedTarget * 100) : 100;
+    const pct = linkedTarget > 0 ? Math.min(100, linkedAllocated / linkedTarget * 100) : 100;
     const goalLabel = linkedGoalNames.length
       ? linkedGoalNames.map(escapeHtml).join(", ")
       : `Insurance ${group.dueDate.getFullYear()}`;
     const matchText = linkedGoals.length
-      ? `${formatCurrency(linkedSaved)} saved against ${formatCurrency(linkedTarget)} cash premium`
-      : `No matching saved goal yet. Use Goal Name "${escapeHtml(goalLabel)}" in Insurance or create that goal.`;
+      ? `${formatCurrency(linkedAllocated)} allocated against ${formatCurrency(linkedTarget)} cash premium`
+      : `No matching linked goal yet. Use Goal Name "${escapeHtml(goalLabel)}" in Insurance or create that goal.`;
 
     const policyHtml = group.rows.map(row => {
       const paid = row.paidForDueYear > 0;
@@ -319,20 +319,24 @@ function renderInsuranceRenewalGoalPanel(container) {
   }).join("");
 
   container.innerHTML += `
-    <div class="goals-panel insurance-goal-panel">
-      <div class="panel-header">
+    <details class="goals-panel insurance-goal-panel collapsible-panel">
+      <summary class="panel-header">
         <span class="panel-icon">▥</span>
         <h2>Insurance Renewal Reserve</h2>
-        <span class="panel-hint">Grouped by renewal date from the Insurance sheet. CPF premiums are shown but excluded from cash reserve pressure.</span>
+        <span class="panel-hint">Renewals pulled from Insurance</span>
+        <span class="panel-count-pill ${totalCashPending > 0 ? "red" : ""}">${formatCurrency(totalCashPending)} cash pending</span>
+        <span class="panel-caret">▾</span>
+      </summary>
+      <div class="collapsible-body">
+        <div class="insurance-goal-summary">
+          <div><span>Cash pending</span><strong class="${totalCashPending > 0 ? "red" : "green"}">${formatCurrency(totalCashPending)}</strong></div>
+          <div><span>Cash paid</span><strong class="green">${formatCurrency(totalCashPaid)}</strong></div>
+          <div><span>CPF renewals</span><strong>${formatCurrency(totalCpf)}</strong></div>
+          <a href="insurance.html">Open Insurance</a>
+        </div>
+        <div class="insurance-goal-groups">${groupHtml}</div>
       </div>
-      <div class="insurance-goal-summary">
-        <div><span>Cash pending</span><strong class="${totalCashPending > 0 ? "red" : "green"}">${formatCurrency(totalCashPending)}</strong></div>
-        <div><span>Cash paid</span><strong class="green">${formatCurrency(totalCashPaid)}</strong></div>
-        <div><span>CPF renewals</span><strong>${formatCurrency(totalCpf)}</strong></div>
-        <a href="insurance.html">Open Insurance</a>
-      </div>
-      <div class="insurance-goal-groups">${groupHtml}</div>
-    </div>
+    </details>
   `;
 }
 
@@ -544,7 +548,7 @@ function computeHistoricalStats(txData) {
   return { avgMonthlyIncome:avgIncome, avgMonthlyExpenses:avgExpenses, avgMonthlySavings:avgIncome-avgExpenses, months };
 }
 
-// ─── Deployable Balance Calculation ───────────────────────────────
+// ─── Available Balance Calculation ────────────────────────────────
 
 function computeDeployableBalance() {
   // Step 1: sum balances of goal-eligible savings accounts
@@ -553,8 +557,8 @@ function computeDeployableBalance() {
     rawSavings += savingsBalances[name] || 0;
   });
 
-  // Step 2: subtract factual CC owed, then add pending claims as receivable.
-  // This keeps debt visible while avoiding claimable spend quietly blocking goals.
+  // Step 2: subtract factual CC owed, then add pending reimbursements as receivables.
+  // This keeps debt visible while avoiding reimbursable spend quietly blocking goals.
   const ccAccounts = getCreditCardAccountsInData(allTxForGoals);
   const ccClaimReceivable = computePendingClaimReceivableForAccounts(allTxForGoals, ccAccounts);
   const savingsClaimReceivable = computePendingClaimReceivableForAccounts(allTxForGoals, goalSavingsAccts);
@@ -694,9 +698,9 @@ function computeGoalClaimRisk(dep, totalAssigned) {
 
 function claimRiskMessage(risk) {
   if (risk.assignedFromPendingClaims > 0) {
-    return `${formatCurrency(risk.assignedFromPendingClaims)} of assigned goals depends on pending claims being paid. Without those claims, cash-only unassigned is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
+    return `${formatCurrency(risk.assignedFromPendingClaims)} of allocations is claim-backed. Until those reimbursements arrive, cash-only unallocated is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
   }
-  return `Pending claims are included in deployable balance, but assigned goals are still covered without them. Cash-only unassigned is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
+  return `Pending reimbursements are visible here, but current allocations are still covered by cash. Cash-only unallocated is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
 }
 
 function goalPriorityValue(goal) {
@@ -745,7 +749,7 @@ function buildAllocStatusTags(remaining, isFullyFunded, pendingExposure) {
       ? `<span class="alloc-need-tag">${formatCurrency(remaining)} left</span>`
       : `<span class="alloc-done-tag">✓ Done</span>`);
   const claimTag = pendingExposure > 0
-    ? `<span class="alloc-claim-tag">${formatCurrency(pendingExposure)} pending claim</span>`
+    ? `<span class="alloc-claim-tag">${formatCurrency(pendingExposure)} claim-backed</span>`
     : "";
   return `<div class="alloc-tag-stack">${statusTag}${claimTag}</div>`;
 }
@@ -775,13 +779,13 @@ function renderGoalsPage() {
       <div class="panel-header">
         <span class="panel-icon">🏦</span>
         <h2>Goal Savings Accounts</h2>
-        <span class="panel-hint">Select which accounts fund your goals. Exclude business or restricted accounts.</span>
+        <span class="panel-hint">Accounts allowed to fund goals. Leave restricted money unchecked.</span>
       </div>
       <div class="acct-checklist">${acctCheckboxes || '<span style="color:var(--muted);font-size:13px;">No savings accounts found. Add them in <a href="accounts.html">Accounts & Setup</a>.</span>'}</div>
     </div>
   `;
 
-  // ── 2. Deployable Balance + Fund Allocator ──
+  // ── 2. Available Balance + Fund Allocator ──
   const depClass = dep.deployable >= 0 ? "green" : "red";
   const totalAllocatedToGoals = goalsData.reduce((s,g)=>s+g.manualSaved,0);
   const unassigned = dep.deployable - totalAllocatedToGoals;
@@ -794,16 +798,22 @@ function renderGoalsPage() {
     : (dep.remainingBudget > 0 ? "−" + formatCurrency(dep.remainingBudget) : formatCurrency(0));
   const claimRiskHtml = claimRisk.pendingClaims > 0 ? `
         <div class="balance-row claim-row">
-          <span class="bal-label">+ Pending claims included</span>
+          <span class="bal-label">+ Pending reimbursements</span>
           <span class="bal-val amber">${formatCurrency(claimRisk.pendingClaims)}</span>
         </div>` : "";
+  const cashOnlyHtml = claimRisk.pendingClaims > 0 ? `
+        <div class="balance-row cash-row">
+          <span class="bal-label">Cash-backed available</span>
+          <span class="bal-val ${claimRisk.cashOnlyDeployable>=0?'green':'red'}">${formatCurrency(claimRisk.cashOnlyDeployable)}</span>
+        </div>
+        <div class="balance-plain-note">The main number includes reimbursements that are not cash yet. Claim-backed portions are marked in amber below.</div>` : "";
   const claimCashRowHtml = claimRisk.pendingClaims > 0 ? `
         <div class="balance-row sub-row claim-cash-row ${claimRisk.cashOnlyUnassigned>=0?'':'warn-row'}" id="claimCashRow">
-          <span class="bal-label" id="claimCashLabel">${claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unassigned" : "Cash-only shortfall"}</span>
+          <span class="bal-label" id="claimCashLabel">${claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unallocated" : "Claim-backed allocation"}</span>
           <span class="bal-val ${claimRisk.cashOnlyUnassigned>=0?'green':'red'}" id="liveCashOnlyUnassigned">${formatCurrency(claimRisk.cashOnlyUnassigned)}</span>
         </div>
         <div class="claim-risk-note ${claimRisk.assignedFromPendingClaims>0?'active':'safe'}" id="claimRiskNote">
-          <strong id="claimRiskTitle">${claimRisk.assignedFromPendingClaims>0 ? "Goal allocation uses pending claims" : "Pending claims are visible but not needed yet"}</strong>
+          <strong id="claimRiskTitle">${claimRisk.assignedFromPendingClaims>0 ? "Some allocation is claim-backed" : "Pending reimbursements are visible only"}</strong>
           <span id="claimRiskBody">${claimRiskMessage(claimRisk)}</span>
         </div>` : "";
   const claimExposureByGoal = computeGoalPendingClaimExposure(dep);
@@ -825,7 +835,7 @@ function renderGoalsPage() {
           <span class="alloc-dot" style="background:${g.color};"></span>
           <div>
             <div class="alloc-name">${escapeHtml(g.name)}${bufferLabel}</div>
-            <div class="alloc-sub">${formatCurrency(totalSaved)} / ${formatCurrency(effectiveTarget)} &nbsp;·&nbsp; <span style="color:${urgColor[g.urgency]||'#ca8a04'}">${g.urgency}</span></div>
+            <div class="alloc-sub">${formatCurrency(totalSaved)} allocated / ${formatCurrency(effectiveTarget)} target &nbsp;·&nbsp; <span style="color:${urgColor[g.urgency]||'#ca8a04'}">${g.urgency}</span></div>
           </div>
         </div>
         <div class="alloc-bar-col">
@@ -865,7 +875,7 @@ function renderGoalsPage() {
       <div class="overspend-icon">⚠️</div>
       <div class="overspend-body">
         <strong>Over-assigned by ${formatCurrency(Math.abs(unassigned))}</strong>
-        <span>Your budget or CC balance changed and goals now exceed your deployable balance. Reduce allocations or add more savings.</span>
+        <span>Your budget or CC balance changed and goals now exceed your available balance. Reduce allocations or add more savings.</span>
         <button class="btn-rebalance" onclick="smartAssign()">✨ Auto-Rebalance Now</button>
       </div>
     </div>` : "";
@@ -874,13 +884,14 @@ function renderGoalsPage() {
     <div class="goals-panel balance-panel">
       <div class="panel-header">
         <span class="panel-icon">💰</span>
-        <h2>Deployable Balance</h2>
-        <span class="panel-hint">What you can actually assign to goals right now</span>
+        <h2>Available to Allocate</h2>
+        <span class="panel-hint">Current cash capacity, with reimbursements clearly separated</span>
       </div>
       ${overspendAlert}
+      <div class="balance-layout">
       <div class="balance-flow">
         <div class="balance-row">
-          <span class="bal-label">Selected accounts total</span>
+          <span class="bal-label">Selected cash accounts</span>
           <span class="bal-val">${formatCurrency(dep.rawSavings)}</span>
         </div>
         <div class="balance-row deduct">
@@ -893,15 +904,16 @@ function renderGoalsPage() {
           <span class="bal-val ${budgetIsOver || dep.remainingBudget > 0 ? 'red' : ''}">${budgetLineValue}</span>
         </div>
         <div class="balance-row total-row">
-          <span class="bal-label">= Deployable Balance</span>
+          <span class="bal-label">= Available incl. reimbursements</span>
           <span class="bal-val ${depClass}" style="font-size:22px;">${formatCurrency(dep.deployable)}</span>
         </div>
+        ${cashOnlyHtml}
         <div class="balance-row sub-row">
-          <span class="bal-label">Assigned to goals</span>
+          <span class="bal-label">Allocated to goals</span>
           <span class="bal-val" id="liveTotalAssigned">${formatCurrency(totalAllocatedToGoals)}</span>
         </div>
         <div class="balance-row sub-row ${unassigned>=0?'':'warn-row'}">
-          <span class="bal-label">Unassigned</span>
+          <span class="bal-label">Unallocated incl. reimbursements</span>
           <span class="bal-val ${unassigned>=0?'green':'red'}" id="liveUnassigned">${formatCurrency(unassigned)}</span>
         </div>
         ${claimCashRowHtml}
@@ -915,7 +927,7 @@ function renderGoalsPage() {
             <button class="btn-smart-assign" onclick="smartAssign()">✨ Smart Assign</button>
           </div>
         </div>
-        <div class="alloc-hint">Set allocation ($) and optional per-goal buffer (%) above target. <strong>Smart Assign</strong> uses cash first, then pending claims; claim-backed portions are tagged in amber. Unassigned updates live.</div>
+        <div class="alloc-hint"><strong>Smart Assign</strong> fills current goals in priority/deadline order. Future monthly savings are handled in the forecast below.</div>
         <div class="alloc-col-labels">
           <span class="alloc-col-label-name">Goal</span>
           <span class="alloc-col-label-bar">Progress</span>
@@ -924,7 +936,7 @@ function renderGoalsPage() {
         <div class="alloc-rows">${allocatorRows}</div>
         <div class="alloc-footer">
           <div class="alloc-unassigned-bar-wrap">
-            <div class="alloc-unassigned-label">Unassigned: <strong id="liveUnassignedBar">${formatCurrency(unassigned)}</strong></div>
+            <div class="alloc-unassigned-label">Unallocated: <strong id="liveUnassignedBar">${formatCurrency(unassigned)}</strong></div>
             <div class="alloc-ubar-track">
               <div class="alloc-ubar-fill ${unassigned>=0?'green':'red'}" id="liveUnassignedFill"
                 style="width:${dep.deployable>0?Math.min(100,Math.max(0,(unassigned/dep.deployable)*100)).toFixed(1):0}%;"></div>
@@ -933,6 +945,7 @@ function renderGoalsPage() {
           <span class="panel-hint goals-autosave-status" id="allocAutosaveStatus" style="white-space:nowrap;">Autosaves to Excel</span>
         </div>
       </div>` : ""}
+      </div>
     </div>
   `;
 
@@ -940,18 +953,22 @@ function renderGoalsPage() {
 
   // ── 3. Historical snapshot ──
   container.innerHTML += `
-    <div class="goals-panel stats-panel">
-      <div class="panel-header">
+    <details class="goals-panel stats-panel collapsible-panel">
+      <summary class="panel-header">
         <span class="panel-icon">📊</span>
         <h2>Your Savings Pattern <span style="font-weight:400;font-size:13px;color:var(--muted);">(${historicalStats.months} months)</span></h2>
+        <span class="panel-count-pill">${formatCurrency(historicalStats.avgMonthlySavings)}/mo avg savings</span>
+        <span class="panel-caret">▾</span>
+      </summary>
+      <div class="collapsible-body">
+        <div class="stats-grid">
+          <div class="stat-item"><span class="stat-l">Avg Monthly Income</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
+          <div class="stat-item"><span class="stat-l">Avg Monthly Expenses</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
+          <div class="stat-item"><span class="stat-l">Avg Monthly Savings Rate</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
+          <div class="stat-item"><span class="stat-l">Budget Committed</span><span class="stat-v">${formatCurrency(budgetSummary.billsTotal+budgetSummary.monthlyTotal)}/mo</span></div>
+        </div>
       </div>
-      <div class="stats-grid">
-        <div class="stat-item"><span class="stat-l">Avg Monthly Income</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
-        <div class="stat-item"><span class="stat-l">Avg Monthly Expenses</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
-        <div class="stat-item"><span class="stat-l">Avg Monthly Savings Rate</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
-        <div class="stat-item"><span class="stat-l">Budget Committed</span><span class="stat-v">${formatCurrency(budgetSummary.billsTotal+budgetSummary.monthlyTotal)}/mo</span></div>
-      </div>
-    </div>
+    </details>
   `;
 
   // ── 4. Multi-goal realism check ──
@@ -1103,7 +1120,7 @@ function _refreshAllocUI() {
     elCashOnly.className = "bal-val " + (claimRisk.cashOnlyUnassigned>=0?"green":"red");
   }
   if (claimCashLabel) {
-    claimCashLabel.textContent = claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unassigned" : "Cash-only shortfall";
+    claimCashLabel.textContent = claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unallocated" : "Claim-backed allocation";
   }
   if (claimCashRow) {
     claimCashRow.className = "balance-row sub-row claim-cash-row " + (claimRisk.cashOnlyUnassigned>=0 ? "" : "warn-row");
@@ -1113,8 +1130,8 @@ function _refreshAllocUI() {
   }
   if (claimRiskTitle) {
     claimRiskTitle.textContent = claimRisk.assignedFromPendingClaims>0
-      ? "Goal allocation uses pending claims"
-      : "Pending claims are visible but not needed yet";
+      ? "Some allocation is claim-backed"
+      : "Pending reimbursements are visible only";
   }
   if (claimRiskBody) claimRiskBody.textContent = claimRiskMessage(claimRisk);
 
@@ -1142,7 +1159,7 @@ function _refreshAllocUI() {
     const tagDiv   = document.getElementById("allocTag_" + idx);
     if (fill)     { fill.style.width = pct.toFixed(1) + "%"; fill.style.background = totalSaved>=effectiveTarget?"#16a34a":g.color; }
     if (pctLabel)  pctLabel.textContent = pct.toFixed(0) + "%";
-    if (subLabel)  subLabel.innerHTML = formatCurrency(totalSaved) + " / " + formatCurrency(effectiveTarget) + " &nbsp;·&nbsp; <span style='color:" + ({Critical:"#dc2626",High:"#ea580c",Medium:"#ca8a04",Low:"#16a34a"}[g.urgency]||"#ca8a04") + "'>" + g.urgency + "</span>";
+    if (subLabel)  subLabel.innerHTML = formatCurrency(totalSaved) + " allocated / " + formatCurrency(effectiveTarget) + " target &nbsp;·&nbsp; <span style='color:" + ({Critical:"#dc2626",High:"#ea580c",Medium:"#ca8a04",Low:"#16a34a"}[g.urgency]||"#ca8a04") + "'>" + g.urgency + "</span>";
     if (tagDiv) {
       tagDiv.innerHTML = buildAllocStatusTags(remaining, totalSaved >= effectiveTarget, pendingExposure);
     }
@@ -1198,7 +1215,7 @@ function onBufferChange(idx, value) {
 
 /**
  * Smart Assign: fill each goal (target + its own buffer) fully, in priority+deadline order.
- * Cash is consumed first; if pending claims are needed, the affected goal rows are tagged.
+ * Cash is consumed first; if pending reimbursements are needed, the affected goal rows are tagged.
  * No global buffer — each goal carries its own buffer if set.
  * Any remaining deployable after all goals are filled stays as unassigned.
  */
@@ -1206,7 +1223,7 @@ function smartAssign() {
   const dep = computeDeployableBalance();
   const deployable = dep.deployable;
   if (deployable <= 0) {
-    alert("No deployable balance to assign.");
+    alert("No available balance to assign.");
     return;
   }
 
@@ -1247,7 +1264,7 @@ function smartAssign() {
   const totalAssigned = goalsData.reduce((s,g)=>s+g.manualSaved, 0);
   const remaining = dep.deployable - totalAssigned;
   const finalRisk = computeGoalClaimRisk(dep, totalAssigned);
-  log("Smart Assign complete. Unassigned: " + formatCurrency(remaining) + (finalRisk.assignedFromPendingClaims > 0 ? " | pending-claim backed: " + formatCurrency(finalRisk.assignedFromPendingClaims) : ""));
+  log("Smart Assign complete. Unallocated: " + formatCurrency(remaining) + (finalRisk.assignedFromPendingClaims > 0 ? " | claim-backed: " + formatCurrency(finalRisk.assignedFromPendingClaims) : ""));
   scheduleGoalsAutoSave(150);
 }
 
@@ -1297,8 +1314,8 @@ function refreshGoalInsightPanels() {
     }
     forecastRegion.innerHTML = "";
     if (goalsData.length > 0) {
-      renderGoalGanttTimeline(forecastRegion);
       renderSavingsTimeline(forecastRegion, dep);
+      renderGoalGanttTimeline(forecastRegion);
     }
   }
 }
@@ -1341,8 +1358,8 @@ async function saveIncomeBoosts() {
 }
 
 function renderIncomeBoostsPanel(container) {
-  const panel = document.createElement("div");
-  panel.className = "goals-panel";
+  const panel = document.createElement("details");
+  panel.className = "goals-panel collapsible-panel";
   panel.id = "boostsPanel";
   _redrawBoostsPanel(panel);
   container.appendChild(panel);
@@ -1369,11 +1386,11 @@ function _normaliseBoostMonth(value) {
 
 function _monthToDateValue(monthValue) {
   const m = _normaliseBoostMonth(monthValue);
-  return m ? `${m}-01` : "";
+  return m || "";
 }
 
 function _dateValueToMonth(dateValue) {
-  return dateValue ? String(dateValue).slice(0, 7) : "";
+  return _normaliseBoostMonth(dateValue);
 }
 
 function _normaliseBoostKind(item) {
@@ -1440,6 +1457,8 @@ function _deleteIncomeBoost(index) {
 
 function _redrawBoostsPanel(panel) {
   if (!panel) return;
+  const wasOpen = panel.open;
+  const changeCount = incomeBoosts.length;
   const rows = incomeBoosts.map((b,i) => {
     b.kind = _normaliseBoostKind(b);
     b.amount = Math.abs(Number(b.amount || 0) || 0);
@@ -1472,12 +1491,12 @@ function _redrawBoostsPanel(panel) {
           <div class="boost-dates-row">
             <div class="boost-date-group">
               <span class="boost-date-label">From</span>
-              <input class="boost-month-input" type="date" value="${_monthToDateValue(b.fromMonth)}"
+              <input class="boost-month-input" type="month" value="${_monthToDateValue(b.fromMonth)}"
                 onchange="_setBoostDate(${i}, 'fromMonth', this.value)">
             </div>
             <div class="boost-date-group">
               <span class="boost-date-label">Until</span>
-              <input class="boost-month-input" type="date" value="${_monthToDateValue(b.toMonth)}"
+              <input class="boost-month-input" type="month" value="${_monthToDateValue(b.toMonth)}" placeholder="No end"
                 onchange="_setBoostDate(${i}, 'toMonth', this.value)">
             </div>
             <span class="boost-duration-tag ${isPermanent?'permanent':'temporary'}">
@@ -1498,11 +1517,14 @@ function _redrawBoostsPanel(panel) {
   }).join("");
 
   panel.innerHTML = `
-    <div class="panel-header">
+    <summary class="panel-header">
       <span class="panel-icon">⚡</span>
       <h2>Future Cashflow Changes</h2>
-      <span class="panel-hint">Schedule future changes that increase or reduce forecast savings</span>
-    </div>
+      <span class="panel-hint">Included in forecasts; collapsed to reduce noise</span>
+      <span class="panel-count-pill">${changeCount} change${changeCount === 1 ? "" : "s"}</span>
+      <span class="panel-caret">▾</span>
+    </summary>
+    <div class="collapsible-body">
     <div class="boost-explainer">
       <div class="boost-ex-row"><span class="boost-ex-icon">＋</span><div><strong>Increase savings</strong> — income boost, ended subscription, reduced bill, bonus, etc.</div></div>
       <div class="boost-ex-row"><span class="boost-ex-icon">−</span><div><strong>Reduce savings</strong> — rent increase, new recurring bill, income drop, temporary higher expenses, etc.</div></div>
@@ -1525,7 +1547,9 @@ function _redrawBoostsPanel(panel) {
       </button>
       <span class="panel-hint goals-autosave-status" id="boostAutosaveStatus">Autosaves to Excel</span>
     </div>
+    </div>
   `;
+  panel.open = wasOpen;
 }
 
 function _boostDurationLabel(fromMonth, toMonth) {
@@ -1987,19 +2011,23 @@ function renderGoalGanttTimeline(container) {
   const forecastStartsLabel = model.monthLabel(model.forecastStartMonth || 1, true);
   const poolText = `${formatCurrency(forecastBaseMonthly)}/mo${poolBoost.some(v => v > 0) ? " + increases" : ""}${poolBoost.some(v => v < 0) ? " - reductions" : ""}`;
 
-  const panelEl = document.createElement("div");
-  panelEl.className = "goals-panel gantt-panel";
+  const panelEl = document.createElement("details");
+  panelEl.className = "goals-panel gantt-panel collapsible-panel";
   panelEl.innerHTML = `
-    <div class="panel-header">
+    <summary class="panel-header">
       <span class="panel-icon">▤</span>
       <h2>Goal Date Timeline</h2>
-      <span class="panel-hint">Current month is context; forecast funding starts ${forecastStartsLabel}</span>
-    </div>
+      <span class="panel-hint">Advanced deadline view</span>
+      <span class="panel-count-pill">${counts.danger || 0} risks · ${counts.warn || 0} watch</span>
+      <span class="panel-caret">▾</span>
+    </summary>
+    <div class="collapsible-body">
+    <div class="timeline-forecast-note">Current month is context; forecast funding starts <strong>${forecastStartsLabel}</strong>.</div>
     <div class="gantt-summary">
       <span class="gantt-stat"><strong>${counts.ok || 0}</strong> possible</span>
       <span class="gantt-stat"><strong>${counts.warn || 0}</strong> watch items</span>
       <span class="gantt-stat"><strong>${counts.danger || 0}</strong> deadline risk</span>
-      <span class="gantt-stat"><strong>${formatCurrency(totalForecastUnassigned)}</strong> unassigned forecast</span>
+      <span class="gantt-stat"><strong>${formatCurrency(totalForecastUnassigned)}</strong> unallocated forecast</span>
       <span class="gantt-stat"><strong>${poolText}</strong> forecast pool from ${forecastStartsLabel}</span>
     </div>
     <div class="gantt-scroll">
@@ -2017,6 +2045,7 @@ function renderGoalGanttTimeline(container) {
       <span><i class="sample-line"></i> deadline</span>
       <span><i class="sample-dot"></i> forecast funded estimate</span>
       <span><i class="sample-line" style="border-left-style:solid;border-color:#111827;"></i> today</span>
+    </div>
     </div>
   `;
   container.appendChild(panelEl);
@@ -2384,8 +2413,8 @@ function renderSavingsTimelineStacked(container, dep) {
   panelEl.innerHTML = `
     <div class="panel-header">
       <span class="panel-icon">📈</span>
-      <h2>Savings Timeline</h2>
-      <span class="panel-hint">Forecast starts next month; current month allocations stay in saved balances</span>
+      <h2>Forecast Allocation</h2>
+      <span class="panel-hint">Includes scheduled future cashflow changes</span>
     </div>
     <div class="timeline-forecast-note">
       Base forecast savings from ${chartFullLabels[0] || "next month"}: <strong>${formatCurrency(forecastBaseMonthly)}/mo</strong>
@@ -2396,7 +2425,10 @@ function renderSavingsTimelineStacked(container, dep) {
     <div class="chart-wrap timeline-chart-simple" style="height:300px;position:relative;">
       <canvas id="goalTimelineChart"></canvas>
     </div>
-    <div class="timeline-impact-list">${impactRows}</div>
+    <details class="timeline-impact-details">
+      <summary>Show goal-by-goal forecast details</summary>
+      <div class="timeline-impact-list">${impactRows}</div>
+    </details>
   `;
   container.appendChild(panelEl);
 
@@ -3042,7 +3074,7 @@ function renderRealismCheck(container, dep) {
     totalMonthlyNeeded += reqMonthly;
 
     if (goal.urgency === "Critical" && monthsLeft !== null && reqMonthly > avgSave * 0.6) {
-      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: needs ${formatCurrency(reqMonthly)}/mo — that's ${Math.round(reqMonthly/avgSave*100)}% of your avg savings alone.`);
+      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: baseline need is ${formatCurrency(reqMonthly)}/mo — ${Math.round(reqMonthly/avgSave*100)}% of your historical avg savings.`);
     }
     if (goal.endDate && monthsLeft !== null && monthsLeft <= 0) {
       issues.push(`⏰ <strong>${escapeHtml(goal.name)}</strong>: deadline has passed. Update or archive this goal.`);
@@ -3051,15 +3083,15 @@ function renderRealismCheck(container, dep) {
 
   if (totalMonthlyNeeded > avgSave) {
     const gap = totalMonthlyNeeded - avgSave;
-    issues.push(`⚡ Goals plus buffers need ${formatCurrency(totalMonthlyNeeded)}/mo but your avg savings is ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
-    tips.push(`💡 Reduce your monthly expenses budget by ${formatCurrency(gap)} or increase income to close the gap.`);
-    tips.push(`💡 Lower the allocation on Low/Medium priority goals to free up ${formatCurrency(gap)}/mo for Critical ones.`);
+    issues.push(`⚡ Baseline goal pace needs ${formatCurrency(totalMonthlyNeeded)}/mo vs historical avg savings of ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
+    tips.push(`💡 The forecast below includes scheduled future cashflow changes; use this check as the before-changes pressure test.`);
+    tips.push(`💡 Close the baseline gap with lower monthly spending, more income, or lower buffers on lower-priority goals.`);
   } else if (totalMonthlyNeeded > 0) {
-    tips.push(`✅ Your goals are <strong>collectively achievable</strong> based on your avg savings of ${formatCurrency(avgSave)}/mo.`);
+    tips.push(`✅ Baseline goal pace is <strong>collectively achievable</strong> against your avg savings of ${formatCurrency(avgSave)}/mo.`);
   }
 
   if (dep.deployable < 0) {
-    issues.push(`🚨 Deployable balance is negative (${formatCurrency(dep.deployable)}). You may be over-extended — check your CC bill and budget.`);
+    issues.push(`🚨 Available balance is negative (${formatCurrency(dep.deployable)}). You may be over-extended — check your CC bill and budget.`);
   }
 
   if (issues.length === 0 && tips.length === 0) return;
@@ -3071,14 +3103,14 @@ function renderRealismCheck(container, dep) {
     <div class="goals-panel realism-panel">
       <div class="panel-header">
         <span class="panel-icon">🧠</span>
-        <h2>Realism Check</h2>
-        <span class="panel-hint">AI analysis of your goals vs your actual finances</span>
+        <h2>Baseline Reality Check</h2>
+        <span class="panel-hint">Before scheduled future cashflow changes</span>
       </div>
       <div class="rc-body">
         ${issueHtml}
         ${tipHtml}
         <div class="rc-summary">
-          <span>Total monthly needed for goals + buffers:</span>
+          <span>Baseline monthly need for goals + buffers:</span>
           <strong class="${totalMonthlyNeeded <= avgSave ? 'green':'red'}">${formatCurrency(totalMonthlyNeeded)}/mo</strong>
           <span>vs your avg savings</span>
           <strong>${formatCurrency(avgSave)}/mo</strong>
@@ -3305,6 +3337,11 @@ function renderGoalCard(goal, idx, container) {
   const bufferRemaining = Math.max(0, effectiveTarget - Math.max(totalSaved, goal.target));
   const pct            = effectiveTarget > 0 ? Math.min(100, (totalSaved / effectiveTarget) * 100) : 0;
   const baseTargetMet  = totalSaved >= goal.target;
+  const claimExposureByGoal = computeGoalPendingClaimExposure(computeDeployableBalance());
+  const pendingExposure = claimExposureByGoal[idx] || 0;
+  const claimBackedLine = pendingExposure > 0
+    ? `<div class="goal-tx-line" style="color:#92400e;">${formatCurrency(pendingExposure)} of this allocation is claim-backed until reimbursement arrives.</div>`
+    : "";
 
   // Deadline math
   let monthsLeft = null, endDateObj = null;
@@ -3354,7 +3391,7 @@ function renderGoalCard(goal, idx, container) {
       : (forecastDeadlineDelta === 0 ? " · on deadline" : ` · ${Math.abs(forecastDeadlineDelta)}mo late`))
     : "";
   const forecastText    = forecastDate
-    ? `📅 Projected completion: <strong>${forecastDate.toLocaleDateString("en-SG",{month:"short",year:"numeric"})}</strong> (${monthsToTarget} month${monthsToTarget===1?"":"s"}${forecastTimingText})`
+    ? `${baseTargetMet && bufferRemaining > 0 ? "Buffer forecast" : "Projected funding"}: <strong>${forecastDate.toLocaleDateString("en-SG",{month:"short",year:"numeric"})}</strong> (${monthsToTarget} month${monthsToTarget===1?"":"s"}${forecastTimingText})`
     : `<span style="color:var(--muted);">Set a monthly allocation to get a forecast</span>`;
 
   // Deadline status
@@ -3362,6 +3399,8 @@ function renderGoalCard(goal, idx, container) {
   if (endDateObj) {
     if (endDateObj <= today) {
       deadlineStatus = `<span class="deadline-badge overdue">OVERDUE</span>`;
+    } else if (baseTargetMet && bufferRemaining > 0) {
+      deadlineStatus = `<span class="deadline-badge buffer">Base met, buffer pending</span>`;
     } else if (forecastDate && forecastDate > endDateObj) {
       const monthsBehind = (forecastDate.getFullYear()-endDateObj.getFullYear())*12+(forecastDate.getMonth()-endDateObj.getMonth());
       deadlineStatus = `<span class="deadline-badge behind">⚠️ ${monthsBehind}mo behind deadline</span>`;
@@ -3413,7 +3452,7 @@ function renderGoalCard(goal, idx, container) {
     </div>
 
     <div class="goal-kpis">
-      <div class="gkpi"><span class="gkpi-l">Saved</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Allocated</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
       <div class="gkpi"><span class="gkpi-l">${bufferPct > 0 ? "Target + Buffer" : "Target"}</span><span class="gkpi-v">${formatCurrency(effectiveTarget)}</span></div>
       <div class="gkpi"><span class="gkpi-l">Remaining</span><span class="gkpi-v ${remaining>0?'red':''}">${formatCurrency(remaining)}</span></div>
       <div class="gkpi"><span class="gkpi-l">Monthly</span><span class="gkpi-v">${formatCurrency(goal.monthlyAlloc||effectiveAlloc)}</span></div>
@@ -3435,15 +3474,16 @@ function renderGoalCard(goal, idx, container) {
     ${requiredMonthly > 0 ? `<div class="goal-req-line">📋 Required: ${formatCurrency(requiredMonthly)}/mo to hit deadline</div>` : ""}
     ${bufferPct > 0 && baseRemaining <= 0 && bufferRemaining > 0 ? `<div class="goal-req-line">Buffer left: ${formatCurrency(bufferRemaining)}</div>` : ""}
     ${recommendation ? `<div class="goal-rec-line">${recommendation}</div>` : ""}
+    ${claimBackedLine}
 
-    ${savedViaGoalTx > 0 ? `<div class="goal-tx-line">💳 ${formatCurrency(savedViaGoalTx)} tracked via transactions · ${formatCurrency(goal.manualSaved)} manually recorded</div>` : ""}
+    ${savedViaGoalTx > 0 ? `<div class="goal-tx-line">💳 ${formatCurrency(savedViaGoalTx)} tracked via transactions · ${formatCurrency(goal.manualSaved)} manually allocated</div>` : ""}
 
     <!-- Edit Form -->
     <div id="editGoal_${idx}" class="goal-edit-form" style="display:none;">
       <div class="goal-form-grid" style="margin-top:12px;">
         <div class="gf-group full"><label>Goal Name</label><input type="text" id="eg_name_${idx}" value="${escapeHtml(goal.name)}"></div>
         <div class="gf-group"><label>Target (SGD)</label><input type="number" id="eg_target_${idx}" value="${goal.target}"></div>
-        <div class="gf-group"><label>Manually Saved (SGD)</label><input type="number" id="eg_saved_${idx}" value="${goal.manualSaved}" step="0.01"></div>
+        <div class="gf-group"><label>Manual Allocation (SGD)</label><input type="number" id="eg_saved_${idx}" value="${goal.manualSaved}" step="0.01"></div>
         <div class="gf-group"><label>Monthly Allocation (SGD)</label><input type="number" id="eg_alloc_${idx}" value="${goal.monthlyAlloc}"></div>
         <div class="gf-group"><label>Start Date</label><input type="date" id="eg_start_${idx}" value="${goal.startDate}"></div>
         <div class="gf-group"><label>Deadline</label><input type="date" id="eg_end_${idx}" value="${goal.endDate}"></div>

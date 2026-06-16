@@ -8,6 +8,22 @@ let assetAccountSelections = {};
 let activeDashboardView = "expenses";
 const ASSET_SCOPE_STORAGE_KEY = "fintrack.dashboard.assetAccountSelections.v1";
 const NO_FILTER_SELECTION = "__FINTRACK_NONE_SELECTED__";
+const REWARD_SETTINGS_STORAGE_KEY = "fintrack.dashboard.rewardSettings.v1";
+const CASHBACK_RECORDS_STORAGE_KEY = "fintrack.dashboard.cashbackRecords.v1";
+const REWARD_SELECTION_STORAGE_KEY = "fintrack.dashboard.rewardSelection.v1";
+const REWARD_STORAGE_RANGE = "AF2:AG2";
+const DEFAULT_REWARD_SETTINGS = {
+  minTxPerMonth: 5,
+  tierRules: "500=50\n1000=100\n2000=300",
+  bonusRatePct: 5,
+  bonusCap: 150,
+  bonusKeywords: "grab\nshopee\ncold storage\ngiant\nguardian\ncs fresh\n7-eleven\nspc\nmcdonald\nuob travel",
+  excludedKeywords: "annual fee\nlate fee\nfinance charge\ninterest\ncash advance\nbalance transfer\nfund transfer\ntax\ninsurance premium\neducation\ncharity\ndonation\ngambling\ncasino\ntop up\ntopup\nwallet\ncardup\nipaymy"
+};
+let rewardSettings = { ...DEFAULT_REWARD_SETTINGS };
+let cashbackRecords = [];
+let rewardSelection = { card: "", quarter: "" };
+let rewardControlsInitialized = false;
 
 async function loadDashboard() {
   try {
@@ -42,7 +58,9 @@ async function loadDashboard() {
       monthlyExpenseBudgetRows = [];
     }
     loadAssetAccountSelections();
+    loadRewardState(budgetSheet);
     setupFilters();
+    setupRewardControls();
     const filters = getCurrentFilters();
     refreshAllFilters(filters);
     updateDashboard(filters);
@@ -142,7 +160,7 @@ function setupFilters() {
 }
 
 function switchDashboardView(view) {
-  if (!["expenses", "income"].includes(view)) return;
+  if (!["expenses", "income", "transactions"].includes(view)) return;
   if (activeDashboardView !== view) {
     const current = getCurrentFilters();
     activeDashboardView = view;
@@ -165,15 +183,20 @@ function switchDashboardView(view) {
 
 function syncDashboardViewVisibility() {
   const isIncome = activeDashboardView === "income";
+  const isTransactions = activeDashboardView === "transactions";
   const expensesView = document.getElementById("expensesDashboardView");
   const incomeView = document.getElementById("incomeDashboardView");
+  const transactionsView = document.getElementById("transactionsDashboardView");
   const expensesTab = document.getElementById("expensesDashboardTab");
   const incomeTab = document.getElementById("incomeDashboardTab");
+  const transactionsTab = document.getElementById("transactionsDashboardTab");
 
-  if (expensesView) expensesView.classList.toggle("active", !isIncome);
+  if (expensesView) expensesView.classList.toggle("active", !isIncome && !isTransactions);
   if (incomeView) incomeView.classList.toggle("active", isIncome);
-  if (expensesTab) expensesTab.classList.toggle("active", !isIncome);
+  if (transactionsView) transactionsView.classList.toggle("active", isTransactions);
+  if (expensesTab) expensesTab.classList.toggle("active", !isIncome && !isTransactions);
   if (incomeTab) incomeTab.classList.toggle("active", isIncome);
+  if (transactionsTab) transactionsTab.classList.toggle("active", isTransactions);
 }
 
 function toggleDropdown(menuId) {
@@ -348,13 +371,17 @@ function rowMatchesDateFilters(row, filters) {
 
 function refreshAllFilters(filters = getCurrentFilters()) {
   isUpdatingFilters = true;
-  const filterRows = activeDashboardView === "income"
-    ? allTransactions.filter(isIncomeRow)
-    : allTransactions.filter(isSpendAnalyticsRow);
+  const filterRows = getRowsForActiveFilterMenus();
   rebuildCheckboxMenu("mainCategoryMenu", "Main Category", filterRows.filter(row => rowMatchesFilters(row, filters, "mainCategory")), filters.mainCategories);
   rebuildCheckboxMenu("subCategoryMenu", "Sub Category", filterRows.filter(row => rowMatchesFilters(row, filters, "subCategory")), filters.subCategories);
   rebuildCheckboxMenu("transactionMenu", "Transaction", filterRows.filter(row => rowMatchesFilters(row, filters, "transaction")), filters.transactions);
   isUpdatingFilters = false;
+}
+
+function getRowsForActiveFilterMenus() {
+  if (activeDashboardView === "income") return allTransactions.filter(isIncomeRow);
+  if (activeDashboardView === "transactions") return allTransactions.filter(isHistoricalTransactionRow);
+  return allTransactions.filter(isSpendAnalyticsRow);
 }
 
 function rebuildCheckboxMenu(menuId, columnName, rows, selectedValues) {
@@ -487,6 +514,7 @@ function updateDashboard(filters = getCurrentFilters()) {
   renderIncomeInsightCards(incomeFiltered, allTransactions, filters);
   renderIncomeMonthlyTable(incomeFiltered);
   renderInsightCards(filtered, incomeByDate, allTransactions);
+  renderTransactionsRewardsView(allTransactions, filters);
 }
 
 // ─── Monthly Expenses Budget Insight ──────────────────────────────────────────
@@ -1061,6 +1089,637 @@ function renderIncomeMonthlyTable(data) {
     `;
     table.appendChild(tr);
   });
+}
+
+// ─── Historical Transactions + Card Rewards ─────────────────────────────────
+
+function loadRewardState(budgetSheet) {
+  const excelSettings = parseJsonCell(getSheetCellValue(budgetSheet, "AF2"), null);
+  const excelRecords = parseJsonCell(getSheetCellValue(budgetSheet, "AG2"), null);
+
+  try {
+    rewardSettings = {
+      ...DEFAULT_REWARD_SETTINGS,
+      ...(JSON.parse(localStorage.getItem(REWARD_SETTINGS_STORAGE_KEY) || "{}") || {}),
+      ...(excelSettings || {})
+    };
+  } catch {
+    rewardSettings = { ...DEFAULT_REWARD_SETTINGS, ...(excelSettings || {}) };
+  }
+
+  try {
+    cashbackRecords = Array.isArray(excelRecords)
+      ? excelRecords
+      : (JSON.parse(localStorage.getItem(CASHBACK_RECORDS_STORAGE_KEY) || "[]") || []);
+  } catch {
+    cashbackRecords = Array.isArray(excelRecords) ? excelRecords : [];
+  }
+
+  try {
+    rewardSelection = {
+      card: "",
+      quarter: "",
+      ...(JSON.parse(localStorage.getItem(REWARD_SELECTION_STORAGE_KEY) || "{}") || {})
+    };
+  } catch {
+    rewardSelection = { card: "", quarter: "" };
+  }
+
+  mirrorRewardStateToLocalStorage();
+}
+
+function getSheetCellValue(sheet, address) {
+  if (!sheet || !sheet[address]) return "";
+  return sheet[address].v ?? sheet[address].w ?? "";
+}
+
+function parseJsonCell(value, fallback) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
+}
+
+function setupRewardControls() {
+  if (rewardControlsInitialized) return;
+  rewardControlsInitialized = true;
+
+  [
+    "rewardCardAccount",
+    "rewardQuarter",
+    "rewardMinTx",
+    "rewardBonusRate",
+    "rewardBonusCap",
+    "rewardTierRules",
+    "rewardBonusKeywords",
+    "rewardExcludedKeywords",
+    "historicalAccountFilter",
+    "historicalTypeFilter"
+  ].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", handleRewardControlChange);
+  });
+
+  const search = document.getElementById("historicalTxSearch");
+  if (search) search.addEventListener("input", () => renderTransactionsRewardsView(allTransactions, getCurrentFilters()));
+}
+
+function handleRewardControlChange(event) {
+  if (!event || !event.target) return;
+  if (event.target.id === "rewardCardAccount") rewardSelection.card = event.target.value;
+  if (event.target.id === "rewardQuarter") rewardSelection.quarter = event.target.value;
+  if (isRewardSettingsControl(event.target.id)) {
+    saveRewardSettingsFromInputs();
+    persistRewardStateToExcel({ silent: true });
+  }
+  saveRewardSelection();
+  updateDashboard(getCurrentFilters());
+}
+
+function isRewardSettingsControl(id) {
+  return [
+    "rewardMinTx",
+    "rewardBonusRate",
+    "rewardBonusCap",
+    "rewardTierRules",
+    "rewardBonusKeywords",
+    "rewardExcludedKeywords"
+  ].includes(id);
+}
+
+function saveRewardSelection() {
+  try {
+    localStorage.setItem(REWARD_SELECTION_STORAGE_KEY, JSON.stringify(rewardSelection));
+  } catch {}
+}
+
+function saveRewardSettingsFromInputs() {
+  const minTx = Number(document.getElementById("rewardMinTx")?.value || rewardSettings.minTxPerMonth);
+  const bonusRate = Number(document.getElementById("rewardBonusRate")?.value || rewardSettings.bonusRatePct);
+  const bonusCap = Number(document.getElementById("rewardBonusCap")?.value || rewardSettings.bonusCap);
+  rewardSettings = {
+    minTxPerMonth: Number.isFinite(minTx) ? Math.max(0, Math.round(minTx)) : DEFAULT_REWARD_SETTINGS.minTxPerMonth,
+    tierRules: document.getElementById("rewardTierRules")?.value || DEFAULT_REWARD_SETTINGS.tierRules,
+    bonusRatePct: Number.isFinite(bonusRate) ? Math.max(0, bonusRate) : DEFAULT_REWARD_SETTINGS.bonusRatePct,
+    bonusCap: Number.isFinite(bonusCap) ? Math.max(0, bonusCap) : DEFAULT_REWARD_SETTINGS.bonusCap,
+    bonusKeywords: document.getElementById("rewardBonusKeywords")?.value || "",
+    excludedKeywords: document.getElementById("rewardExcludedKeywords")?.value || ""
+  };
+  mirrorRewardStateToLocalStorage();
+}
+
+async function resetRewardSettings() {
+  rewardSettings = { ...DEFAULT_REWARD_SETTINGS };
+  mirrorRewardStateToLocalStorage();
+  await persistRewardStateToExcel();
+  renderTransactionsRewardsView(allTransactions, getCurrentFilters());
+}
+
+async function saveRewardActual() {
+  const card = rewardSelection.card;
+  const quarter = rewardSelection.quarter;
+  if (!card || !quarter) {
+    alert("Select a credit card and quarter first.");
+    return;
+  }
+
+  const base = Number(document.getElementById("rewardActualBase")?.value || 0) || 0;
+  const bonus = Number(document.getElementById("rewardActualBonus")?.value || 0) || 0;
+  const note = clean(document.getElementById("rewardActualNote")?.value || "");
+  const key = cashbackRecordKey(card, quarter);
+  const existingIdx = cashbackRecords.findIndex(record => record.key === key);
+  const record = {
+    key,
+    card,
+    quarter,
+    actualBase: Math.max(0, base),
+    actualBonus: Math.max(0, bonus),
+    note,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (existingIdx >= 0) cashbackRecords[existingIdx] = record;
+  else cashbackRecords.push(record);
+  mirrorRewardStateToLocalStorage();
+  await persistRewardStateToExcel();
+  renderTransactionsRewardsView(allTransactions, getCurrentFilters());
+}
+
+async function deleteCashbackRecord(key) {
+  cashbackRecords = cashbackRecords.filter(record => record.key !== key);
+  mirrorRewardStateToLocalStorage();
+  await persistRewardStateToExcel();
+  renderTransactionsRewardsView(allTransactions, getCurrentFilters());
+}
+
+function mirrorRewardStateToLocalStorage() {
+  try {
+    localStorage.setItem(REWARD_SETTINGS_STORAGE_KEY, JSON.stringify(rewardSettings));
+    localStorage.setItem(CASHBACK_RECORDS_STORAGE_KEY, JSON.stringify(cashbackRecords));
+  } catch {}
+}
+
+async function persistRewardStateToExcel(options = {}) {
+  mirrorRewardStateToLocalStorage();
+  try {
+    await writeBudgetSetupRange(REWARD_STORAGE_RANGE, [[
+      JSON.stringify(rewardSettings),
+      JSON.stringify(cashbackRecords)
+    ]]);
+  } catch (err) {
+    log("Reward save failed: " + err.message);
+    if (!options.silent) alert("Failed to save card rewards to Excel: " + err.message);
+    return false;
+  }
+  return true;
+}
+
+function renderTransactionsRewardsView(rows, filters = {}) {
+  renderRewardControls(rows);
+  const rewardResult = evaluateUobOneRewards(rows, rewardSelection.card, rewardSelection.quarter, rewardSettings);
+  renderRewardSummary(rewardResult);
+  renderCashbackHistory(rows);
+  const historicalRows = (rows || []).filter(row => isHistoricalTransactionRow(row) && rowMatchesFilters(row, filters));
+  renderHistoricalTransactionsTable(historicalRows);
+}
+
+function renderRewardControls(rows) {
+  const cardSelect = document.getElementById("rewardCardAccount");
+  const quarterSelect = document.getElementById("rewardQuarter");
+  if (!cardSelect || !quarterSelect) return;
+
+  const cards = getRewardCreditCardAccounts(rows);
+  const quarters = getRewardQuarterOptions(rows);
+  if (!rewardSelection.card || !cards.includes(rewardSelection.card)) rewardSelection.card = cards[0] || "";
+  if (!rewardSelection.quarter || !quarters.some(q => q.key === rewardSelection.quarter)) rewardSelection.quarter = quarters[0]?.key || "";
+  saveRewardSelection();
+
+  cardSelect.innerHTML = cards.length
+    ? cards.map(card => `<option value="${escapeHtml(card)}" ${card === rewardSelection.card ? "selected" : ""}>${escapeHtml(card)}</option>`).join("")
+    : `<option value="">No credit-card account found</option>`;
+
+  quarterSelect.innerHTML = quarters.map(q => `
+    <option value="${q.key}" ${q.key === rewardSelection.quarter ? "selected" : ""}>${escapeHtml(q.label)}</option>
+  `).join("");
+
+  setInputValue("rewardMinTx", rewardSettings.minTxPerMonth);
+  setInputValue("rewardBonusRate", rewardSettings.bonusRatePct);
+  setInputValue("rewardBonusCap", rewardSettings.bonusCap);
+  setInputValue("rewardTierRules", rewardSettings.tierRules);
+  setInputValue("rewardBonusKeywords", rewardSettings.bonusKeywords);
+  setInputValue("rewardExcludedKeywords", rewardSettings.excludedKeywords);
+
+  const accountFilter = document.getElementById("historicalAccountFilter");
+  if (accountFilter) {
+    const current = accountFilter.value || "all";
+    const accounts = [...new Set((rows || []).map(row => clean(row["Account"])).filter(Boolean))].sort();
+    accountFilter.innerHTML = `<option value="all">All accounts</option>` + accounts.map(account => `
+      <option value="${escapeHtml(account)}" ${account === current ? "selected" : ""}>${escapeHtml(account)}</option>
+    `).join("");
+    if (current !== "all" && accounts.includes(current)) accountFilter.value = current;
+  }
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (el && el.value !== String(value ?? "")) el.value = value ?? "";
+}
+
+function getRewardCreditCardAccounts(rows) {
+  if (creditCardAccountNames.length) return [...creditCardAccountNames].sort();
+  const savingsKeys = new Set(savingsAccountNames.map(accountKey));
+  return [...new Set((rows || [])
+    .map(row => clean(row["Account"]))
+    .filter(account => account && !savingsKeys.has(accountKey(account)))
+  )].sort();
+}
+
+function getRewardQuarterOptions(rows) {
+  const quarterMap = new Map();
+  (rows || []).forEach(row => {
+    const date = parseExcelDate(row["Date"]);
+    if (!date) return;
+    const key = rewardQuarterKey(date);
+    quarterMap.set(key, formatRewardQuarter(key));
+  });
+  const nowKey = rewardQuarterKey(new Date());
+  quarterMap.set(nowKey, formatRewardQuarter(nowKey));
+  return [...quarterMap.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => b.key.localeCompare(a.key));
+}
+
+function rewardQuarterKey(date) {
+  const quarter = Math.floor(date.getMonth() / 3) + 1;
+  return date.getFullYear() + "-Q" + quarter;
+}
+
+function formatRewardQuarter(key) {
+  const match = String(key).match(/^(\d{4})-Q([1-4])$/);
+  if (!match) return key;
+  const year = Number(match[1]);
+  const quarter = Number(match[2]);
+  const startMonth = (quarter - 1) * 3;
+  const start = new Date(year, startMonth, 1).toLocaleString("en-SG", { month: "short" });
+  const end = new Date(year, startMonth + 2, 1).toLocaleString("en-SG", { month: "short" });
+  return `Q${quarter} ${year} (${start}-${end})`;
+}
+
+function getQuarterMonths(quarterKey) {
+  const match = String(quarterKey).match(/^(\d{4})-Q([1-4])$/);
+  if (!match) return [];
+  const year = Number(match[1]);
+  const quarter = Number(match[2]);
+  const startMonth = (quarter - 1) * 3;
+  return [0, 1, 2].map(offset => ({
+    year,
+    month: startMonth + offset,
+    key: year + "-" + String(startMonth + offset + 1).padStart(2, "0"),
+    label: new Date(year, startMonth + offset, 1).toLocaleString("en-SG", { month: "short", year: "2-digit" })
+  }));
+}
+
+function evaluateUobOneRewards(rows, card, quarter, settings) {
+  const months = getQuarterMonths(quarter);
+  const minTx = Math.max(0, Number(settings.minTxPerMonth || 0) || 0);
+  const tiers = parseRewardTierRules(settings.tierRules);
+  const bonusRate = Math.max(0, Number(settings.bonusRatePct || 0) || 0);
+  const bonusCap = Math.max(0, Number(settings.bonusCap || 0) || 0);
+  const excludedKeywords = parseKeywordList(settings.excludedKeywords);
+  const bonusKeywords = parseKeywordList(settings.bonusKeywords);
+
+  const cardSpendRows = (rows || []).filter(row => isCreditCardRetailSpend(row, card) && rowInQuarter(row, quarter));
+  const eligibleRows = cardSpendRows.filter(row => !rowMatchesKeywords(row, excludedKeywords));
+  const excludedRows = cardSpendRows.filter(row => rowMatchesKeywords(row, excludedKeywords));
+  const bonusRows = eligibleRows.filter(row => rowMatchesKeywords(row, bonusKeywords));
+
+  const monthRows = months.map(month => {
+    const monthSpendRows = cardSpendRows.filter(row => rowInMonth(row, month.year, month.month));
+    const monthEligibleRows = eligibleRows.filter(row => rowInMonth(row, month.year, month.month));
+    const amount = monthSpendRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+    const eligible = monthEligibleRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+    const count = monthEligibleRows.length;
+    return {
+      ...month,
+      amount,
+      eligible,
+      count,
+      passesCount: count >= minTx,
+      excluded: amount - eligible
+    };
+  });
+
+  const allMonthsPassCount = months.length === 3 && monthRows.every(month => month.passesCount);
+  const minMonthlyEligible = monthRows.length ? Math.min(...monthRows.map(month => month.eligible)) : 0;
+  const qualifiedTier = allMonthsPassCount
+    ? tiers.filter(tier => minMonthlyEligible >= tier.threshold).sort((a, b) => b.threshold - a.threshold)[0] || null
+    : null;
+  const baseCashback = qualifiedTier ? qualifiedTier.cashback : 0;
+  const bonusSpend = bonusRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+  const bonusCashback = qualifiedTier ? Math.min(bonusCap, bonusSpend * bonusRate / 100) : 0;
+  const estimatedTotal = baseCashback + bonusCashback;
+  const actualRecord = getCashbackRecord(card, quarter);
+  const actualTotal = actualRecord ? actualRecord.actualBase + actualRecord.actualBonus : 0;
+
+  return {
+    card,
+    quarter,
+    months: monthRows,
+    tiers,
+    minTx,
+    allMonthsPassCount,
+    minMonthlyEligible,
+    qualifiedTier,
+    cardSpend: cardSpendRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0),
+    eligibleSpend: eligibleRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0),
+    excludedSpend: excludedRows.reduce((sum, row) => sum + getAmount(row["Amount"]), 0),
+    excludedCount: excludedRows.length,
+    bonusSpend,
+    bonusRate,
+    bonusCap,
+    baseCashback,
+    bonusCashback,
+    estimatedTotal,
+    actualRecord,
+    actualTotal,
+    variance: actualRecord ? actualTotal - estimatedTotal : 0
+  };
+}
+
+function parseRewardTierRules(value) {
+  const tiers = String(value || "")
+    .split(/[\n,;]+/)
+    .map(line => {
+      const match = line.trim().match(/^(\d+(?:\.\d+)?)\s*[:=]\s*(\d+(?:\.\d+)?)$/);
+      if (!match) return null;
+      return { threshold: Number(match[1]), cashback: Number(match[2]) };
+    })
+    .filter(tier => tier && tier.threshold > 0 && tier.cashback >= 0)
+    .sort((a, b) => a.threshold - b.threshold);
+  return tiers.length ? tiers : parseRewardTierRules(DEFAULT_REWARD_SETTINGS.tierRules);
+}
+
+function parseKeywordList(value) {
+  return String(value || "")
+    .split(/[\n,;]+/)
+    .map(item => clean(item).toLowerCase())
+    .filter(Boolean);
+}
+
+function isHistoricalTransactionRow(row) {
+  if (!parseExcelDate(row["Date"])) return false;
+  return clean(row["Transaction"]).toLowerCase() !== "opening balance";
+}
+
+function isCreditCardRetailSpend(row, card) {
+  if (!card || accountKey(row["Account"]) !== accountKey(card)) return false;
+  const main = clean(row["Main Category"]).toLowerCase();
+  if (main === "income" || main === "transfer" || main === "saving goals") return false;
+  return getAmount(row["Amount"]) > 0;
+}
+
+function rowInQuarter(row, quarter) {
+  const date = parseExcelDate(row["Date"]);
+  return !!date && rewardQuarterKey(date) === quarter;
+}
+
+function rowInMonth(row, year, month) {
+  const date = parseExcelDate(row["Date"]);
+  return !!date && date.getFullYear() === year && date.getMonth() === month;
+}
+
+function rowMatchesKeywords(row, keywords) {
+  if (!keywords || !keywords.length) return false;
+  const haystack = [
+    row["Transaction"],
+    row["Main Category"],
+    row["Sub Category"],
+    row["Account"]
+  ].map(clean).join(" ").toLowerCase();
+  return keywords.some(keyword => haystack.includes(keyword));
+}
+
+function getCashbackRecord(card, quarter) {
+  const key = cashbackRecordKey(card, quarter);
+  return cashbackRecords.find(record => record.key === key) || null;
+}
+
+function cashbackRecordKey(card, quarter) {
+  return accountKey(card) + "::" + quarter;
+}
+
+function renderRewardSummary(result) {
+  setMoneyText("rewardCardSpend", result.cardSpend, false);
+  setMoneyText("rewardEligibleSpend", result.eligibleSpend, true);
+  setMoneyText("rewardEstimatedCashback", result.estimatedTotal, true);
+  setMoneyText("rewardActualCashback", result.actualTotal, true);
+  setMoneyText("rewardCashbackVariance", result.actualRecord ? result.variance : 0, true);
+
+  const spendNote = document.getElementById("rewardCardSpendNote");
+  if (spendNote) spendNote.textContent = result.card ? `${result.card} / ${formatRewardQuarter(result.quarter)}` : "No card selected";
+  const eligibleNote = document.getElementById("rewardEligibleSpendNote");
+  if (eligibleNote) eligibleNote.textContent = `${formatCurrency(result.excludedSpend)} excluded across ${result.excludedCount} row${result.excludedCount === 1 ? "" : "s"}`;
+  const estimateNote = document.getElementById("rewardEstimatedNote");
+  if (estimateNote) estimateNote.textContent = result.qualifiedTier
+    ? `${formatCurrency(result.baseCashback)} base + ${formatCurrency(result.bonusCashback)} bonus`
+    : "No tier qualified";
+  const varianceNote = document.getElementById("rewardVarianceNote");
+  if (varianceNote) varianceNote.textContent = result.actualRecord ? "Actual minus estimate" : "No actual saved yet";
+
+  const varianceEl = document.getElementById("rewardCashbackVariance");
+  if (varianceEl) varianceEl.style.color = !result.actualRecord || result.variance >= 0 ? "#16a34a" : "#dc2626";
+
+  const badge = document.getElementById("rewardPeriodBadge");
+  if (badge) {
+    badge.textContent = result.qualifiedTier
+      ? `Tier ${formatCurrency(result.qualifiedTier.threshold)}/mo`
+      : "Not qualified";
+    badge.classList.toggle("warn", !result.qualifiedTier);
+  }
+
+  const actualBase = document.getElementById("rewardActualBase");
+  const actualBonus = document.getElementById("rewardActualBonus");
+  const actualNote = document.getElementById("rewardActualNote");
+  if (actualBase) actualBase.value = result.actualRecord ? result.actualRecord.actualBase : "";
+  if (actualBonus) actualBonus.value = result.actualRecord ? result.actualRecord.actualBonus : "";
+  if (actualNote) actualNote.value = result.actualRecord ? result.actualRecord.note || "" : "";
+
+  renderRewardRuleSummary(result);
+  renderRewardMonthBreakdown(result);
+}
+
+function renderRewardRuleSummary(result) {
+  const el = document.getElementById("rewardRuleSummary");
+  if (!el) return;
+  const nextTier = result.tiers.find(tier => result.minMonthlyEligible < tier.threshold);
+  el.innerHTML = `
+    <div class="reward-summary-pill ${result.allMonthsPassCount ? "good" : "bad"}">
+      Monthly tx check
+      <strong>${result.allMonthsPassCount ? "Pass" : "Miss"}</strong>
+    </div>
+    <div class="reward-summary-pill ${result.qualifiedTier ? "good" : "bad"}">
+      Minimum monthly eligible
+      <strong>${formatCurrency(result.minMonthlyEligible)}</strong>
+    </div>
+    <div class="reward-summary-pill ${result.qualifiedTier ? "good" : ""}">
+      Qualified tier
+      <strong>${result.qualifiedTier ? formatCurrency(result.qualifiedTier.threshold) + "/mo" : "None"}</strong>
+    </div>
+    <div class="reward-summary-pill">
+      ${nextTier ? "Next tier gap" : "Highest tier"}
+      <strong>${nextTier ? formatCurrency(Math.max(0, nextTier.threshold - result.minMonthlyEligible)) + "/mo" : "Reached"}</strong>
+    </div>
+  `;
+}
+
+function renderRewardMonthBreakdown(result) {
+  const el = document.getElementById("rewardMonthBreakdown");
+  if (!el) return;
+  el.innerHTML = result.months.map(month => `
+    <div class="reward-month-card ${month.passesCount ? "ok" : "warn"}">
+      <strong>${escapeHtml(month.label)}</strong>
+      <div class="reward-month-line"><span>Spend</span><span>${formatCurrency(month.amount)}</span></div>
+      <div class="reward-month-line"><span>Eligible</span><span>${formatCurrency(month.eligible)}</span></div>
+      <div class="reward-month-line"><span>Tx count</span><span>${month.count}/${result.minTx}</span></div>
+      <div class="reward-month-line"><span>Excluded</span><span>${formatCurrency(month.excluded)}</span></div>
+    </div>
+  `).join("");
+}
+
+function renderCashbackHistory(rows) {
+  const table = document.getElementById("cashbackHistoryTable");
+  const badge = document.getElementById("cashbackHistoryBadge");
+  if (badge) badge.textContent = `${cashbackRecords.length} saved`;
+  if (!table) return;
+
+  table.innerHTML = `<tr><th>Quarter</th><th>Card</th><th>Estimate</th><th>Actual</th><th>Variance</th><th></th></tr>`;
+  if (!cashbackRecords.length) {
+    table.innerHTML += `<tr><td colspan="6" style="text-align:center;color:#999;">No actual cashback recorded yet</td></tr>`;
+    return;
+  }
+
+  [...cashbackRecords]
+    .sort((a, b) => b.quarter.localeCompare(a.quarter) || a.card.localeCompare(b.card))
+    .forEach(record => {
+      const estimate = evaluateUobOneRewards(rows, record.card, record.quarter, rewardSettings).estimatedTotal;
+      const actual = record.actualBase + record.actualBonus;
+      const variance = actual - estimate;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(formatRewardQuarter(record.quarter))}</td>
+        <td>${escapeHtml(record.card)}</td>
+        <td>${formatCurrency(estimate)}</td>
+        <td>${formatCurrency(actual)}</td>
+        <td style="color:${variance >= 0 ? "#16a34a" : "#dc2626"};">${variance >= 0 ? "+" : ""}${formatCurrency(variance)}</td>
+        <td><button class="history-action-btn" onclick="deleteCashbackRecord(decodeURIComponent('${encodeURIComponent(record.key)}'))">Delete</button></td>
+      `;
+      table.appendChild(tr);
+    });
+}
+
+function renderHistoricalTransactionsTable(rows) {
+  const table = document.getElementById("historicalTransactionsTable");
+  const badge = document.getElementById("historicalTxBadge");
+  if (!table) return;
+
+  const filtered = applyHistoricalLocalFilters(rows);
+  if (badge) badge.textContent = `${filtered.length} of ${(rows || []).length} rows`;
+
+  table.innerHTML = `<tr><th>Date</th><th>Type</th><th>Transaction</th><th>Main</th><th>Sub</th><th>Account</th><th>Claim</th><th>Amount</th></tr>`;
+  if (!filtered.length) {
+    table.innerHTML += `<tr><td colspan="8" style="text-align:center;color:#999;">No transactions found</td></tr>`;
+    return;
+  }
+
+  filtered
+    .sort((a, b) => parseExcelDate(b["Date"]) - parseExcelDate(a["Date"]))
+    .forEach(row => {
+      const date = parseExcelDate(row["Date"]);
+      const displayAmount = getHistoricalDisplayAmount(row);
+      const type = getHistoricalTransactionType(row);
+      const claimText = isClaimableRow(row)
+        ? `${clean(getRowValue(row, "Claim Status")) || "Claimable"} ${formatCurrency(getClaimAmount(row))}`
+        : "";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${date ? date.toLocaleDateString("en-SG") : ""}</td>
+        <td><span class="tx-type-pill ${type.className}">${type.label}</span></td>
+        <td title="${escapeHtml(clean(row["Transaction"]))}">${escapeHtml(clean(row["Transaction"]))}</td>
+        <td>${escapeHtml(clean(row["Main Category"]))}</td>
+        <td>${escapeHtml(clean(row["Sub Category"]))}</td>
+        <td>${escapeHtml(clean(row["Account"]))}</td>
+        <td>${escapeHtml(claimText)}</td>
+        <td class="${displayAmount >= 0 ? "amount-positive" : "amount-negative"}">${displayAmount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(displayAmount))}</td>
+      `;
+      table.appendChild(tr);
+    });
+}
+
+function getHistoricalDisplayAmount(row) {
+  const amount = Math.abs(getSignedAmount(row["Amount"]));
+  const main = clean(row["Main Category"]).toLowerCase();
+  const sub = clean(row["Sub Category"]).toLowerCase();
+  if (main === "income") return amount;
+  if (main === "transfer") {
+    if (sub === "transfer in" || sub === "cc payment in") return amount;
+    if (sub === "transfer out" || sub === "cc payment out") return -amount;
+    return getSignedAmount(row["Amount"]);
+  }
+  return -amount;
+}
+
+function applyHistoricalLocalFilters(rows) {
+  const search = clean(document.getElementById("historicalTxSearch")?.value || "").toLowerCase();
+  const account = document.getElementById("historicalAccountFilter")?.value || "all";
+  const type = document.getElementById("historicalTypeFilter")?.value || "all";
+
+  return (rows || []).filter(row => {
+    if (account !== "all" && clean(row["Account"]) !== account) return false;
+    if (type !== "all" && !historicalRowMatchesType(row, type)) return false;
+    if (!search) return true;
+    const text = [
+      row["Date"],
+      row["Transaction"],
+      row["Main Category"],
+      row["Sub Category"],
+      row["Account"],
+      getRowValue(row, "Claim Status")
+    ].map(clean).join(" ").toLowerCase();
+    return text.includes(search);
+  });
+}
+
+function historicalRowMatchesType(row, type) {
+  const main = clean(row["Main Category"]).toLowerCase();
+  if (type === "expense") return isExpenseRow(row);
+  if (type === "income") return isIncomeRow(row);
+  if (type === "transfer") return main === "transfer";
+  if (type === "claimable") return isClaimableRow(row);
+  if (type === "credit-card") {
+    const ccKeys = new Set(getRewardCreditCardAccounts(allTransactions).map(accountKey));
+    return ccKeys.has(accountKey(row["Account"])) && isExpenseRow(row);
+  }
+  return true;
+}
+
+function getHistoricalTransactionType(row) {
+  const main = clean(row["Main Category"]).toLowerCase();
+  if (main === "income") return { label: "Income", className: "income" };
+  if (main === "transfer") return { label: "Transfer", className: "transfer" };
+  if (main === "saving goals") return { label: "Goal", className: "saving" };
+  return { label: "Expense", className: "expense" };
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function getIncomeStats(data, filters = {}) {

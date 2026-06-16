@@ -27,6 +27,55 @@ body {
   min-height: 100vh;
 }
 
+/* ── App-wide Excel loading blocker ───────────────────────────────────────── */
+.excel-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(244,245,247,0.72);
+  backdrop-filter: blur(4px);
+  cursor: wait;
+}
+.excel-busy-overlay.open { display: flex; }
+.excel-busy-dialog {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(360px, 100%);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+}
+.excel-busy-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid #e5e7eb;
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: excelBusySpin 0.8s linear infinite;
+}
+.excel-busy-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.excel-busy-message {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+@keyframes excelBusySpin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Sidebar ───────────────────────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-w);
@@ -299,6 +348,184 @@ body {
 }
 .dashboard-view { display: none; }
 .dashboard-view.active { display: block; }
+
+/* ── Transactions & Rewards View ─────────────────────────────────────────── */
+.rewards-kpi-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.rewards-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+.reward-card-body {
+  padding: 16px 20px 20px;
+}
+.reward-control-grid,
+.reward-textarea-grid,
+.reward-actual-entry,
+.historical-toolbar {
+  display: grid;
+  gap: 10px;
+}
+.reward-control-grid {
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+}
+.reward-textarea-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+.reward-actual-entry {
+  grid-template-columns: minmax(130px, 0.8fr) minmax(130px, 0.8fr) minmax(180px, 1.4fr) auto auto;
+  align-items: end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.reward-control-grid label,
+.reward-textarea-grid label,
+.reward-actual-entry label,
+.historical-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.reward-control-grid input,
+.reward-control-grid select,
+.reward-textarea-grid textarea,
+.reward-actual-entry input,
+.historical-toolbar input,
+.historical-toolbar select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.reward-textarea-grid textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.45;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+}
+.reward-rule-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.reward-summary-pill {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.reward-summary-pill strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+}
+.reward-summary-pill.good strong { color: var(--green); }
+.reward-summary-pill.bad strong { color: var(--red); }
+.reward-month-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.reward-month-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid #9ca3af;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  font-size: 12.5px;
+}
+.reward-month-card.ok { border-left-color: var(--green); background: #f8fff9; }
+.reward-month-card.warn { border-left-color: #f59e0b; background: #fffbeb; }
+.reward-month-card strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.reward-month-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--muted);
+}
+.reward-month-line span:last-child {
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-weight: 600;
+}
+.reward-history-table td:last-child {
+  font-family: 'DM Sans', sans-serif;
+}
+.history-action-btn {
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: var(--red);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.history-action-btn:hover { background: #fee2e2; }
+.all-transactions-card {
+  margin-bottom: 40px;
+}
+.historical-toolbar {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.5fr) minmax(160px, 0.5fr);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: #fafafa;
+}
+.historical-table-wrap {
+  max-height: 620px;
+  overflow: auto;
+}
+.historical-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.historical-table .amount-positive { color: var(--green); }
+.historical-table .amount-negative { color: var(--red); }
+.tx-type-pill,
+.reward-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tx-type-pill.expense { color: #7f1d1d; background: #fee2e2; }
+.tx-type-pill.income { color: #14532d; background: #dcfce7; }
+.tx-type-pill.transfer { color: #1e3a8a; background: #dbeafe; }
+.tx-type-pill.saving { color: #5b21b6; background: #ede9fe; }
+.reward-status-pill.ok { color: #14532d; background: #dcfce7; }
+.reward-status-pill.warn { color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; }
+.reward-status-pill.bad { color: #7f1d1d; background: #fee2e2; }
 
 /* ── Date Range Panel ──────────────────────────────────────────────────────── */
 .date-range-panel {
@@ -1390,6 +1617,13 @@ button, select, input {
 /* Responsive */
 @media (max-width: 1100px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .rewards-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rewards-layout { grid-template-columns: 1fr; }
+  .reward-control-grid,
+  .reward-rule-summary,
+  .reward-month-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reward-textarea-grid,
+  .reward-actual-entry { grid-template-columns: 1fr; }
   .insight-row { grid-template-columns: repeat(3, 1fr); }
   .charts-row { grid-template-columns: 1fr; }
   .income-breakdown-row { grid-template-columns: 1fr; }
@@ -1404,6 +1638,10 @@ button, select, input {
   .dashboard-tabs { width: 100%; display: flex; }
   .dashboard-tab-btn { flex: 1; min-width: 0; }
   .kpi-row { grid-template-columns: 1fr 1fr; }
+  .reward-control-grid,
+  .reward-rule-summary,
+  .reward-month-breakdown,
+  .historical-toolbar { grid-template-columns: 1fr; }
   .insight-row { grid-template-columns: repeat(2, 1fr); }
   .insurance-form-grid { grid-template-columns: 1fr; }
   .insurance-form-grid .insurance-goal-name-field { grid-column: span 1; }

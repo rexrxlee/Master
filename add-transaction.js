@@ -4,8 +4,9 @@ let accounts = [];
 let incomeSubCategories = [];
 let currentMode = "transaction";
 let isClaimable = false;
-let recentRows = [];               // raw rows from sheet (last 50)
+let recentRows = [];               // raw rows from sheet
 let filteredRecentRows = [];       // after applying search/category filter
+let recurringSuggestions = [];      // strict recurring matches from transaction history
 
 // ── Page load ─────────────────────────────────────────────────────────────────
 async function loadAddTransactionPage() {
@@ -58,6 +59,7 @@ async function loadAddTransactionPage() {
     setDefaultDates();
     renderRecentTransactions();
     populateTxFilterCategories();
+    renderRecurringSuggestions();
     renderClaimsTracker();
 
     log("Ready.");
@@ -166,6 +168,277 @@ function populateIncomeSubCategories() {
     opt.textContent = sub;
     sel.appendChild(opt);
   });
+}
+
+// ── Recurring suggestions ────────────────────────────────────────────────────
+function renderRecurringSuggestions() {
+  const wrapper = document.getElementById("recurringSuggestions");
+  const list = document.getElementById("recurringSuggestionList");
+  const badge = document.getElementById("recurringSuggestionsBadge");
+  if (!wrapper || !list) return;
+
+  recurringSuggestions = buildRecurringSuggestions(recentRows).slice(0, 6);
+
+  if (recurringSuggestions.length === 0) {
+    wrapper.style.display = "none";
+    list.innerHTML = "";
+    if (badge) badge.textContent = "";
+    return;
+  }
+
+  wrapper.style.display = "";
+  if (badge) badge.textContent = recurringSuggestions.length + " found";
+  list.innerHTML = recurringSuggestions.map((suggestion, index) => `
+    <button type="button" class="recurring-suggestion" onclick="applyRecurringSuggestion(${index})">
+      <span class="rs-main">
+        <span class="rs-desc">${escapeHtml(suggestion.transaction)}</span>
+        <span class="rs-amount">${formatAmount(suggestion.amount)}</span>
+      </span>
+      <span class="rs-meta">${escapeHtml(suggestion.subCat)} / ${escapeHtml(suggestion.account)} / ${escapeHtml(suggestion.frequencyLabel)}</span>
+      <span class="rs-meta">Last ${escapeHtml(suggestion.lastDisplayDate)}</span>
+    </button>
+  `).join("");
+}
+
+function buildRecurringSuggestions(rows) {
+  const candidates = rows
+    .map(rowToRecurringCandidate)
+    .filter(Boolean);
+
+  if (candidates.length < 3) return [];
+
+  const latestTime = candidates.reduce((latest, item) => Math.max(latest, item.time), 0);
+  const latestByBaseKey = new Map();
+  const groups = new Map();
+
+  candidates.forEach(item => {
+    latestByBaseKey.set(item.baseKey, Math.max(latestByBaseKey.get(item.baseKey) ?? 0, item.time));
+    if (!groups.has(item.key)) groups.set(item.key, []);
+    groups.get(item.key).push(item);
+  });
+
+  return [...groups.values()]
+    .map(group => groupToRecurringSuggestion(group, latestTime, latestByBaseKey))
+    .filter(Boolean)
+    .sort((a, b) =>
+      b.lastTime - a.lastTime ||
+      b.count - a.count ||
+      a.transaction.localeCompare(b.transaction)
+    );
+}
+
+function rowToRecurringCandidate(row) {
+  const dateParts = parseInputDateParts(rawDateToInputValue(row.date));
+  if (!dateParts) return null;
+
+  const transaction = String(row.transaction ?? "").trim();
+  const mainCat = String(row.mainCat ?? "").trim();
+  const subCat = String(row.subCat ?? "").trim();
+  const account = String(row.account ?? "").trim();
+  const amount = parseMoney(row.amount);
+  const descriptionKey = normalizeRecurringText(transaction);
+
+  if (!transaction || descriptionKey.length < 3 || amount <= 0 || !mainCat || !subCat || !account) return null;
+  if (!Object.prototype.hasOwnProperty.call(categories, mainCat)) return null;
+  if (["income", "transfer", "saving goals", "savings goal"].includes(normalizeRecurringText(mainCat))) return null;
+
+  const amountCents = Math.round(amount * 100);
+  const claimable = row.claimable === "Yes" ? "Yes" : "";
+  const claimAmountCents = claimable ? Math.round(getClaimAmount(row) * 100) : 0;
+  const claimAccount = claimable ? String(row.claimAccount ?? "").trim() : "";
+  const baseKeyParts = [
+    descriptionKey,
+    normalizeRecurringText(mainCat),
+    normalizeRecurringText(subCat),
+    normalizeRecurringText(account),
+  ];
+  const baseKey = baseKeyParts.join("|");
+  const key = [
+    ...baseKeyParts,
+    amountCents,
+    claimable,
+    claimAmountCents,
+    normalizeRecurringText(claimAccount),
+  ].join("|");
+
+  return {
+    row,
+    key,
+    baseKey,
+    time: dateParts.time,
+    y: dateParts.y,
+    m: dateParts.m,
+    d: dateParts.d,
+    dateKey: dateParts.inputValue,
+    monthKey: dateParts.y + "-" + String(dateParts.m).padStart(2, "0"),
+    transaction,
+    amount,
+    amountCents,
+    mainCat,
+    subCat,
+    account,
+    claimable,
+    claimAmount: claimAmountCents / 100,
+    claimAccount,
+  };
+}
+
+function groupToRecurringSuggestion(group, latestTime, latestByBaseKey) {
+  const sorted = [...group].sort((a, b) => a.time - b.time);
+  const latest = sorted[sorted.length - 1];
+  const baseLatestTime = latestByBaseKey.get(latest.baseKey) ?? latest.time;
+
+  if (latest.time < baseLatestTime) return null;
+
+  const cadence = getRecurringCadence(sorted, latestTime);
+  if (!cadence) return null;
+
+  return {
+    transaction: latest.transaction,
+    amount: latest.amount,
+    mainCat: latest.mainCat,
+    subCat: latest.subCat,
+    account: latest.account,
+    claimable: latest.claimable,
+    claimAmount: latest.claimAmount,
+    claimAccount: latest.claimAccount,
+    count: sorted.length,
+    frequency: cadence.frequency,
+    frequencyLabel: cadence.label,
+    lastTime: latest.time,
+    lastDisplayDate: formatDisplayDate(latest.row.date),
+  };
+}
+
+function getRecurringCadence(items, latestTime) {
+  if (hasStrictDailyCadence(items, latestTime)) {
+    return { frequency: "daily", label: items.length + " daily matches" };
+  }
+  if (hasStrictMonthlyCadence(items, latestTime)) {
+    return { frequency: "monthly", label: items.length + " monthly matches" };
+  }
+  return null;
+}
+
+function hasStrictDailyCadence(items, latestTime) {
+  const dateKeys = new Set(items.map(item => item.dateKey));
+  if (items.length < 4 || dateKeys.size !== items.length) return false;
+  if (daysBetweenTimes(items[items.length - 1].time, latestTime) > 5) return false;
+
+  for (let i = 1; i < items.length; i++) {
+    if (daysBetweenTimes(items[i - 1].time, items[i].time) !== 1) return false;
+  }
+  return true;
+}
+
+function hasStrictMonthlyCadence(items, latestTime) {
+  const monthKeys = new Set(items.map(item => item.monthKey));
+  if (items.length < 3 || monthKeys.size !== items.length) return false;
+  if (daysBetweenTimes(items[items.length - 1].time, latestTime) > 75) return false;
+
+  for (let i = 1; i < items.length; i++) {
+    const prev = items[i - 1];
+    const current = items[i];
+    if (monthsBetween(prev, current) !== 1) return false;
+    if (daysBetweenTimes(prev.time, current.time) < 24 || daysBetweenTimes(prev.time, current.time) > 38) return false;
+    if (!sameRecurringDay(prev, current)) return false;
+  }
+
+  const days = items.map(item => item.d);
+  const daySpread = Math.max(...days) - Math.min(...days);
+  return daySpread <= 7 || items.every(isNearMonthEnd);
+}
+
+function applyRecurringSuggestion(index) {
+  const suggestion = recurringSuggestions[index];
+  if (!suggestion) return;
+
+  const dateInput = document.getElementById("txDate");
+  const selectedDate = dateInput?.value || "";
+
+  setInputValue("txTransaction", suggestion.transaction);
+  setInputValue("txAmount", suggestion.amount.toFixed(2));
+  setSelectValue("txMainCategory", suggestion.mainCat);
+  onMainCategoryChange();
+  setSelectValue("txSubCategory", suggestion.subCat);
+  setSelectValue("txAccount", suggestion.account);
+
+  if (suggestion.claimable === "Yes") {
+    if (!isClaimable) toggleClaimable();
+    setInputValue("txClaimAmount", suggestion.claimAmount > 0 ? suggestion.claimAmount.toFixed(2) : "");
+    setSelectValue("txClaimAccount", suggestion.claimAccount);
+    syncClaimAmountCap();
+  } else {
+    resetClaimableUi();
+  }
+
+  if (dateInput && selectedDate) dateInput.value = selectedDate;
+
+  document.querySelectorAll(".recurring-suggestion").forEach((button, buttonIndex) => {
+    button.classList.toggle("active", buttonIndex === index);
+  });
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value ?? "";
+}
+
+function setSelectValue(id, value) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const optionValue = String(value ?? "").trim();
+  if (!optionValue) {
+    sel.value = "";
+    return;
+  }
+  if (![...sel.options].some(option => option.value === optionValue)) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    sel.appendChild(option);
+  }
+  sel.value = optionValue;
+}
+
+function normalizeRecurringText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function parseInputDateParts(inputValue) {
+  const match = String(inputValue ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  const time = Date.UTC(y, m - 1, d);
+  if (Number.isNaN(time)) return null;
+  return { y, m, d, time, inputValue: match[0] };
+}
+
+function monthsBetween(a, b) {
+  return (b.y - a.y) * 12 + (b.m - a.m);
+}
+
+function daysBetweenTimes(startTime, endTime) {
+  return Math.round((endTime - startTime) / 86400000);
+}
+
+function sameRecurringDay(a, b) {
+  return Math.abs(a.d - b.d) <= 7 || (isNearMonthEnd(a) && isNearMonthEnd(b));
+}
+
+function isNearMonthEnd(item) {
+  return item.d >= daysInMonth(item.y, item.m) - 2;
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 // ── Mode switching ─────────────────────────────────────────────────────────────

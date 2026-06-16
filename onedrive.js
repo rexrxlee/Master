@@ -13,6 +13,143 @@ const msalConfig = {
 const msalInstance = new msal.PublicClientApplication(msalConfig);
 
 let msalReady = false;
+let excelBusyDepth = 0;
+let excelBusyOverlay = null;
+let excelBusyMessage = null;
+let excelBusyPreviouslyFocused = null;
+
+const EXCEL_BUSY_ACTIONS = {
+  loadDashboard: "Loading dashboard from Excel...",
+  loadBudgetPage: "Loading budget from Excel...",
+  loadAccountsPage: "Loading accounts from Excel...",
+  loadSetupPage: "Loading setup from Excel...",
+  loadAddTransactionPage: "Loading transactions from Excel...",
+  loadGoalsPage: "Loading goals from Excel...",
+  loadGoalItemsTab: "Loading goal items from Excel...",
+  loadInsurancePage: "Loading insurance from Excel...",
+  refreshInsuranceGoalsForPicker: "Refreshing goals from Excel...",
+  refreshInsuranceGoalsFromWorkbook: "Refreshing goals from Excel...",
+  saveBudgetSetupToExcel: "Autosaving budget to Excel...",
+  saveAccountsToExcel: "Autosaving accounts to Excel...",
+  saveAllocations: "Saving allocations to Excel...",
+  saveIncomeBoosts: "Saving cashflow changes to Excel...",
+  persistRewardStateToExcel: "Saving card rewards to Excel...",
+  saveRewardActual: "Saving cashback comparison to Excel...",
+  resetRewardSettings: "Saving card reward rules to Excel...",
+  persistGoalsToExcel: "Autosaving goals to Excel...",
+  saveGoalsToExcel: "Saving goals to Excel...",
+  persistGoalItemsToExcel: "Autosaving goal items to Excel...",
+  saveAllGoalItems: "Saving goal items to Excel...",
+  writeInsuranceHeadersForWrite: "Saving insurance headers to Excel...",
+  writeInsurancePolicyFields: "Saving insurance policy to Excel...",
+  getNextInsuranceRowNumber: "Reading insurance sheet from Excel...",
+  appendInsuranceGoalTransaction: "Saving goal transaction to Excel...",
+  updateInsurancePaidCells: "Saving insurance payment to Excel...",
+  writeInsuranceGoal: "Saving insurance goal to Excel..."
+};
+
+function ensureExcelBusyOverlay() {
+  if (excelBusyOverlay) return excelBusyOverlay;
+
+  excelBusyOverlay = document.createElement("div");
+  excelBusyOverlay.id = "excelBusyOverlay";
+  excelBusyOverlay.className = "excel-busy-overlay";
+  excelBusyOverlay.setAttribute("role", "status");
+  excelBusyOverlay.setAttribute("aria-live", "polite");
+  excelBusyOverlay.setAttribute("aria-label", "Excel operation in progress");
+  excelBusyOverlay.setAttribute("tabindex", "-1");
+  excelBusyOverlay.innerHTML = `
+    <div class="excel-busy-dialog">
+      <div class="excel-busy-spinner" aria-hidden="true"></div>
+      <div>
+        <div class="excel-busy-title">Working with Excel</div>
+        <div class="excel-busy-message" id="excelBusyMessage">Please wait...</div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(excelBusyOverlay);
+  excelBusyMessage = document.getElementById("excelBusyMessage");
+  return excelBusyOverlay;
+}
+
+function setExcelBusyMessage(message) {
+  ensureExcelBusyOverlay();
+  if (excelBusyMessage) excelBusyMessage.textContent = message || "Please wait...";
+}
+
+function showExcelBusy(message = "Syncing with Excel...") {
+  if (!document.body) return;
+  ensureExcelBusyOverlay();
+  excelBusyDepth += 1;
+  setExcelBusyMessage(message);
+  excelBusyOverlay.classList.add("open");
+  document.body.setAttribute("aria-busy", "true");
+  if (excelBusyDepth === 1) {
+    excelBusyPreviouslyFocused = document.activeElement;
+    excelBusyOverlay.focus({ preventScroll: true });
+  }
+}
+
+function hideExcelBusy() {
+  if (excelBusyDepth > 0) excelBusyDepth -= 1;
+  if (excelBusyDepth !== 0 || !excelBusyOverlay) return;
+
+  excelBusyOverlay.classList.remove("open");
+  document.body.removeAttribute("aria-busy");
+  if (excelBusyPreviouslyFocused && typeof excelBusyPreviouslyFocused.focus === "function") {
+    try { excelBusyPreviouslyFocused.focus({ preventScroll: true }); } catch (_) {}
+  }
+  excelBusyPreviouslyFocused = null;
+}
+
+async function withExcelBusy(message, work) {
+  showExcelBusy(message);
+  try {
+    return await work();
+  } finally {
+    hideExcelBusy();
+  }
+}
+
+function isExcelBusy() {
+  return excelBusyDepth > 0;
+}
+
+function blockExcelBusyInteraction(event) {
+  if (!isExcelBusy()) return;
+  if (event.type === "keydown" && (event.metaKey || event.ctrlKey || event.altKey)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function installExcelBusyInteractionBlockers() {
+  ["click", "dblclick", "pointerdown", "submit", "keydown"].forEach(type => {
+    document.addEventListener(type, blockExcelBusyInteraction, true);
+  });
+}
+
+function installExcelBusyActionGuards() {
+  Object.entries(EXCEL_BUSY_ACTIONS).forEach(([name, message]) => {
+    const original = window[name];
+    if (typeof original !== "function" || original.__excelBusyWrapped) return;
+
+    const wrapped = function(...args) {
+      return withExcelBusy(message, () => original.apply(this, args));
+    };
+    wrapped.__excelBusyWrapped = true;
+    wrapped.__excelBusyOriginal = original;
+    window[name] = wrapped;
+  });
+}
+
+installExcelBusyInteractionBlockers();
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", installExcelBusyActionGuards);
+} else {
+  installExcelBusyActionGuards();
+}
+window.addEventListener("load", installExcelBusyActionGuards);
 
 async function initializeMsal() {
   if (msalReady) return;
@@ -110,121 +247,135 @@ function getEncodedExcelPath() {
 }
 
 async function graphFetch(url, token) {
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
+  return withExcelBusy("Reading from Excel...", async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(response.status + " " + errorText);
     }
+
+    return response;
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(response.status + " " + errorText);
-  }
-
-  return response;
 }
 
 async function graphGetJson(url, token) {
-  const response = await graphFetch(url, token);
-  return response.json();
+  return withExcelBusy("Reading from Excel...", async () => {
+    const response = await graphFetch(url, token);
+    return response.json();
+  });
 }
 
 async function graphPatch(url, token, body) {
-  const response = await fetch(url, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
+  return withExcelBusy("Saving to Excel...", async () => {
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(response.status + " " + errorText);
+    }
+
+    return response.json();
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(response.status + " " + errorText);
-  }
-
-  return response.json();
 }
 
 async function graphPost(url, token, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
+  return withExcelBusy("Saving to Excel...", async () => {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(response.status + " " + errorText);
+    }
+
+    return response.json();
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(response.status + " " + errorText);
-  }
-
-  return response.json();
 }
 
 async function downloadExcelFile() {
-  const token = await getToken();
+  return withExcelBusy("Loading from Excel...", async () => {
+    const token = await getToken();
 
-  if (!token) {
-    throw new Error("No access token available yet. Please wait for login redirect to complete.");
-  }
+    if (!token) {
+      throw new Error("No access token available yet. Please wait for login redirect to complete.");
+    }
 
-  const encodedPath = getEncodedExcelPath();
+    const encodedPath = getEncodedExcelPath();
 
-  const downloadUrl =
-    "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-    encodedPath +
-    ":/content";
+    const downloadUrl =
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+      encodedPath +
+      ":/content";
 
-  const response = await graphFetch(downloadUrl, token);
+    const response = await graphFetch(downloadUrl, token);
 
-  return response.arrayBuffer();
+    return response.arrayBuffer();
+  });
 }
 
 async function readExcelRange(sheetName, rangeAddress) {
-  const token = await getToken();
+  return withExcelBusy("Reading from Excel...", async () => {
+    const token = await getToken();
 
-  if (!token) {
-    throw new Error("No access token available yet. Please wait for login redirect to complete.");
-  }
+    if (!token) {
+      throw new Error("No access token available yet. Please wait for login redirect to complete.");
+    }
 
-  const encodedPath = getEncodedExcelPath();
+    const encodedPath = getEncodedExcelPath();
 
-  const url =
-    "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-    encodedPath +
-    ":/workbook/worksheets('" +
-    sheetName.replace(/'/g, "''") +
-    "')/range(address='" +
-    rangeAddress +
-    "')";
+    const url =
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+      encodedPath +
+      ":/workbook/worksheets('" +
+      sheetName.replace(/'/g, "''") +
+      "')/range(address='" +
+      rangeAddress +
+      "')";
 
-  return graphGetJson(url, token);
+    return graphGetJson(url, token);
+  });
 }
 
 async function writeExcelRange(sheetName, rangeAddress, values) {
-  const token = await getToken();
+  return withExcelBusy("Saving to Excel...", async () => {
+    const token = await getToken();
 
-  if (!token) {
-    throw new Error("No access token available yet. Please wait for login redirect to complete.");
-  }
+    if (!token) {
+      throw new Error("No access token available yet. Please wait for login redirect to complete.");
+    }
 
-  const encodedPath = getEncodedExcelPath();
+    const encodedPath = getEncodedExcelPath();
 
-  const url =
-    "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-    encodedPath +
-    ":/workbook/worksheets('" +
-    sheetName.replace(/'/g, "''") +
-    "')/range(address='" +
-    rangeAddress +
-    "')";
+    const url =
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+      encodedPath +
+      ":/workbook/worksheets('" +
+      sheetName.replace(/'/g, "''") +
+      "')/range(address='" +
+      rangeAddress +
+      "')";
 
-  return graphPatch(url, token, {
-    values: values
+    return graphPatch(url, token, {
+      values: values
+    });
   });
 }
 
@@ -237,18 +388,20 @@ async function writeBudgetSetupRange(rangeAddress, values) {
 }
 
 async function addExcelWorksheet(sheetName) {
-  const token = await getToken();
+  return withExcelBusy("Preparing Excel sheet...", async () => {
+    const token = await getToken();
 
-  if (!token) {
-    throw new Error("No access token available yet. Please wait for login redirect to complete.");
-  }
+    if (!token) {
+      throw new Error("No access token available yet. Please wait for login redirect to complete.");
+    }
 
-  const encodedPath = getEncodedExcelPath();
+    const encodedPath = getEncodedExcelPath();
 
-  const url =
-    "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-    encodedPath +
-    ":/workbook/worksheets/add";
+    const url =
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+      encodedPath +
+      ":/workbook/worksheets/add";
 
-  return graphPost(url, token, { name: sheetName });
+    return graphPost(url, token, { name: sheetName });
+  });
 }

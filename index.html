@@ -99,6 +99,7 @@
     <nav class="dashboard-tabs" aria-label="Dashboard views">
       <button type="button" id="expensesDashboardTab" class="dashboard-tab-btn active" onclick="switchDashboardView('expenses')">Expenses</button>
       <button type="button" id="incomeDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('income')">Income</button>
+      <button type="button" id="transactionsDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('transactions')">Transactions & Rewards</button>
     </nav>
 
     <section id="expensesDashboardView" class="dashboard-view active">
@@ -321,6 +322,131 @@
         </div>
         <div class="table-wrap">
           <table class="data-table" id="incomeMonthlyTable"></table>
+        </div>
+      </section>
+    </section>
+
+    <section id="transactionsDashboardView" class="dashboard-view">
+      <section class="kpi-row rewards-kpi-row">
+        <div class="kpi-card neutral">
+          <div class="kpi-label">Card Spend</div>
+          <div class="kpi-value" id="rewardCardSpend">$0</div>
+          <div class="kpi-note" id="rewardCardSpendNote">Selected quarter</div>
+        </div>
+        <div class="kpi-card net">
+          <div class="kpi-label">Eligible Spend</div>
+          <div class="kpi-value" id="rewardEligibleSpend">$0</div>
+          <div class="kpi-note" id="rewardEligibleSpendNote">After rough exclusions</div>
+        </div>
+        <div class="kpi-card income">
+          <div class="kpi-label">Estimated Cashback</div>
+          <div class="kpi-value" id="rewardEstimatedCashback">$0</div>
+          <div class="kpi-note" id="rewardEstimatedNote">UOB One estimate</div>
+        </div>
+        <div class="kpi-card neutral">
+          <div class="kpi-label">Actual Recorded</div>
+          <div class="kpi-value" id="rewardActualCashback">$0</div>
+          <div class="kpi-note">Saved to Excel for comparison</div>
+        </div>
+        <div class="kpi-card expense">
+          <div class="kpi-label">Variance</div>
+          <div class="kpi-value" id="rewardCashbackVariance">$0</div>
+          <div class="kpi-note" id="rewardVarianceNote">Actual minus estimate</div>
+        </div>
+      </section>
+
+      <section class="rewards-layout">
+        <div class="table-card rewards-card">
+          <div class="card-header">
+            <h2 class="card-title">UOB One Reward Estimator</h2>
+            <span class="card-badge" id="rewardPeriodBadge">Estimate</span>
+          </div>
+          <div class="reward-card-body">
+            <div class="reward-control-grid">
+              <label>Credit card
+                <select id="rewardCardAccount"></select>
+              </label>
+              <label>Quarter
+                <select id="rewardQuarter"></select>
+              </label>
+              <label>Minimum tx / month
+                <input type="number" id="rewardMinTx" min="0" step="1">
+              </label>
+              <label>Bonus rebate %
+                <input type="number" id="rewardBonusRate" min="0" step="0.1">
+              </label>
+              <label>Quarter bonus cap
+                <input type="number" id="rewardBonusCap" min="0" step="1">
+              </label>
+            </div>
+
+            <div class="reward-textarea-grid">
+              <label>Tier rules
+                <textarea id="rewardTierRules" rows="4" spellcheck="false"></textarea>
+              </label>
+              <label>Bonus merchant keywords
+                <textarea id="rewardBonusKeywords" rows="4" spellcheck="false"></textarea>
+              </label>
+              <label>Excluded keywords
+                <textarea id="rewardExcludedKeywords" rows="4" spellcheck="false"></textarea>
+              </label>
+            </div>
+
+            <div id="rewardRuleSummary" class="reward-rule-summary"></div>
+            <div id="rewardMonthBreakdown" class="reward-month-breakdown"></div>
+
+            <div class="reward-actual-entry">
+              <label>Actual base cashback
+                <input type="number" id="rewardActualBase" min="0" step="0.01">
+              </label>
+              <label>Actual bonus/rebate
+                <input type="number" id="rewardActualBonus" min="0" step="0.01">
+              </label>
+              <label>Note
+                <input type="text" id="rewardActualNote" placeholder="e.g. statement posted Jun 2026">
+              </label>
+              <button type="button" class="reload-btn primary-action" onclick="saveRewardActual()">Save Actual</button>
+              <button type="button" class="reload-btn" onclick="resetRewardSettings()">Reset Rules</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-card rewards-card">
+          <div class="card-header">
+            <h2 class="card-title">Previous Cashback</h2>
+            <span class="card-badge" id="cashbackHistoryBadge">0 saved</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table reward-history-table" id="cashbackHistoryTable"></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="table-card full all-transactions-card">
+        <div class="card-header">
+          <h2 class="card-title">All Transactions</h2>
+          <span class="card-badge" id="historicalTxBadge">0 rows</span>
+        </div>
+        <div class="historical-toolbar">
+          <label>Search
+            <input type="search" id="historicalTxSearch" placeholder="merchant, category, account...">
+          </label>
+          <label>Account
+            <select id="historicalAccountFilter"></select>
+          </label>
+          <label>Type
+            <select id="historicalTypeFilter">
+              <option value="all">All types</option>
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+              <option value="transfer">Transfers</option>
+              <option value="credit-card">Credit card spend</option>
+              <option value="claimable">Claimable</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap historical-table-wrap">
+          <table class="data-table historical-table" id="historicalTransactionsTable"></table>
         </div>
       </section>
     </section>
