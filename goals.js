@@ -1870,6 +1870,44 @@ function renderGoalGanttTimeline(container) {
     return dateObj.toLocaleDateString("en-SG", { day:"2-digit", month:"short", year:"numeric" });
   }
 
+  function pctForMonthCenter(mo) {
+    if (!Number.isFinite(mo) || mo < displayStart || mo > displayEnd) return null;
+    return pctForDate(dateForMonthOffset(mo, "middle"));
+  }
+
+  function goalBalanceForMonth(gs, gi, mo) {
+    if (mo <= 0) return gs.initialSaved;
+    return progressDollars[gi][Math.min(MONTHS - 1, mo)] ?? gs.saved;
+  }
+
+  function goalBalanceClass(gs, amount, mo) {
+    const parts = [];
+    if (mo === 0) parts.push("current");
+    if (amount >= gs.effectiveTarget) parts.push("buffer-met");
+    else if (gs.bufferPct > 0 && amount >= gs.baseTarget) parts.push("base-met");
+    else parts.push("base-need");
+    return parts.join(" ");
+  }
+
+  function goalBalanceTitle(gs, amount, mo) {
+    const monthText = mo === 0 ? "Current balance" : `Forecast balance by end of ${model.monthLabel(mo, true)}`;
+    if (amount >= gs.effectiveTarget) return `${monthText}: ${formatCurrency(amount)} - target and buffer met`;
+    if (gs.bufferPct > 0 && amount >= gs.baseTarget) {
+      return `${monthText}: ${formatCurrency(amount)} - base met, buffer still needs ${formatCurrency(Math.max(0, gs.effectiveTarget - amount))}`;
+    }
+    return `${monthText}: ${formatCurrency(amount)} - ${formatCurrency(Math.max(0, gs.baseTarget - amount))} to base`;
+  }
+
+  function goalBalanceCells(gs, gi) {
+    const valueEndMo = Math.max(gs.deadlineMo ?? displayEnd, gs.completedAt ?? displayEnd, gs.startMo + 1);
+    return offsets.map(mo => {
+      if (mo < 0 || (mo !== 0 && mo < gs.startMo) || mo > valueEndMo) return `<span class="gantt-month-value-cell"></span>`;
+      const amount = goalBalanceForMonth(gs, gi, mo);
+      const cls = goalBalanceClass(gs, amount, mo);
+      return `<span class="gantt-month-value-cell"><span class="gantt-month-value ${cls}" title="${escapeHtml(goalBalanceTitle(gs, amount, mo))}">${formatCurrencyShort(amount)}</span></span>`;
+    }).join("");
+  }
+
   function forecastFundingDateFor(gs, gi) {
     if (gs.completedAt === null) return null;
 
@@ -1914,7 +1952,14 @@ function renderGoalGanttTimeline(container) {
         return { cls:"danger", pill:"Misses deadline", detail:`Short ${formatCurrency(baseShort)} by ${deadline}.` };
       }
       if (bufferShort > 0) {
-        return { cls:"warn", pill:"Base ok, buffer late", detail:completion ? `Buffer completes ${completion}.` : "Only the extra buffer is at risk." };
+        const baseCompletion = gs.baseCompletedAt !== null ? model.monthLabel(gs.baseCompletedAt, true) : null;
+        return {
+          cls:"warn",
+          pill:"Base ok, buffer late",
+          detail:completion
+            ? `${baseCompletion ? `Base met ${baseCompletion}; ` : ""}buffer completes ${completion}.`
+            : "Only the extra buffer is at risk."
+        };
       }
       if (forecastDate && deadlineDate) {
         if (forecastDate <= deadlineDate) {
@@ -1965,15 +2010,22 @@ function renderGoalGanttTimeline(container) {
     const todayPct = dateWithinView(today) ? pctForDate(today) : null;
     const deadlinePct = parsedDeadlineDate && dateWithinView(parsedDeadlineDate) ? pctForDate(parsedDeadlineDate) : null;
     const completionDate = forecastFundingDateFor(gs, gi);
-    const completionPct = completionDate && dateWithinView(completionDate) ? pctForDate(completionDate) : null;
+    const completionPct = gs.completedAt !== null ? pctForMonthCenter(gs.completedAt) : null;
+    const baseCompletionPct = gs.bufferPct > 0 && gs.baseCompletedAt !== null && gs.baseCompletedAt !== gs.completedAt
+      ? pctForMonthCenter(gs.baseCompletedAt)
+      : null;
     const startLabel = originalGoal.startDate ? formatDateDisplay(originalGoal.startDate) : "Today";
     const endLabel = originalGoal.endDate
       ? formatDateDisplay(originalGoal.endDate)
       : (gs.completedAt !== null ? `Projected ${model.monthLabel(gs.completedAt, true)}` : "No deadline");
     const completionLabel = completionDate ? ganttDateLabel(completionDate) : "";
+    const baseCompletionLabel = gs.baseCompletedAt !== null ? model.monthLabel(gs.baseCompletedAt, true) : "";
     const targetLabel = gs.bufferPct > 0
-      ? `${formatCurrency(gs.effectiveTarget)} incl. ${gs.bufferPct}% buffer`
+      ? `${formatCurrency(gs.baseTarget)} base + ${formatCurrency(gs.effectiveTarget - gs.baseTarget)} buffer`
       : formatCurrency(gs.effectiveTarget);
+    const completeTitle = gs.bufferPct > 0
+      ? `Buffer funded around: ${completionLabel}`
+      : `Forecast funded around: ${completionLabel}`;
 
     return `
       <div class="gantt-row">
@@ -1990,8 +2042,10 @@ function renderGoalGanttTimeline(container) {
         <div class="gantt-track" style="${gridStyle}">
           ${todayPct !== null ? `<span class="gantt-line today" style="left:${pctStyle(todayPct)};" title="Today"></span>` : ""}
           <span class="gantt-bar ${status.cls}" style="left:${pctStyle(barLeftPct)};width:${pctStyle(barWidthPct)};background:${gs.color};" title="${escapeHtml(startLabel)} to ${escapeHtml(endLabel)}"></span>
+          <div class="gantt-month-values" style="${gridStyle}">${goalBalanceCells(gs, gi)}</div>
           ${deadlinePct !== null ? `<span class="gantt-line deadline" style="left:${pctStyle(deadlinePct)};color:${gs.color};" title="Deadline: ${escapeHtml(endLabel)}"></span>` : ""}
-          ${completionPct !== null ? `<span class="gantt-complete-marker" style="left:${pctStyle(completionPct)};color:${status.cls === "danger" ? "#dc2626" : gs.color};" title="Forecast funded around: ${escapeHtml(completionLabel)}"></span>` : ""}
+          ${baseCompletionPct !== null ? `<span class="gantt-base-marker" style="left:${pctStyle(baseCompletionPct)};" title="Base met: ${escapeHtml(baseCompletionLabel)}">base</span>` : ""}
+          ${completionPct !== null ? `<span class="gantt-complete-marker ${gs.bufferPct > 0 ? "buffer" : ""}" style="left:${pctStyle(completionPct)};color:${status.cls === "danger" ? "#dc2626" : gs.color};" title="${escapeHtml(completeTitle)}"></span>` : ""}
         </div>
         <div class="gantt-status">
           <span class="gantt-pill ${status.cls}">${status.pill}</span>
@@ -2043,11 +2097,14 @@ function renderGoalGanttTimeline(container) {
     <div class="gantt-legend">
       <span><i class="sample-bar"></i> start → deadline window</span>
       <span><i class="sample-line"></i> deadline</span>
-      <span><i class="sample-dot"></i> forecast funded estimate</span>
+      <span><i class="sample-value"></i> monthly goal balance</span>
+      <span><i class="sample-base">base</i> base met, buffer pending</span>
+      <span><i class="sample-dot"></i> funded month</span>
       <span><i class="sample-line" style="border-left-style:solid;border-color:#111827;"></i> today</span>
     </div>
     </div>
   `;
+  panelEl.open = true;
   container.appendChild(panelEl);
 }
 
@@ -2500,6 +2557,22 @@ function renderSavingsTimelineStacked(container, dep) {
       });
     }
 
+    function stackedPositiveTotalForDataIndex(dataIndex) {
+      const m = forecastMonthIndexes[dataIndex] ?? forecastStartMonth;
+      return allocationData.reduce((sum, arr) => sum + (arr[m] || 0), 0) + (unallocatedData[m] || 0);
+    }
+
+    function isTopPositiveStackSegment(ctx) {
+      const value = Number(ctx.dataset?.data?.[ctx.dataIndex] || 0);
+      if (value <= 0 || ctx.dataset?._isCashflowReduction) return false;
+      const datasetsForChart = ctx.chart?.data?.datasets || [];
+      for (let i = ctx.datasetIndex + 1; i < datasetsForChart.length; i++) {
+        const laterValue = Number(datasetsForChart[i]?.data?.[ctx.dataIndex] || 0);
+        if (laterValue > 0 && !datasetsForChart[i]?._isCashflowReduction) return false;
+      }
+      return stackedPositiveTotalForDataIndex(ctx.dataIndex) > 0;
+    }
+
     timelineChart = new Chart(ctx, {
       type: "bar",
       data: { labels: chartLabels, datasets },
@@ -2507,9 +2580,19 @@ function renderSavingsTimelineStacked(container, dep) {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
+        layout: { padding: { top: 18 } },
         plugins: {
           legend: { display: false },
-          datalabels: { display: false },
+          datalabels: {
+            display: ctx => isTopPositiveStackSegment(ctx),
+            formatter: (value, ctx) => formatCurrencyShort(stackedPositiveTotalForDataIndex(ctx.dataIndex)),
+            anchor: "end",
+            align: "end",
+            offset: 2,
+            clamp: true,
+            color: "#334155",
+            font: { size: 10, weight: "600" }
+          },
           tooltip: {
             backgroundColor: "rgba(15,23,42,0.92)",
             titleFont: { size: 12, weight: "600" },
@@ -3931,6 +4014,23 @@ function getClaimAdjustedExpenseAmount(row) {
 }
 function formatCurrency(v) {
   return v.toLocaleString("en-SG", { style:"currency", currency:"SGD", minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+function formatCurrencyShort(v) {
+  const n = Number(v) || 0;
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs < 1000) return `${sign}$${Math.round(abs).toLocaleString("en-SG")}`;
+
+  const units = [
+    { value: 1_000_000_000, suffix: "b" },
+    { value: 1_000_000, suffix: "m" },
+    { value: 1_000, suffix: "k" }
+  ];
+  const unit = units.find(u => abs >= u.value) || units[units.length - 1];
+  const scaled = abs / unit.value;
+  const decimals = scaled >= 100 ? 0 : 1;
+  const text = scaled.toFixed(decimals).replace(/\.0$/, "");
+  return `${sign}$${text}${unit.suffix}`;
 }
 function escapeHtml(v) {
   return String(v).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");

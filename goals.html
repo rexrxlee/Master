@@ -840,6 +840,7 @@
       border: 1px solid var(--border);
       border-radius: 9px;
       background: #fff;
+      position: relative;
     }
     .gantt {
       min-width: 980px;
@@ -871,8 +872,10 @@
       border-right: none;
       border-left: 1px solid var(--border);
       background: var(--bg);
-      position: relative;
-      z-index: 2;
+      position: sticky;
+      right: 0;
+      z-index: 6;
+      box-shadow: -8px 0 14px -14px rgba(15,23,42,0.75);
     }
     .gantt-month-grid {
       display: grid;
@@ -946,10 +949,80 @@
       top: 6px;
       bottom: 6px;
       width: 0;
-      z-index: 2;
+      z-index: 4;
     }
     .gantt-line.today { border-left: 2px solid #111827; opacity: 0.5; }
     .gantt-line.deadline { border-left: 2px dashed currentColor; }
+    .gantt-month-values {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      align-items: center;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .gantt-month-value-cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      padding: 0 3px;
+    }
+    .gantt-month-value {
+      max-width: 100%;
+      padding: 1px 5px;
+      border-radius: 999px;
+      border: 1px solid rgba(203,213,225,0.95);
+      background: rgba(255,255,255,0.84);
+      color: #475569;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.06);
+    }
+    .gantt-month-value.current {
+      background: #111827;
+      border-color: #111827;
+      color: #fff;
+    }
+    .gantt-month-value.base-need {
+      background: rgba(255,255,255,0.78);
+      color: #64748b;
+    }
+    .gantt-month-value.base-met {
+      background: #fff7ed;
+      border-color: #fed7aa;
+      color: #7c2d12;
+    }
+    .gantt-month-value.buffer-met {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #14532d;
+    }
+    .gantt-base-marker {
+      position: absolute;
+      top: 7px;
+      transform: translateX(-50%);
+      z-index: 6;
+      display: inline-flex;
+      align-items: center;
+      height: 15px;
+      padding: 0 5px;
+      border-radius: 999px;
+      border: 1px solid #fdba74;
+      background: #fff7ed;
+      color: #7c2d12;
+      font-size: 8.5px;
+      font-weight: 700;
+      line-height: 1;
+      text-transform: uppercase;
+      box-shadow: 0 0 0 2px #fff;
+      pointer-events: auto;
+    }
     .gantt-complete-marker {
       position: absolute;
       top: 50%;
@@ -959,15 +1032,20 @@
       border-radius: 50%;
       background: #fff;
       border: 3px solid currentColor;
-      z-index: 4;
+      z-index: 7;
       box-shadow: 0 0 0 2px #fff;
+    }
+    .gantt-complete-marker.buffer {
+      background: #fff7ed;
     }
     .gantt-status {
       padding: 9px 12px;
       border-left: 1px solid var(--border);
       background: #fff;
-      position: relative;
-      z-index: 2;
+      position: sticky;
+      right: 0;
+      z-index: 5;
+      box-shadow: -8px 0 14px -14px rgba(15,23,42,0.75);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -1022,6 +1100,27 @@
       height: 9px;
       border-radius: 50%;
       border: 2px solid #16a34a;
+    }
+    .gantt-legend .sample-value {
+      width: 34px;
+      height: 14px;
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      display: inline-block;
+    }
+    .gantt-legend .sample-base {
+      height: 14px;
+      padding: 0 5px;
+      border-radius: 999px;
+      border: 1px solid #fdba74;
+      background: #fff7ed;
+      color: #7c2d12;
+      font-size: 8.5px;
+      font-weight: 700;
+      font-style: normal;
+      line-height: 14px;
+      text-transform: uppercase;
     }
 
     /* ── Timeline custom legend ─── */
