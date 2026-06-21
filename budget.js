@@ -128,13 +128,16 @@ function calculateSpentForCurrentMonth(mainCategory, subCategory) {
         rowDate.getFullYear() === currentYear &&
         rowDate.getMonth()    === currentMonth;
 
-      return (
-        isCurrentMonth &&
-        clean(row["Main Category"]).toLowerCase() === clean(mainCategory).toLowerCase() &&
-        clean(row["Sub Category"]).toLowerCase()  === clean(subCategory).toLowerCase()
-      );
+      return isCurrentMonth && matchesBudgetCategory(row, mainCategory, subCategory);
     })
     .reduce((sum, row) => sum + getBudgetImpactAmount(row), 0);
+}
+
+function matchesBudgetCategory(row, mainCategory, subCategory) {
+  return (
+    clean(row["Main Category"]).toLowerCase() === clean(mainCategory).toLowerCase() &&
+    clean(row["Sub Category"]).toLowerCase()  === clean(subCategory).toLowerCase()
+  );
 }
 
 function renderBudgetTable(tableId, type, rows) {
@@ -372,7 +375,7 @@ function renderBudgetProjectionPanel(monthlyRows) {
       <div class="bproj-header">
         <div>
           <h2>Monthly Expense Projection</h2>
-          <p>Expected month-end spend using average daily spending so far this month.</p>
+          <p>Expected month-end spend using each category's usual timing, with daily pace as fallback.</p>
         </div>
         <span class="bproj-badge${badgeClass}">${badgeText}</span>
       </div>
@@ -400,9 +403,24 @@ function buildMonthlyProjection(rows) {
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const projectedRows = rows.map(row => {
     const dailyAverage = row.spent / dayOfMonth;
-    const projectedSpend = dailyAverage * daysInMonth;
+    const dailyProjectedSpend = dailyAverage * daysInMonth;
+    const timing = buildCategorySpendingTiming(row.type, row.category, today, dayOfMonth);
+    const usesHistoricalTiming = timing.months >= 2;
+    const projectedSpend = usesHistoricalTiming
+      ? Math.max(row.spent, row.spent + timing.medianRemaining)
+      : dailyProjectedSpend;
     const projectedBalance = row.allocated - projectedSpend;
-    return { ...row, dailyAverage, projectedSpend, projectedBalance };
+    return {
+      ...row,
+      dailyAverage,
+      dailyProjectedSpend,
+      projectedSpend,
+      projectedBalance,
+      projectionMethod: usesHistoricalTiming ? "history" : "daily",
+      historicalMonths: timing.months,
+      historicalRemaining: timing.medianRemaining,
+      historicalProgressRatio: timing.medianProgressRatio
+    };
   }).sort((a, b) => a.projectedBalance - b.projectedBalance || b.projectedSpend - a.projectedSpend);
 
   return {
@@ -415,11 +433,77 @@ function buildMonthlyProjection(rows) {
   };
 }
 
+function buildCategorySpendingTiming(mainCategory, subCategory, today, cutoffDay) {
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const monthsByKey = {};
+
+  budgetTransactions.forEach(row => {
+    const rowDate = parseBudgetDate(row["Date"]);
+    if (!rowDate || rowDate >= currentMonthStart) return;
+    if (!matchesBudgetCategory(row, mainCategory, subCategory)) return;
+
+    const amount = getBudgetImpactAmount(row);
+    if (amount <= 0) return;
+
+    const year = rowDate.getFullYear();
+    const month = rowDate.getMonth();
+    const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const monthCutoffDay = Math.min(cutoffDay, new Date(year, month + 1, 0).getDate());
+
+    if (!monthsByKey[key]) {
+      monthsByKey[key] = {
+        monthStart: new Date(year, month, 1),
+        total: 0,
+        throughCutoff: 0
+      };
+    }
+
+    monthsByKey[key].total += amount;
+    if (rowDate.getDate() <= monthCutoffDay) {
+      monthsByKey[key].throughCutoff += amount;
+    }
+  });
+
+  const months = Object.values(monthsByKey)
+    .filter(month => month.total > 0)
+    .sort((a, b) => b.monthStart - a.monthStart)
+    .slice(0, 12);
+
+  if (!months.length) {
+    return { months: 0, medianRemaining: 0, medianProgressRatio: null };
+  }
+
+  const remaining = months.map(month => Math.max(0, month.total - month.throughCutoff));
+  const progress = months.map(month => Math.min(1, Math.max(0, month.throughCutoff / month.total)));
+
+  return {
+    months: months.length,
+    medianRemaining: medianNumber(remaining),
+    medianProgressRatio: medianNumber(progress)
+  };
+}
+
+function medianNumber(values) {
+  const sorted = values
+    .map(Number)
+    .filter(value => Number.isFinite(value))
+    .sort((a, b) => a - b);
+
+  if (!sorted.length) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
 function renderProjectionRow(row) {
   const balanceClass = row.projectedBalance >= 0 ? "green" : "red";
   const scale = Math.max(row.allocated, row.projectedSpend, 1);
   const fillPct = Math.min(100, (row.projectedSpend / scale) * 100);
   const budgetPct = Math.min(100, (row.allocated / scale) * 100);
+  const paceDetail = row.projectionMethod === "history"
+    ? `usual remaining ${formatCurrency(row.historicalRemaining)} · ${row.historicalMonths} mo`
+    : `${formatCurrency(row.dailyAverage)}/day`;
   return `
     <div class="bproj-row">
       <div class="bproj-row-top">
@@ -431,7 +515,7 @@ function renderProjectionRow(row) {
         <span class="bproj-budget-line" style="left:${budgetPct.toFixed(2)}%;"></span>
       </div>
       <div class="bproj-row-detail">
-        <span>${formatCurrency(row.spent)} spent · ${formatCurrency(row.dailyAverage)}/day</span>
+        <span>${formatCurrency(row.spent)} spent · ${paceDetail}</span>
         <span>${formatCurrency(row.projectedSpend)} projected vs ${formatCurrency(row.allocated)}</span>
       </div>
     </div>`;

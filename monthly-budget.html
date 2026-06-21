@@ -564,6 +564,16 @@
           gap: 10px;
           align-items: baseline;
         }
+        .bproj-row-detail span {
+          min-width: 0;
+        }
+        .bproj-row-detail span:first-child {
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .bproj-row-detail span:last-child {
+          white-space: nowrap;
+        }
         .bproj-row-name {
           font-size: 13px;
           font-weight: 600;
@@ -643,6 +653,13 @@
           .bp-content,
           .bp-reserve-strip,
           .bv-cover-banner { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 560px) {
+          .bproj-row-detail {
+            flex-direction: column;
+            gap: 2px;
+            align-items: flex-start;
+          }
         }
       </style>
 </head>
