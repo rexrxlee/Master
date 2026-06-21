@@ -2,21 +2,21 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #f4f5f7;
+  --bg:        #f7f8fa;
   --surface:   #ffffff;
-  --border:    #e8eaed;
-  --text:      #1a1d23;
-  --muted:     #6b7280;
-  --accent:    #1a1d23;
-  --green:     #16a34a;
-  --red:       #dc2626;
-  --green-bg:  #f0fdf4;
-  --red-bg:    #fef2f2;
+  --border:    #e5e7eb;
+  --text:      #202124;
+  --muted:     #6f7682;
+  --accent:    #202124;
+  --green:     #15803d;
+  --red:       #b42318;
+  --green-bg:  #f5fbf7;
+  --red-bg:    #fff7f7;
   --blue:      #2563eb;
   --sidebar-w: 220px;
-  --radius:    10px;
-  --shadow:    0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
+  --radius:    8px;
+  --shadow:    none;
+  --shadow-md: 0 12px 28px rgba(15,23,42,0.08);
   font-family: 'DM Sans', sans-serif;
 }
 
@@ -1700,4 +1700,395 @@ button, select, input {
   font-size: 12.5px;
   color: #92400e;
   margin: 0;
+}
+
+/* ── Minimal Theme Layer ────────────────────────────────────────────────────── */
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.sidebar-brand {
+  padding: 22px 18px 18px;
+  border-bottom-color: var(--border);
+}
+.brand-icon { color: var(--text); }
+.brand-name { color: var(--text); letter-spacing: 0; }
+.nav-item {
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.nav-item:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.nav-item.active {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+.nav-icon { opacity: 0.62; }
+.sidebar-status {
+  border-top-color: var(--border);
+}
+.sidebar-status p {
+  color: var(--muted);
+}
+
+.main {
+  padding: 0 28px 28px;
+}
+.topbar {
+  padding: 24px 0 18px;
+  margin-bottom: 18px;
+}
+.page-title {
+  font-size: 20px;
+  letter-spacing: 0;
+}
+.page-subtitle {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.chart-card,
+.table-card,
+.accounts-card,
+.kpi-card,
+.insight-card,
+.card,
+.goal-card-new,
+.zero-sum-card,
+.add-goal-form,
+.debug-panel,
+.insurance-modal-card,
+.existing-ob-warning,
+.budget-section-card,
+.budget-pressure-panel,
+.budget-visual-panel,
+.section-card,
+.setup-card,
+.tx-form-card,
+.claims-banner,
+.tx-table-card,
+.goals-panel,
+.gi-goal-section,
+.gi-modal,
+.gi-insights-panel {
+  box-shadow: none !important;
+}
+
+.chart-card,
+.table-card,
+.accounts-card,
+.kpi-card,
+.insight-card,
+.card,
+.budget-section-card,
+.budget-pressure-panel,
+.budget-visual-panel,
+.section-card,
+.setup-card,
+.tx-form-card,
+.claims-banner,
+.tx-table-card,
+.goals-panel,
+.gi-goal-section {
+  border-color: var(--border);
+  border-radius: var(--radius);
+}
+
+.card-header,
+.debug-panel summary,
+.historical-toolbar,
+.accounts-footer,
+.section-add-row,
+.add-item-row,
+.setup-actions,
+.tx-filter-bar,
+.gi-modal-footer,
+.gi-table thead tr,
+.data-table th,
+.accounts-table th,
+.budget-table th {
+  background: var(--surface) !important;
+}
+
+.kpi-card {
+  padding: 16px 18px;
+}
+.kpi-card::before {
+  display: none;
+}
+.kpi-label,
+.insight-label,
+.data-table th,
+.accounts-table th,
+.budget-table th,
+.bp-label,
+.stat-l,
+.panel-hint,
+.card-badge,
+.gi-meta-label,
+.gi-table th,
+.boost-th,
+.alloc-col-labels,
+.insurance-goal-summary span {
+  letter-spacing: 0;
+}
+.kpi-value {
+  font-size: 23px;
+  letter-spacing: 0;
+}
+.card-header {
+  padding: 14px 18px;
+}
+.card-title {
+  font-size: 13.5px;
+}
+.card-badge,
+.filter-badge,
+.budget-status,
+.tx-type-pill,
+.reward-status-pill,
+.insurance-status,
+.deadline-badge,
+.alloc-need-tag,
+.alloc-done-tag,
+.alloc-claim-tag,
+.gantt-pill,
+.gantt-stat,
+.tl-legend-item,
+.boost-duration-tag,
+.gi-sum-pill,
+.gi-budget-badge,
+.gi-status-badge,
+.gi-ins-pill,
+.panel-count-pill,
+.goals-autosave-status,
+.gi-autosave-status,
+.accounts-autosave-status {
+  border-radius: 999px !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+}
+.filter-badge {
+  color: var(--text) !important;
+}
+
+.reload-btn,
+.btn-primary,
+.btn-secondary,
+.btn-save,
+.save-all-btn,
+.save-setup-btn,
+.section-add-row button,
+.add-item-row button,
+.insurance-pay-btn,
+.insurance-notice button,
+.insurance-inline-btn,
+.gi-save-btn,
+.gi-save-item-btn,
+.gi-add-confirm-btn,
+.gi-confirm-purchase-btn,
+.btn-smart-assign,
+.btn-rebalance,
+.gi-bump-btn {
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  font-weight: 600;
+}
+.reload-btn,
+.btn-secondary,
+.claimable-toggle,
+.insurance-light-btn,
+.history-action-btn,
+.gi-action-btn,
+.gi-add-cancel-btn,
+.gi-modal-cancel-btn,
+.btn-icon,
+.btn-deduct,
+.btn-edit-cancel,
+.btn-edit-delete,
+.boost-del-btn,
+.acct-delete-btn {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+.reload-btn.primary-action,
+.btn-primary,
+.btn-save,
+.save-all-btn,
+.save-setup-btn,
+.section-add-row button,
+.add-item-row button,
+.insurance-pay-btn,
+.insurance-notice button,
+.insurance-inline-btn,
+.gi-save-btn,
+.gi-save-item-btn,
+.gi-add-confirm-btn,
+.gi-confirm-purchase-btn,
+.btn-smart-assign,
+.btn-rebalance {
+  background: var(--text) !important;
+  border: 1px solid var(--text) !important;
+  color: #fff !important;
+}
+
+input,
+select,
+textarea,
+.form-grid input,
+.form-grid select,
+.budget-table input,
+#accountsTable input,
+#accountsTable select,
+.reward-control-grid input,
+.reward-control-grid select,
+.reward-textarea-grid textarea,
+.reward-actual-entry input,
+.historical-toolbar input,
+.historical-toolbar select,
+.insurance-form-grid input,
+.insurance-form-grid select,
+.insurance-full-label input,
+.insurance-full-label textarea,
+.gf-group input,
+.gf-group select,
+.boost-input,
+.boost-select,
+.boost-month-input,
+.gi-edit-input {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+input:focus,
+select:focus,
+textarea:focus,
+.form-grid input:focus,
+.form-grid select:focus,
+.boost-input:focus,
+.gi-edit-input:focus {
+  outline: none;
+  border-color: var(--text) !important;
+  box-shadow: 0 0 0 2px rgba(32,33,36,0.06) !important;
+}
+
+.data-table td,
+.data-table th,
+.accounts-table td,
+.accounts-table th,
+.budget-table td,
+.budget-table th,
+.gi-table td,
+.gi-table th,
+.gi-ins-table td,
+.gi-ins-table th {
+  border-color: var(--border) !important;
+}
+.data-table tr:hover td,
+.accounts-table tr.excluded-account td,
+.tx-row:hover,
+.tx-row.expanded,
+.gi-section-header:hover,
+.claims-banner-header:hover {
+  background: var(--bg) !important;
+}
+
+.dashboard-tabs {
+  box-shadow: none;
+  background: var(--surface);
+}
+.dashboard-tab-btn.active,
+.mode-toggle button.mode-active,
+.tx-form-card .mode-toggle button.mode-active,
+.gi-tab.active {
+  background: var(--text) !important;
+  color: #fff !important;
+  border-color: var(--text) !important;
+}
+.gi-tab-bar {
+  border-bottom-width: 1px !important;
+}
+.gi-tab.active {
+  border-radius: 6px 6px 0 0;
+}
+
+.clear-btn,
+.history-action-btn,
+.insurance-danger-btn,
+.acct-delete-btn,
+.boost-del-btn,
+.btn-deduct,
+.btn-edit-delete {
+  color: var(--red) !important;
+}
+
+.pending-claims-assets,
+.insurance-notice,
+.existing-ob-warning,
+.ob-existing-table th,
+.ob-existing-table td,
+.claimable-hint,
+.claim-details,
+.recurring-suggestions,
+.tx-edit-panel,
+.merged-note,
+.section-card .card-hint,
+.budget-pressure-panel,
+.bp-reserve-strip,
+.bp-action,
+.budget-visual-panel,
+.claim-risk-note,
+.rc-issue,
+.rc-tip,
+.gm-opportunity-card,
+.timeline-impact-row,
+.timeline-impact-row.warn,
+.timeline-impact-row.danger,
+.boost-ex-row,
+.alloc-buffer-inp-wrap,
+.alloc-need-tag,
+.alloc-done-tag,
+.alloc-claim-tag,
+.gf-calc-row,
+.gf-suggest-btn,
+.gi-edit-panel,
+.gi-add-form,
+.gi-modal-info,
+.gi-insights-summary,
+.gi-target-strip-wrap,
+.insurance-optional-block,
+.insurance-group-pay-row,
+.insurance-goal-summary div,
+.insurance-goal-summary a,
+.insurance-goal-policy,
+.reward-month-card,
+.reward-summary-pill {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+.insurance-bar-fill {
+  background: var(--text) !important;
+}
+.insurance-group-pay-total {
+  background: var(--text) !important;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    background: var(--surface);
+  }
+  .nav-item {
+    justify-content: center;
+  }
 }

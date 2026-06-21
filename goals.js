@@ -24,13 +24,14 @@ let goalsData       = [];
 let allTxForGoals   = [];
 let allAccounts     = [];          // { name, type } from col J/K
 let goalSavingsAccts = [];         // names of accounts chosen for goals
-let historicalStats = { avgMonthlyIncome:0, avgMonthlyExpenses:0, avgMonthlySavings:0, months:0 };
+let historicalStats = { avgMonthlyIncome:0, avgMonthlyExpenses:0, avgMonthlySavings:0, months:0, salaryOutlierCount:0, salaryOutlierMonths:[] };
 let budgetSummary   = { billsTotal:0, monthlyTotal:0, billsRows:[], monthlyRows:[] };
 let ccOwed          = 0;           // total credit-card balance owed
 let savingsBalances = {};          // { accountName: balance } from transactions
 let insuranceRenewalsForGoals = [];
 let goalsAutoSaveTimer = null;
 let goalsAutoSaveInFlight = false;
+let incomeBoostsDirty = false;
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
@@ -522,30 +523,138 @@ function getCreditCardAccountsInData(txData) {
 
 function computeHistoricalStats(txData) {
   const monthlyIncome = {}, monthlyExpenses = {};
+  const scopedAccountKeys = getHistoricalStatsAccountKeys(txData);
   // Only look at the last 12 complete months (exclude current partial month)
   const today = new Date();
   const cutoff = new Date(today.getFullYear(), today.getMonth() - 12, 1); // 12 months ago (start of that month)
-  const currentMonthKey = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0");
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   txData.forEach(row => {
+    if (!scopedAccountKeys.has(accountKey(row["Account"]))) return;
+
     const date = parseExcelDate(row["Date"]);
     if (!date) return;
     if (date < cutoff) return; // older than 12 months ago
+    if (date >= currentMonthStart) return; // current/future months are not complete
     const key = date.getFullYear() + "-" + String(date.getMonth()+1).padStart(2,"0");
-    if (key === currentMonthKey) return; // exclude current partial month
     const cat = clean(row["Main Category"]).toLowerCase();
     if (cat === "transfer") return;
     const amt = getAmount(row["Amount"]);
-    // Exclude opening balances from income stats
-    if (cat === "income" && clean(row["Sub Category"]).toLowerCase() === "opening balance") return;
-    if (cat === "income") monthlyIncome[key] = (monthlyIncome[key]||0) + amt;
-    else monthlyExpenses[key] = (monthlyExpenses[key]||0) + amt;
+    if (cat === "income") {
+      if (!isSalaryIncomeRow(row)) return;
+      monthlyIncome[key] = (monthlyIncome[key]||0) + amt;
+      return;
+    }
+
+    const expenseAmount = getClaimAdjustedExpenseAmount(row);
+    if (expenseAmount <= 0) return;
+    monthlyExpenses[key] = (monthlyExpenses[key]||0) + expenseAmount;
   });
   const allMonths = [...new Set([...Object.keys(monthlyIncome),...Object.keys(monthlyExpenses)])].sort();
   const months = allMonths.length || 1;
-  const avgIncome   = Object.values(monthlyIncome).reduce((s,v)=>s+v,0) / months;
+  const salaryStats = computeRecurringSalaryStats(monthlyIncome);
+  const avgIncome   = salaryStats.recurringMonthly;
   const avgExpenses = Object.values(monthlyExpenses).reduce((s,v)=>s+v,0) / months;
-  return { avgMonthlyIncome:avgIncome, avgMonthlyExpenses:avgExpenses, avgMonthlySavings:avgIncome-avgExpenses, months };
+  return {
+    avgMonthlyIncome:avgIncome,
+    avgMonthlyExpenses:avgExpenses,
+    avgMonthlySavings:avgIncome-avgExpenses,
+    months,
+    salaryOutlierCount: salaryStats.outlierCount,
+    salaryOutlierMonths: salaryStats.outlierMonths
+  };
+}
+
+function computeRecurringSalaryStats(monthlyIncome) {
+  const entries = Object.entries(monthlyIncome)
+    .filter(([, amount]) => amount > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return { recurringMonthly:0, outlierCount:0, outlierMonths:[] };
+  }
+
+  const values = entries.map(([, amount]) => amount);
+  const median = medianNumber(values);
+  const mad = medianNumber(values.map(amount => Math.abs(amount - median)));
+  const normalValues = [];
+  const outlierMonths = [];
+
+  entries.forEach(([monthKey, amount]) => {
+    if (isHighSalaryOutlier(amount, median, mad)) {
+      outlierMonths.push(formatMonthKeyLabel(monthKey));
+    } else {
+      normalValues.push(amount);
+    }
+  });
+
+  const recurringValues = normalValues.length ? normalValues : values;
+  return {
+    recurringMonthly: recurringValues.reduce((sum, amount) => sum + amount, 0) / recurringValues.length,
+    outlierCount: outlierMonths.length,
+    outlierMonths
+  };
+}
+
+function isHighSalaryOutlier(amount, median, mad) {
+  if (median <= 0 || amount <= median) return false;
+  if (mad > 0) {
+    const robustZ = (amount - median) / (1.4826 * mad);
+    return robustZ > 3.5 && amount > median * 1.25;
+  }
+  return amount > median * 1.35 && (amount - median) >= 500;
+}
+
+function medianNumber(values) {
+  const sorted = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function getHistoricalStatsAccountKeys(txData) {
+  const selectedAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+  const scopedAccountKeys = new Set(selectedAccountKeys);
+  if (selectedAccountKeys.size === 0) return scopedAccountKeys;
+
+  const ccAccountKeys = new Set(getCreditCardAccountsInData(txData).map(accountKey));
+  const selectedCcPaymentKeys = new Set();
+
+  (txData || []).forEach(row => {
+    if (!selectedAccountKeys.has(accountKey(row["Account"]))) return;
+    if (clean(row["Main Category"]).toLowerCase() !== "transfer") return;
+    if (clean(row["Sub Category"]).toLowerCase() !== "cc payment out") return;
+    selectedCcPaymentKeys.add(paymentMatchKey(row));
+  });
+
+  (txData || []).forEach(row => {
+    const rowAccountKey = accountKey(row["Account"]);
+    if (!ccAccountKeys.has(rowAccountKey)) return;
+    if (clean(row["Main Category"]).toLowerCase() !== "transfer") return;
+    if (clean(row["Sub Category"]).toLowerCase() !== "cc payment in") return;
+    if (selectedCcPaymentKeys.has(paymentMatchKey(row))) scopedAccountKeys.add(rowAccountKey);
+  });
+
+  return scopedAccountKeys;
+}
+
+function paymentMatchKey(row) {
+  const date = parseExcelDate(row["Date"]);
+  const dateKey = date
+    ? date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0")
+    : clean(row["Date"]);
+  return dateKey + "|" + getAmount(row["Amount"]).toFixed(2);
+}
+
+function isSalaryIncomeRow(row) {
+  if (clean(row["Main Category"]).toLowerCase() !== "income") return false;
+
+  const subCategory = clean(row["Sub Category"]).toLowerCase();
+  if (subCategory === "salary") return true;
+
+  // Fallback for old rows that were named Salary before income subcategories existed.
+  if (subCategory) return false;
+  const transactionName = clean(row["Transaction"]).toLowerCase();
+  return transactionName === "salary";
 }
 
 // ─── Available Balance Calculation ────────────────────────────────
@@ -572,7 +681,11 @@ function computeDeployableBalance() {
   const budgetPosition         = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance   = budgetPosition.total.balance;
   const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
-  const deployable             = afterCC - remainingBudgetReserve;
+
+  // Step 4: future-dated salary is already in account balances, but should
+  // not be treated as goal money until that month arrives.
+  const futureSalaryHold = computeFutureSalaryHold();
+  const deployable       = afterCC - remainingBudgetReserve - futureSalaryHold.total;
 
   return {
     rawSavings,
@@ -584,16 +697,24 @@ function computeDeployableBalance() {
     claimReceivableForGoals,
     remainingBudget: remainingBudgetReserve,
     monthlyBudgetBalance,
+    futureSalaryHold: futureSalaryHold.total,
+    futureSalaryHoldDetails: futureSalaryHold.details,
+    futureSalaryTotal: futureSalaryHold.futureSalary,
     budgetPosition,
     deployable
   };
 }
 
 function computeCurrentMonthBudgetPosition() {
-  const today = new Date();
-  const isCurrentMonthExpense = row => {
+  return computeBudgetPositionForMonth(new Date());
+}
+
+function computeBudgetPositionForMonth(monthDate) {
+  const targetYear = monthDate.getFullYear();
+  const targetMonth = monthDate.getMonth();
+  const isTargetMonthExpense = row => {
     const d = parseExcelDate(row["Date"]);
-    if (!d || d.getMonth() !== today.getMonth() || d.getFullYear() !== today.getFullYear()) return false;
+    if (!d || d.getMonth() !== targetMonth || d.getFullYear() !== targetYear) return false;
     const cat = clean(row["Main Category"]).toLowerCase();
     return cat !== "income" && cat !== "transfer" && cat !== "saving goals";
   };
@@ -603,7 +724,7 @@ function computeCurrentMonthBudgetPosition() {
     monthly: new Map()
   };
 
-  allTxForGoals.filter(isCurrentMonthExpense).forEach(row => {
+  allTxForGoals.filter(isTargetMonthExpense).forEach(row => {
     const main = clean(row["Main Category"]).toLowerCase();
     const bucket = main === "bills"
       ? "bills"
@@ -661,6 +782,57 @@ function computeCurrentMonthBudgetPosition() {
   return { bills, monthly, total };
 }
 
+function computeFutureSalaryHold() {
+  const today = new Date();
+  const currentMonthIndex = today.getFullYear() * 12 + today.getMonth();
+  const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+  const salaryByMonth = new Map();
+
+  allTxForGoals.forEach(row => {
+    const date = parseExcelDate(row["Date"]);
+    if (!date) return;
+
+    const monthIndex = date.getFullYear() * 12 + date.getMonth();
+    if (monthIndex <= currentMonthIndex) return;
+    if (!eligibleAccountKeys.has(accountKey(row["Account"]))) return;
+    if (!isSalaryIncomeRow(row)) return;
+
+    const amount = getAmount(row["Amount"]);
+    if (amount <= 0) return;
+
+    const key = monthKeyFromDate(date);
+    salaryByMonth.set(key, (salaryByMonth.get(key) || 0) + amount);
+  });
+
+  const details = [...salaryByMonth.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([monthKey, futureSalary]) => {
+      return {
+        monthKey,
+        label: formatMonthKeyLabel(monthKey),
+        futureSalary,
+        reserve: futureSalary
+      };
+    })
+    .filter(item => item.reserve > 0);
+
+  return {
+    total: details.reduce((sum, item) => sum + item.reserve, 0),
+    futureSalary: [...salaryByMonth.values()].reduce((sum, amount) => sum + amount, 0),
+    details
+  };
+}
+
+function monthKeyFromDate(date) {
+  return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0");
+}
+
+function formatMonthKeyLabel(monthKey) {
+  const [year, month] = String(monthKey).split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
+  return new Date(year, month - 1, 1).toLocaleDateString("en-SG", { month:"short", year:"numeric" });
+}
+
 function computePendingClaimReceivableForAccounts(txData, accountNames) {
   const affectedAccounts = new Set((accountNames || []).map(accountKey));
   return (txData || []).reduce((sum, row) => {
@@ -698,26 +870,51 @@ function computeGoalClaimRisk(dep, totalAssigned) {
 
 function claimRiskMessage(risk) {
   if (risk.assignedFromPendingClaims > 0) {
-    return `${formatCurrency(risk.assignedFromPendingClaims)} of allocations is claim-backed. Until those reimbursements arrive, cash-only unallocated is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
+    return `${formatCurrency(risk.assignedFromPendingClaims)} relies on pending claims. Cash-only balance: ${formatCurrency(risk.cashOnlyUnassigned)}.`;
   }
-  return `Pending reimbursements are visible here, but current allocations are still covered by cash. Cash-only unallocated is ${formatCurrency(risk.cashOnlyUnassigned)}.`;
+  return `Allocations are cash-covered. Cash-only balance: ${formatCurrency(risk.cashOnlyUnassigned)}.`;
 }
 
 function goalPriorityValue(goal) {
   return ({ Critical:0, High:1, Medium:2, Low:3 })[goal?.urgency] ?? 2;
 }
 
+function isForcePriorityGoal(goal) {
+  return Number(goal?.priority || 0) > 0;
+}
+
+function goalDeadlineSortValue(goal) {
+  if (Number.isFinite(goal?.deadlineMo)) return goal.deadlineMo;
+  return goal?.endDate || null;
+}
+
+function goalOriginalIndex(goal) {
+  return Number.isFinite(goal?.originalIdx) ? goal.originalIdx : (Number.isFinite(goal?.idx) ? goal.idx : 0);
+}
+
+function compareGoalPriorityOrder(a, b) {
+  const forcedDiff = (isForcePriorityGoal(b) ? 1 : 0) - (isForcePriorityGoal(a) ? 1 : 0);
+  if (forcedDiff !== 0) return forcedDiff;
+
+  const uDiff = goalPriorityValue(a) - goalPriorityValue(b);
+  if (uDiff !== 0) return uDiff;
+
+  const aDeadline = goalDeadlineSortValue(a);
+  const bDeadline = goalDeadlineSortValue(b);
+  if (aDeadline !== null && bDeadline !== null) {
+    if (aDeadline < bDeadline) return -1;
+    if (aDeadline > bDeadline) return 1;
+  }
+  if (aDeadline !== null) return -1;
+  if (bDeadline !== null) return 1;
+
+  return goalOriginalIndex(a) - goalOriginalIndex(b);
+}
+
 function getPrioritizedGoalIndexes() {
   return goalsData
     .map((g, idx) => ({ ...g, originalIdx: idx }))
-    .sort((a,b) => {
-      const uDiff = goalPriorityValue(a) - goalPriorityValue(b);
-      if (uDiff !== 0) return uDiff;
-      if (a.endDate && b.endDate) return a.endDate.localeCompare(b.endDate);
-      if (a.endDate) return -1;
-      if (b.endDate) return  1;
-      return a.originalIdx - b.originalIdx;
-    })
+    .sort(compareGoalPriorityOrder)
     .map(g => g.originalIdx);
 }
 
@@ -742,12 +939,14 @@ function computeGoalPendingClaimExposure(dep) {
   return exposure;
 }
 
-function buildAllocStatusTags(remaining, isFullyFunded, pendingExposure) {
+function buildAllocStatusTags(remaining, isFullyFunded, pendingExposure, baseRemaining=remaining) {
   const statusTag = isFullyFunded
     ? `<span class="alloc-done-tag">✓ Fully funded</span>`
-    : (remaining > 0
-      ? `<span class="alloc-need-tag">${formatCurrency(remaining)} left</span>`
-      : `<span class="alloc-done-tag">✓ Done</span>`);
+    : baseRemaining > 0
+      ? `<span class="alloc-need-tag">${formatCurrency(baseRemaining)} base left</span>`
+      : remaining > 0
+      ? `<span class="alloc-need-tag">${formatCurrency(remaining)} buffer left</span>`
+      : `<span class="alloc-done-tag">✓ Done</span>`;
   const claimTag = pendingExposure > 0
     ? `<span class="alloc-claim-tag">${formatCurrency(pendingExposure)} claim-backed</span>`
     : "";
@@ -779,7 +978,7 @@ function renderGoalsPage() {
       <div class="panel-header">
         <span class="panel-icon">🏦</span>
         <h2>Goal Savings Accounts</h2>
-        <span class="panel-hint">Accounts allowed to fund goals. Leave restricted money unchecked.</span>
+        <span class="panel-hint">Accounts used for goal funding</span>
       </div>
       <div class="acct-checklist">${acctCheckboxes || '<span style="color:var(--muted);font-size:13px;">No savings accounts found. Add them in <a href="accounts.html">Accounts & Setup</a>.</span>'}</div>
     </div>
@@ -792,28 +991,53 @@ function renderGoalsPage() {
   const claimRisk = computeGoalClaimRisk(dep, totalAllocatedToGoals);
   const budgetBalance = dep.monthlyBudgetBalance || 0;
   const budgetIsOver = budgetBalance < 0;
-  const budgetLineLabel = budgetIsOver ? "Budget overrun" : "− Remaining budget reserve";
-  const budgetLineValue = budgetIsOver
-    ? formatCurrency(budgetBalance)
-    : (dep.remainingBudget > 0 ? "−" + formatCurrency(dep.remainingBudget) : formatCurrency(0));
-  const claimRiskHtml = claimRisk.pendingClaims > 0 ? `
-        <div class="balance-row claim-row">
-          <span class="bal-label">+ Pending reimbursements</span>
-          <span class="bal-val amber">${formatCurrency(claimRisk.pendingClaims)}</span>
+  const futureReserve = Math.max(0, dep.futureSalaryHold || 0);
+  const futureReserveDetails = dep.futureSalaryHoldDetails || [];
+  const futureReserveBreakdown = futureReserveDetails
+    .map(item => `${escapeHtml(item.label)}: ${formatCurrency(item.reserve)} held`)
+    .join(" · ");
+  const grossCapacity = dep.rawSavings + Math.max(0, claimRisk.pendingClaims || 0);
+  const heldCapacity = Math.max(0, grossCapacity - dep.deployable);
+  const capacityPct = grossCapacity > 0
+    ? Math.min(100, Math.max(0, (dep.deployable / grossCapacity) * 100))
+    : 0;
+  const capacityChips = [
+    claimRisk.pendingClaims > 0
+      ? { kind:"in", label:"Pending claims", value:"+" + formatCurrency(claimRisk.pendingClaims), detail:"not received" }
+      : null,
+    ccOwed > 0
+      ? { kind:"out", label:"Cards", value:"−" + formatCurrency(ccOwed) }
+      : null,
+    dep.remainingBudget > 0
+      ? { kind:"out", label:"This month budget", value:"−" + formatCurrency(dep.remainingBudget) }
+      : null,
+    futureReserve > 0
+      ? { kind:"out", label:"Future salary", value:"−" + formatCurrency(futureReserve), detail:futureReserveBreakdown }
+      : null,
+    budgetIsOver
+      ? { kind:"warn", label:"Budget overrun", value:formatCurrency(budgetBalance) }
+      : null
+  ].filter(Boolean);
+  const capacityChipHtml = capacityChips.length > 0
+    ? capacityChips.map(chip => `
+        <span class="capacity-chip ${chip.kind}">
+          <span>${escapeHtml(chip.label)}</span>
+          <strong>${chip.value}</strong>
+          ${chip.detail ? `<small>${escapeHtml(chip.detail)}</small>` : ""}
+        </span>`).join("")
+    : `<span class="capacity-chip neutral"><span>No holds</span><strong>${formatCurrency(0)}</strong></span>`;
+  const cashOnlyMetricHtml = claimRisk.pendingClaims > 0 ? `
+        <div class="capacity-metric">
+          <span>Cash-backed</span>
+          <strong class="${claimRisk.cashOnlyDeployable>=0?'green':'red'}">${formatCurrency(claimRisk.cashOnlyDeployable)}</strong>
         </div>` : "";
-  const cashOnlyHtml = claimRisk.pendingClaims > 0 ? `
-        <div class="balance-row cash-row">
-          <span class="bal-label">Cash-backed available</span>
-          <span class="bal-val ${claimRisk.cashOnlyDeployable>=0?'green':'red'}">${formatCurrency(claimRisk.cashOnlyDeployable)}</span>
-        </div>
-        <div class="balance-plain-note">The main number includes reimbursements that are not cash yet. Claim-backed portions are marked in amber below.</div>` : "";
-  const claimCashRowHtml = claimRisk.pendingClaims > 0 ? `
-        <div class="balance-row sub-row claim-cash-row ${claimRisk.cashOnlyUnassigned>=0?'':'warn-row'}" id="claimCashRow">
-          <span class="bal-label" id="claimCashLabel">${claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unallocated" : "Claim-backed allocation"}</span>
-          <span class="bal-val ${claimRisk.cashOnlyUnassigned>=0?'green':'red'}" id="liveCashOnlyUnassigned">${formatCurrency(claimRisk.cashOnlyUnassigned)}</span>
+  const claimCashMetricHtml = claimRisk.pendingClaims > 0 ? `
+        <div class="capacity-metric claim-cash-metric ${claimRisk.cashOnlyUnassigned>=0?'':'warn-row'}" id="claimCashRow">
+          <span id="claimCashLabel">${claimRisk.cashOnlyUnassigned>=0 ? "Cash-only left" : "Claim-backed"}</span>
+          <strong class="${claimRisk.cashOnlyUnassigned>=0?'green':'red'}" id="liveCashOnlyUnassigned">${formatCurrency(claimRisk.cashOnlyUnassigned)}</strong>
         </div>
         <div class="claim-risk-note ${claimRisk.assignedFromPendingClaims>0?'active':'safe'}" id="claimRiskNote">
-          <strong id="claimRiskTitle">${claimRisk.assignedFromPendingClaims>0 ? "Some allocation is claim-backed" : "Pending reimbursements are visible only"}</strong>
+          <strong id="claimRiskTitle">${claimRisk.assignedFromPendingClaims>0 ? "Claim-backed allocation" : "Cash-covered allocation"}</strong>
           <span id="claimRiskBody">${claimRiskMessage(claimRisk)}</span>
         </div>` : "";
   const claimExposureByGoal = computeGoalPendingClaimExposure(dep);
@@ -823,19 +1047,26 @@ function renderGoalsPage() {
     const savedViaGoalTx  = getSavedViaTransactions(g.name);
     const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
     const totalSaved      = g.manualSaved + savedViaGoalTx;
+    const baseRemaining   = Math.max(0, g.target - totalSaved);
     const remaining       = Math.max(0, effectiveTarget - totalSaved);
     const pct             = effectiveTarget > 0 ? Math.min(100,(totalSaved/effectiveTarget)*100) : 0;
     const urgColor        = { Critical:"#dc2626", High:"#ea580c", Medium:"#ca8a04", Low:"#16a34a" };
     const overTarget      = totalSaved >= effectiveTarget;
     const pendingExposure = claimExposureByGoal[idx] || 0;
     const bufferLabel     = g.goalBuffer > 0 ? ` <span style="color:var(--muted);font-size:11px;">(+${g.goalBuffer}% buffer)</span>` : "";
+    const priorityChecked = isForcePriorityGoal(g) ? "checked" : "";
+    const priorityBadge = isForcePriorityGoal(g) ? `<span class="alloc-priority-badge">Forced</span>` : "";
     return `
       <div class="alloc-row" id="allocRow_${idx}">
         <div class="alloc-name-col">
           <span class="alloc-dot" style="background:${g.color};"></span>
           <div>
-            <div class="alloc-name">${escapeHtml(g.name)}${bufferLabel}</div>
+            <div class="alloc-name">${escapeHtml(g.name)}${bufferLabel} ${priorityBadge}</div>
             <div class="alloc-sub">${formatCurrency(totalSaved)} allocated / ${formatCurrency(effectiveTarget)} target &nbsp;·&nbsp; <span style="color:${urgColor[g.urgency]||'#ca8a04'}">${g.urgency}</span></div>
+            <label class="alloc-force-label">
+              <input type="checkbox" ${priorityChecked} onchange="onPriorityChange(${idx}, this.checked)">
+              <span>Force Smart Assign priority</span>
+            </label>
           </div>
         </div>
         <div class="alloc-bar-col">
@@ -863,7 +1094,7 @@ function renderGoalsPage() {
             </div>
           </div>
           <div id="allocTag_${idx}">
-            ${buildAllocStatusTags(remaining, overTarget, pendingExposure)}
+            ${buildAllocStatusTags(remaining, overTarget, pendingExposure, baseRemaining)}
           </div>
         </div>
       </div>`;
@@ -876,7 +1107,7 @@ function renderGoalsPage() {
       <div class="overspend-body">
         <strong>Over-assigned by ${formatCurrency(Math.abs(unassigned))}</strong>
         <span>Your budget or CC balance changed and goals now exceed your available balance. Reduce allocations or add more savings.</span>
-        <button class="btn-rebalance" onclick="smartAssign()">✨ Auto-Rebalance Now</button>
+        <button class="btn-rebalance" onclick="smartAssign()">Rebalance</button>
       </div>
     </div>` : "";
 
@@ -885,38 +1116,42 @@ function renderGoalsPage() {
       <div class="panel-header">
         <span class="panel-icon">💰</span>
         <h2>Available to Allocate</h2>
-        <span class="panel-hint">Current cash capacity, with reimbursements clearly separated</span>
+        <span class="panel-hint">After cards, budgets, and reserves</span>
       </div>
       ${overspendAlert}
       <div class="balance-layout">
-      <div class="balance-flow">
-        <div class="balance-row">
-          <span class="bal-label">Selected cash accounts</span>
-          <span class="bal-val">${formatCurrency(dep.rawSavings)}</span>
+      <div class="capacity-flow">
+        <div class="capacity-hero">
+          <div>
+            <span class="capacity-label">Available incl. reimbursements</span>
+            <strong class="capacity-value ${depClass}">${formatCurrency(dep.deployable)}</strong>
+            <span class="capacity-source">From ${formatCurrency(dep.rawSavings)} selected cash</span>
+          </div>
+          <div class="capacity-side">
+            <span>Held back</span>
+            <strong>${formatCurrency(heldCapacity)}</strong>
+          </div>
         </div>
-        <div class="balance-row deduct">
-          <span class="bal-label">− Credit card owed</span>
-          <span class="bal-val red">−${formatCurrency(ccOwed)}</span>
+        <div class="capacity-meter" aria-label="Available capacity">
+          <div class="capacity-meter-fill ${depClass}" style="width:${capacityPct.toFixed(1)}%;"></div>
         </div>
-        ${claimRiskHtml}
-        <div class="balance-row deduct ${budgetIsOver ? 'warn-row' : ''}">
-          <span class="bal-label">${budgetLineLabel}</span>
-          <span class="bal-val ${budgetIsOver || dep.remainingBudget > 0 ? 'red' : ''}">${budgetLineValue}</span>
+        <div class="capacity-meter-caption">
+          <span>${capacityPct.toFixed(0)}% available</span>
+          <span>${formatCurrency(grossCapacity)} gross capacity</span>
         </div>
-        <div class="balance-row total-row">
-          <span class="bal-label">= Available incl. reimbursements</span>
-          <span class="bal-val ${depClass}" style="font-size:22px;">${formatCurrency(dep.deployable)}</span>
+        <div class="capacity-chips">${capacityChipHtml}</div>
+        <div class="capacity-metrics">
+          ${cashOnlyMetricHtml}
+          <div class="capacity-metric">
+            <span>Allocated</span>
+            <strong id="liveTotalAssigned">${formatCurrency(totalAllocatedToGoals)}</strong>
+          </div>
+          <div class="capacity-metric ${unassigned>=0?'':'warn-row'}" id="unassignedMetric">
+            <span>Unallocated</span>
+            <strong class="${unassigned>=0?'green':'red'}" id="liveUnassigned">${formatCurrency(unassigned)}</strong>
+          </div>
         </div>
-        ${cashOnlyHtml}
-        <div class="balance-row sub-row">
-          <span class="bal-label">Allocated to goals</span>
-          <span class="bal-val" id="liveTotalAssigned">${formatCurrency(totalAllocatedToGoals)}</span>
-        </div>
-        <div class="balance-row sub-row ${unassigned>=0?'':'warn-row'}">
-          <span class="bal-label">Unallocated incl. reimbursements</span>
-          <span class="bal-val ${unassigned>=0?'green':'red'}" id="liveUnassigned">${formatCurrency(unassigned)}</span>
-        </div>
-        ${claimCashRowHtml}
+        ${claimCashMetricHtml}
       </div>
 
       ${goalsData.length > 0 ? `
@@ -924,10 +1159,10 @@ function renderGoalsPage() {
         <div class="alloc-header">
           <span class="alloc-title">🎯 Fund Allocator</span>
           <div class="alloc-header-actions">
-            <button class="btn-smart-assign" onclick="smartAssign()">✨ Smart Assign</button>
+            <button class="btn-smart-assign" onclick="smartAssign()">Smart Assign</button>
           </div>
         </div>
-        <div class="alloc-hint"><strong>Smart Assign</strong> fills current goals in priority/deadline order. Future monthly savings are handled in the forecast below.</div>
+        <div class="alloc-hint">Forced goals go first, then urgency and deadline.</div>
         <div class="alloc-col-labels">
           <span class="alloc-col-label-name">Goal</span>
           <span class="alloc-col-label-bar">Progress</span>
@@ -952,21 +1187,25 @@ function renderGoalsPage() {
   renderInsuranceRenewalGoalPanel(container);
 
   // ── 3. Historical snapshot ──
+  const salaryOutlierNote = historicalStats.salaryOutlierCount > 0
+    ? `<div class="stats-note">Excluded ${historicalStats.salaryOutlierCount} salary spike${historicalStats.salaryOutlierCount === 1 ? "" : "s"} from recurring income${historicalStats.salaryOutlierMonths?.length ? `: ${historicalStats.salaryOutlierMonths.map(escapeHtml).join(", ")}` : ""}.</div>`
+    : "";
   container.innerHTML += `
     <details class="goals-panel stats-panel collapsible-panel">
       <summary class="panel-header">
         <span class="panel-icon">📊</span>
-        <h2>Your Savings Pattern <span style="font-weight:400;font-size:13px;color:var(--muted);">(${historicalStats.months} months)</span></h2>
-        <span class="panel-count-pill">${formatCurrency(historicalStats.avgMonthlySavings)}/mo avg savings</span>
+        <h2>Savings Pattern <span style="font-weight:400;font-size:13px;color:var(--muted);">(${historicalStats.months} months)</span></h2>
+        <span class="panel-count-pill">${formatCurrency(historicalStats.avgMonthlySavings)}/mo goal-account savings</span>
         <span class="panel-caret">▾</span>
       </summary>
       <div class="collapsible-body">
         <div class="stats-grid">
-          <div class="stat-item"><span class="stat-l">Avg Monthly Income</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
-          <div class="stat-item"><span class="stat-l">Avg Monthly Expenses</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
-          <div class="stat-item"><span class="stat-l">Avg Monthly Savings Rate</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
+          <div class="stat-item"><span class="stat-l">Recurring Salary From Goal Accounts</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
+          <div class="stat-item"><span class="stat-l">Avg Net Expenses From Goal Accounts</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
+          <div class="stat-item"><span class="stat-l">Avg Goal-Account Savings</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
           <div class="stat-item"><span class="stat-l">Budget Committed</span><span class="stat-v">${formatCurrency(budgetSummary.billsTotal+budgetSummary.monthlyTotal)}/mo</span></div>
         </div>
+        ${salaryOutlierNote}
       </div>
     </details>
   `;
@@ -997,7 +1236,7 @@ function renderGoalsPage() {
       <div class="panel-header" style="cursor:pointer;" onclick="toggleAddForm()">
         <span class="panel-icon">＋</span>
         <h2>Add New Goal</h2>
-        <span class="panel-hint" id="addFormToggleHint">Click to expand</span>
+        <span class="panel-hint" id="addFormToggleHint">New goal</span>
       </div>
       <div id="addGoalFormBody" style="display:none;margin-top:16px;">
         <div class="goal-form-grid">
@@ -1037,6 +1276,13 @@ function renderGoalsPage() {
               <option value="Low">🟢 Low — nice to have</option>
             </select>
           </div>
+          <div class="gf-group">
+            <label>Smart Assign Override</label>
+            <label class="goal-force-check">
+              <input type="checkbox" id="gf_priority">
+              <span>Force above urgency</span>
+            </label>
+          </div>
           <div class="gf-group"><label>Color Tag (auto-assigned)</label><input type="color" id="gf_color" value="#4caf50" style="height:38px;padding:2px 4px;border-radius:6px;border:1px solid var(--border);width:100%;"></div>
           <div class="gf-group full"><label>Notes</label><input type="text" id="gf_notes" placeholder="Optional description or motivation"></div>
         </div>
@@ -1053,10 +1299,9 @@ function renderGoalsPage() {
   `;
 
   // ── 6. Goal Cards ──
-  const urgencyOrder = { Critical:0, High:1, Medium:2, Low:3 };
   const sorted = [...goalsData]
     .map((g,i) => ({...g, originalIdx:i}))
-    .sort((a,b) => (urgencyOrder[a.urgency]??2) - (urgencyOrder[b.urgency]??2));
+    .sort(compareGoalPriorityOrder);
 
   if (sorted.length === 0) {
     container.innerHTML += `<div class="goals-panel" style="padding:32px;text-align:center;color:var(--muted);">No goals yet — add your first one above!</div>`;
@@ -1110,28 +1355,32 @@ function _refreshAllocUI() {
   const claimRiskNote = document.getElementById("claimRiskNote");
   const claimRiskTitle = document.getElementById("claimRiskTitle");
   const claimRiskBody = document.getElementById("claimRiskBody");
+  const unassignedMetric = document.getElementById("unassignedMetric");
 
   if (elTotal)   elTotal.textContent = formatCurrency(totalAssigned);
-  if (elUna)     { elUna.textContent = formatCurrency(unassigned); elUna.className = "bal-val " + (unassigned>=0?"green":"red"); }
+  if (elUna)     { elUna.textContent = formatCurrency(unassigned); elUna.className = unassigned>=0?"green":"red"; }
   if (elUnaBar)  { elUnaBar.textContent = formatCurrency(unassigned); }
   if (elUnaFill) { elUnaFill.style.width = unassignedPct.toFixed(1) + "%"; elUnaFill.className = "alloc-ubar-fill " + (unassigned>=0?"green":"red"); }
   if (elCashOnly) {
     elCashOnly.textContent = formatCurrency(claimRisk.cashOnlyUnassigned);
-    elCashOnly.className = "bal-val " + (claimRisk.cashOnlyUnassigned>=0?"green":"red");
+    elCashOnly.className = claimRisk.cashOnlyUnassigned>=0?"green":"red";
   }
   if (claimCashLabel) {
-    claimCashLabel.textContent = claimRisk.cashOnlyUnassigned>=0 ? "Cash-only unallocated" : "Claim-backed allocation";
+    claimCashLabel.textContent = claimRisk.cashOnlyUnassigned>=0 ? "Cash-only left" : "Claim-backed";
   }
   if (claimCashRow) {
-    claimCashRow.className = "balance-row sub-row claim-cash-row " + (claimRisk.cashOnlyUnassigned>=0 ? "" : "warn-row");
+    claimCashRow.className = "capacity-metric claim-cash-metric " + (claimRisk.cashOnlyUnassigned>=0 ? "" : "warn-row");
+  }
+  if (unassignedMetric) {
+    unassignedMetric.className = "capacity-metric " + (unassigned>=0 ? "" : "warn-row");
   }
   if (claimRiskNote) {
     claimRiskNote.className = "claim-risk-note " + (claimRisk.assignedFromPendingClaims>0 ? "active" : "safe");
   }
   if (claimRiskTitle) {
     claimRiskTitle.textContent = claimRisk.assignedFromPendingClaims>0
-      ? "Some allocation is claim-backed"
-      : "Pending reimbursements are visible only";
+      ? "Claim-backed allocation"
+      : "Cash-covered allocation";
   }
   if (claimRiskBody) claimRiskBody.textContent = claimRiskMessage(claimRisk);
 
@@ -1148,6 +1397,7 @@ function _refreshAllocUI() {
     const savedViaGoalTx  = getSavedViaTransactions(g.name);
     const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
     const totalSaved      = g.manualSaved + savedViaGoalTx;
+    const baseRemaining   = Math.max(0, g.target - totalSaved);
     const remaining       = effectiveTarget - totalSaved;
     const pct             = effectiveTarget > 0 ? Math.min(100,(totalSaved/effectiveTarget)*100) : 0;
     const pendingExposure = claimExposureByGoal[idx] || 0;
@@ -1161,7 +1411,7 @@ function _refreshAllocUI() {
     if (pctLabel)  pctLabel.textContent = pct.toFixed(0) + "%";
     if (subLabel)  subLabel.innerHTML = formatCurrency(totalSaved) + " allocated / " + formatCurrency(effectiveTarget) + " target &nbsp;·&nbsp; <span style='color:" + ({Critical:"#dc2626",High:"#ea580c",Medium:"#ca8a04",Low:"#16a34a"}[g.urgency]||"#ca8a04") + "'>" + g.urgency + "</span>";
     if (tagDiv) {
-      tagDiv.innerHTML = buildAllocStatusTags(remaining, totalSaved >= effectiveTarget, pendingExposure);
+      tagDiv.innerHTML = buildAllocStatusTags(remaining, totalSaved >= effectiveTarget, pendingExposure, baseRemaining);
     }
   });
 }
@@ -1170,10 +1420,9 @@ function refreshGoalCardsGrid() {
   const grid = document.getElementById("goalCardsGrid");
   if (!grid) return;
 
-  const urgencyOrder = { Critical:0, High:1, Medium:2, Low:3 };
   const sorted = [...goalsData]
     .map((g,i) => ({...g, originalIdx:i}))
-    .sort((a,b) => (urgencyOrder[a.urgency]??2) - (urgencyOrder[b.urgency]??2));
+    .sort(compareGoalPriorityOrder);
 
   grid.innerHTML = "";
   sorted.forEach(goal => renderGoalCard(goal, goal.originalIdx, grid));
@@ -1213,11 +1462,17 @@ function onBufferChange(idx, value) {
   scheduleGoalsAutoSave();
 }
 
+function onPriorityChange(idx, checked) {
+  if (!goalsData[idx]) return;
+  goalsData[idx].priority = checked ? 1 : 0;
+  renderGoalsPage();
+  scheduleGoalsAutoSave();
+}
+
 /**
- * Smart Assign: fill each goal (target + its own buffer) fully, in priority+deadline order.
+ * Smart Assign: fund base targets first, then use leftovers for each goal's buffer.
  * Cash is consumed first; if pending reimbursements are needed, the affected goal rows are tagged.
- * No global buffer — each goal carries its own buffer if set.
- * Any remaining deployable after all goals are filled stays as unassigned.
+ * Any remaining deployable after all bases and buffers are filled stays as unassigned.
  */
 function smartAssign() {
   const dep = computeDeployableBalance();
@@ -1239,17 +1494,30 @@ function smartAssign() {
     }
   });
 
-  prioritizedIndexes.forEach(originalIdx => {
-    const g = goalsData[originalIdx];
-    const savedViaGoalTx  = getSavedViaTransactions(g.name);
-    const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
-    const needManual      = Math.max(0, effectiveTarget - savedViaGoalTx);
-    if (needManual <= 0) return;
+  const forcedIndexes = prioritizedIndexes.filter(idx => isForcePriorityGoal(goalsData[idx]));
+  const normalIndexes = prioritizedIndexes.filter(idx => !isForcePriorityGoal(goalsData[idx]));
 
-    const assign = Math.min(toDistribute, needManual);
-    goalsData[originalIdx].manualSaved = assign;
-    toDistribute = Math.max(0, toDistribute - assign);
-  });
+  const assignToTarget = (indexes, targetForGoal) => {
+    indexes.forEach(originalIdx => {
+      if (toDistribute <= 0) return;
+
+      const g = goalsData[originalIdx];
+      const savedViaGoalTx = getSavedViaTransactions(g.name);
+      const currentAssigned = goalsData[originalIdx].manualSaved || 0;
+      const target = targetForGoal(g);
+      const needManual = Math.max(0, target - savedViaGoalTx - currentAssigned);
+      if (needManual <= 0) return;
+
+      const assign = Math.min(toDistribute, needManual);
+      goalsData[originalIdx].manualSaved = currentAssigned + assign;
+      toDistribute = Math.max(0, toDistribute - assign);
+    });
+  };
+
+  assignToTarget(forcedIndexes, g => g.target);
+  assignToTarget(forcedIndexes, g => g.target * (1 + (g.goalBuffer || 0) / 100));
+  assignToTarget(normalIndexes, g => g.target);
+  assignToTarget(normalIndexes, g => g.target * (1 + (g.goalBuffer || 0) / 100));
 
   // Update all input fields
   goalsData.forEach((g, idx) => {
@@ -1327,10 +1595,8 @@ function scheduleGoalInsightRefresh() {
 
 // ── Future Cashflow Changes ───────────────────────────────────────
 // Stored in goalsData as a separate list; also saved to Excel in col AE2
-// Each item: { label, kind ("boost"|"reduce"), amount, fromMonth (YYYY-MM), toMonth (YYYY-MM or ""), toGoal (name or "any") }
-// toMonth is optional — leave blank for a permanent change (e.g. a bill that ends forever).
-// Example permanent: "Internet bill ended" → fromMonth: 2026-10, toMonth: "" (runs forever)
-// Example temporary: "Annual bonus" → fromMonth: 2026-12, toMonth: 2026-12 (one month only)
+// Each item: { label, kind ("boost"|"reduce"), frequency ("monthly"|"once"|"yearly"), amount, fromMonth (YYYY-MM), toMonth (YYYY-MM or ""), toGoal (name or "any") }
+// Monthly + blank toMonth means permanent. Once uses fromMonth only. Yearly repeats in the fromMonth calendar month.
 let incomeBoosts = [];
 const BOOSTS_RANGE = "AE2:AE2"; // single cell, JSON-stringified
 
@@ -1339,22 +1605,24 @@ function loadIncomeBoosts(budgetSheet) {
   try {
     const raw = cell ? String(cell.v ?? "").trim() : "";
     incomeBoosts = raw ? JSON.parse(raw) : [];
-    incomeBoosts = incomeBoosts.map(b => ({
-      ...b,
-      kind: _normaliseBoostKind(b),
-      amount: Math.abs(Number(b.amount || 0) || 0),
-      fromMonth: _normaliseBoostMonth(b.fromMonth),
-      toMonth: _normaliseBoostMonth(b.toMonth),
-      toGoal: _normaliseBoostKind(b) === "reduce" ? "any" : (b.toGoal || "any")
-    }));
-  } catch { incomeBoosts = []; }
+    incomeBoosts = _normaliseIncomeBoosts(incomeBoosts, false);
+    incomeBoostsDirty = false;
+  } catch {
+    incomeBoosts = [];
+    incomeBoostsDirty = false;
+  }
 }
 
 async function saveIncomeBoosts() {
   try {
+    incomeBoosts = _normaliseIncomeBoosts(incomeBoosts, true);
     await writeBudgetSetupRange(BOOSTS_RANGE, [[JSON.stringify(incomeBoosts)]]);
+    incomeBoostsDirty = false;
     log("Cashflow changes saved.");
-  } catch(err) { log("Cashflow save failed: " + err.message); }
+  } catch(err) {
+    log("Cashflow save failed: " + err.message);
+    throw err;
+  }
 }
 
 function renderIncomeBoostsPanel(container) {
@@ -1389,6 +1657,11 @@ function _monthToDateValue(monthValue) {
   return m || "";
 }
 
+function _monthDisplayValue(monthValue, emptyLabel="") {
+  const m = _normaliseBoostMonth(monthValue);
+  return m ? formatMonthKeyLabel(m) : emptyLabel;
+}
+
 function _dateValueToMonth(dateValue) {
   return _normaliseBoostMonth(dateValue);
 }
@@ -1400,59 +1673,235 @@ function _normaliseBoostKind(item) {
   return "boost";
 }
 
+function _normaliseBoostFrequency(item) {
+  const raw = String(item?.frequency || item?.recurrence || item?.repeat || "").toLowerCase();
+  if (raw === "once" || raw === "one-time" || raw === "one time" || raw === "single") return "once";
+  if (raw === "yearly" || raw === "annual" || raw === "annually" || raw === "year") return "yearly";
+  return "monthly";
+}
+
+function _normaliseIncomeBoosts(list, dropEmpty=false) {
+  return (Array.isArray(list) ? list : [])
+    .map(b => {
+      const kind = _normaliseBoostKind(b);
+      const frequency = _normaliseBoostFrequency(b);
+      return {
+        ...b,
+        kind,
+        frequency,
+        amount: Math.abs(Number(b?.amount || 0) || 0),
+        fromMonth: _normaliseBoostMonth(b?.fromMonth),
+        toMonth: frequency === "once" ? "" : _normaliseBoostMonth(b?.toMonth),
+        toGoal: kind === "reduce" ? "any" : (b?.toGoal || "any")
+      };
+    })
+    .filter(b => {
+      if (!dropEmpty) return true;
+      return clean(b.label) || b.amount > 0 || b.fromMonth || b.toMonth;
+    });
+}
+
 function _boostSignedAmount(item) {
   const amount = Math.abs(Number(item?.amount || 0) || 0);
   return _normaliseBoostKind(item) === "reduce" ? -amount : amount;
 }
 
+function _boostAmountCadence(item) {
+  const frequency = _normaliseBoostFrequency(item);
+  if (frequency === "once") return "once";
+  if (frequency === "yearly") return "/yr";
+  return "/mo";
+}
+
+function _boostSignedAmountLabel(item) {
+  const signed = _boostSignedAmount(item);
+  const sign = signed < 0 ? "-" : "+";
+  return `${sign}${formatCurrency(Math.abs(signed))}${_boostAmountCadence(item)}`;
+}
+
+function _forEachBoostActiveMonth(item, months, monthOffsetFromToday, callback) {
+  const fromMonth = _normaliseBoostMonth(item?.fromMonth);
+  if (!fromMonth || !item?.amount) return;
+
+  const fromMoRaw = monthOffsetFromToday(fromMonth);
+  if (fromMoRaw === null) return;
+
+  const frequency = _normaliseBoostFrequency(item);
+  const rawToMonth = frequency === "once" ? fromMonth : _normaliseBoostMonth(item?.toMonth);
+  const toMoRaw = rawToMonth ? monthOffsetFromToday(rawToMonth) : months - 1;
+  const toMo = Math.min(months - 1, toMoRaw === null ? months - 1 : toMoRaw);
+  const fromMo = frequency === "once" ? fromMoRaw : Math.max(0, fromMoRaw);
+
+  if (toMo < 0 || fromMo >= months || toMo < fromMo) return;
+
+  for (let m = Math.max(0, fromMo); m <= toMo; m++) {
+    if (frequency === "yearly" && ((m - fromMoRaw) % 12 !== 0)) continue;
+    callback(m, item);
+  }
+}
+
+function _isBoostActiveInMonth(item, monthIndex, months, monthOffsetFromToday) {
+  let active = false;
+  _forEachBoostActiveMonth(item, months, monthOffsetFromToday, m => {
+    if (m === monthIndex) active = true;
+  });
+  return active;
+}
+
+function _openNativePicker(el) {
+  if (!el || typeof el.showPicker !== "function") return;
+  try { el.showPicker(); } catch {}
+}
+
+function _toggleBoostMonthPicker(index, field) {
+  const hostId = `boostDateControl_${index}_${field}`;
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const existing = host.querySelector(".boost-month-picker");
+  _closeBoostMonthPickers();
+  if (existing) return;
+
+  const current = _normaliseBoostMonth(incomeBoosts[index]?.[field]) || _normaliseBoostMonth(incomeBoosts[index]?.fromMonth);
+  const now = new Date();
+  const year = current ? Number(current.slice(0, 4)) : now.getFullYear();
+  _renderBoostMonthPicker(index, field, Number.isFinite(year) ? year : now.getFullYear());
+}
+
+function _closeBoostMonthPickers() {
+  document.querySelectorAll(".boost-month-picker").forEach(el => el.remove());
+}
+
+function _renderBoostMonthPicker(index, field, year) {
+  const host = document.getElementById(`boostDateControl_${index}_${field}`);
+  if (!host) return;
+  host.querySelector(".boost-month-picker")?.remove();
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const current = _normaliseBoostMonth(incomeBoosts[index]?.[field]);
+  const picker = document.createElement("div");
+  picker.className = "boost-month-picker";
+  picker.dataset.year = String(year);
+  picker.innerHTML = `
+    <div class="bmp-head">
+      <button type="button" onclick="_shiftBoostPickerYear(${index}, '${field}', -1)">‹</button>
+      <strong>${year}</strong>
+      <button type="button" onclick="_shiftBoostPickerYear(${index}, '${field}', 1)">›</button>
+    </div>
+    <div class="bmp-grid">
+      ${monthNames.map((label, monthIdx) => {
+        const value = `${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+        return `<button type="button" class="${current === value ? "active" : ""}" onclick="_selectBoostMonth(${index}, '${field}', '${value}')">${label}</button>`;
+      }).join("")}
+    </div>
+    ${field === "toMonth" ? `<button type="button" class="bmp-clear" onclick="_selectBoostMonth(${index}, '${field}', '')">No end</button>` : ""}
+  `;
+  host.appendChild(picker);
+}
+
+function _shiftBoostPickerYear(index, field, delta) {
+  const host = document.getElementById(`boostDateControl_${index}_${field}`);
+  const currentYear = Number(host?.querySelector(".boost-month-picker")?.dataset.year);
+  const nextYear = (Number.isFinite(currentYear) ? currentYear : new Date().getFullYear()) + delta;
+  _renderBoostMonthPicker(index, field, nextYear);
+}
+
+function _selectBoostMonth(index, field, monthValue) {
+  _setBoostDate(index, field, monthValue);
+  _closeBoostMonthPickers();
+}
+
+function _markIncomeBoostsDirty() {
+  incomeBoostsDirty = true;
+  const el = document.getElementById("boostAutosaveStatus");
+  if (el) {
+    el.textContent = "Unsaved cashflow";
+    el.className = "panel-hint goals-autosave-status";
+  }
+}
+
 function _setBoostDate(index, field, dateValue) {
+  if (!incomeBoosts[index]) return;
   incomeBoosts[index][field] = _dateValueToMonth(dateValue);
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
 }
 
 function _setBoostKind(index, kind) {
+  if (!incomeBoosts[index]) return;
   incomeBoosts[index].kind = kind === "reduce" ? "reduce" : "boost";
   if (incomeBoosts[index].kind === "reduce") incomeBoosts[index].toGoal = "any";
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
+}
+
+function _setBoostFrequency(index, frequency) {
+  if (!incomeBoosts[index]) return;
+  incomeBoosts[index].frequency = _normaliseBoostFrequency({ frequency });
+  if (incomeBoosts[index].frequency === "once") incomeBoosts[index].toMonth = "";
+  _redrawBoostsPanel(document.getElementById("boostsPanel"));
+  scheduleGoalInsightRefresh();
+  _markIncomeBoostsDirty();
 }
 
 function _setBoostLabel(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].label = value;
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
 }
 
 function _setBoostAmount(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].amount = Math.abs(Number(value) || 0);
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
 }
 
 function _setBoostGoal(index, value) {
   if (!incomeBoosts[index]) return;
   incomeBoosts[index].toGoal = value;
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
 }
 
 function _addIncomeBoost(kind) {
-  incomeBoosts.push({ label:"", kind, amount:0, fromMonth:"", toMonth:"", toGoal:"any" });
+  incomeBoosts.push({ label:"", kind, frequency:"monthly", amount:0, fromMonth:"", toMonth:"", toGoal:"any" });
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
 }
 
 function _deleteIncomeBoost(index) {
   incomeBoosts.splice(index, 1);
   _redrawBoostsPanel(document.getElementById("boostsPanel"));
   scheduleGoalInsightRefresh();
-  scheduleGoalsAutoSave();
+  _markIncomeBoostsDirty();
+}
+
+async function _saveIncomeBoostsFromPanel() {
+  let status = document.getElementById("boostAutosaveStatus");
+  try {
+    if (status) {
+      status.textContent = "Saving...";
+      status.className = "panel-hint goals-autosave-status";
+    }
+    await saveIncomeBoosts();
+    _redrawBoostsPanel(document.getElementById("boostsPanel"));
+    refreshGoalInsightPanels();
+    status = document.getElementById("boostAutosaveStatus");
+    if (status) {
+      status.textContent = "Saved to Excel";
+      status.className = "panel-hint goals-autosave-status ok";
+    }
+  } catch(err) {
+    status = document.getElementById("boostAutosaveStatus");
+    if (status) {
+      status.textContent = "Save failed";
+      status.className = "panel-hint goals-autosave-status error";
+    }
+    alert("Failed to save cashflow: " + err.message);
+  }
 }
 
 function _redrawBoostsPanel(panel) {
@@ -1461,12 +1910,24 @@ function _redrawBoostsPanel(panel) {
   const changeCount = incomeBoosts.length;
   const rows = incomeBoosts.map((b,i) => {
     b.kind = _normaliseBoostKind(b);
+    b.frequency = _normaliseBoostFrequency(b);
     b.amount = Math.abs(Number(b.amount || 0) || 0);
     b.fromMonth = _normaliseBoostMonth(b.fromMonth);
-    b.toMonth = _normaliseBoostMonth(b.toMonth);
+    b.toMonth = b.frequency === "once" ? "" : _normaliseBoostMonth(b.toMonth);
     if (b.kind === "reduce") b.toGoal = "any";
-    const isPermanent = !b.toMonth;
     const isReduction = b.kind === "reduce";
+    const isOnce = b.frequency === "once";
+    const durationClass = b.frequency === "monthly" && !b.toMonth ? "permanent" : (isOnce ? "once" : "temporary");
+    const cadence = _boostAmountCadence(b);
+    const untilFieldHtml = isOnce ? "" : `
+            <div class="boost-date-group">
+              <span class="boost-date-label">Until</span>
+              <div class="boost-date-control" id="boostDateControl_${i}_toMonth">
+                <input class="boost-month-input" type="text" value="${_monthDisplayValue(b.toMonth, "No end")}" placeholder="No end" readonly
+                  onclick="_toggleBoostMonthPicker(${i}, 'toMonth')">
+                <button type="button" class="boost-date-btn" title="Open month picker" onclick="_toggleBoostMonthPicker(${i}, 'toMonth')">▾</button>
+              </div>
+            </div>`;
     return `
       <div class="boost-row" id="boostRow_${i}">
         <div class="boost-cell boost-label-cell">
@@ -1479,28 +1940,34 @@ function _redrawBoostsPanel(panel) {
             <option value="reduce" ${isReduction ? "selected" : ""}>Reduce savings</option>
           </select>
         </div>
+        <div class="boost-cell boost-repeat-cell">
+          <select class="boost-select" onchange="_setBoostFrequency(${i}, this.value)">
+            <option value="monthly" ${b.frequency==="monthly"?"selected":""}>Monthly</option>
+            <option value="once" ${b.frequency==="once"?"selected":""}>Once</option>
+            <option value="yearly" ${b.frequency==="yearly"?"selected":""}>Yearly</option>
+          </select>
+        </div>
         <div class="boost-cell boost-amt-cell">
           <div class="boost-amt-wrap">
             <span class="boost-currency ${isReduction ? "reduce" : "boost"}">${isReduction ? "− $" : "+ $"}</span>
             <input class="boost-input boost-number" type="number" step="1" min="0" value="${b.amount}"
               oninput="_setBoostAmount(${i}, this.value)" placeholder="0">
-            <span class="boost-per-mo">/mo</span>
+            <span class="boost-per-mo">${cadence}</span>
           </div>
         </div>
         <div class="boost-cell boost-dates-cell">
           <div class="boost-dates-row">
             <div class="boost-date-group">
-              <span class="boost-date-label">From</span>
-              <input class="boost-month-input" type="month" value="${_monthToDateValue(b.fromMonth)}"
-                onchange="_setBoostDate(${i}, 'fromMonth', this.value)">
+              <span class="boost-date-label">${isOnce ? "Month" : "From"}</span>
+              <div class="boost-date-control" id="boostDateControl_${i}_fromMonth">
+                <input class="boost-month-input" type="text" value="${_monthDisplayValue(b.fromMonth)}" placeholder="Pick month" readonly
+                  onclick="_toggleBoostMonthPicker(${i}, 'fromMonth')">
+                <button type="button" class="boost-date-btn" title="Open month picker" onclick="_toggleBoostMonthPicker(${i}, 'fromMonth')">▾</button>
+              </div>
             </div>
-            <div class="boost-date-group">
-              <span class="boost-date-label">Until</span>
-              <input class="boost-month-input" type="month" value="${_monthToDateValue(b.toMonth)}" placeholder="No end"
-                onchange="_setBoostDate(${i}, 'toMonth', this.value)">
-            </div>
-            <span class="boost-duration-tag ${isPermanent?'permanent':'temporary'}">
-              ${isPermanent ? '∞ Permanent' : _boostDurationLabel(b.fromMonth, b.toMonth)}
+            ${untilFieldHtml}
+            <span class="boost-duration-tag ${durationClass}">
+              ${_boostDurationLabel(b)}
             </span>
           </div>
         </div>
@@ -1519,44 +1986,49 @@ function _redrawBoostsPanel(panel) {
   panel.innerHTML = `
     <summary class="panel-header">
       <span class="panel-icon">⚡</span>
-      <h2>Future Cashflow Changes</h2>
-      <span class="panel-hint">Included in forecasts; collapsed to reduce noise</span>
+      <h2>Cashflow Adjustments</h2>
+      <span class="panel-hint">Forecast only</span>
       <span class="panel-count-pill">${changeCount} change${changeCount === 1 ? "" : "s"}</span>
       <span class="panel-caret">▾</span>
     </summary>
     <div class="collapsible-body">
-    <div class="boost-explainer">
-      <div class="boost-ex-row"><span class="boost-ex-icon">＋</span><div><strong>Increase savings</strong> — income boost, ended subscription, reduced bill, bonus, etc.</div></div>
-      <div class="boost-ex-row"><span class="boost-ex-icon">−</span><div><strong>Reduce savings</strong> — rent increase, new recurring bill, income drop, temporary higher expenses, etc.</div></div>
-    </div>
     <div class="boost-table-header">
-      <span class="boost-th boost-label-cell">What is it?</span>
+      <span class="boost-th boost-label-cell">Label</span>
       <span class="boost-th boost-kind-cell">Type</span>
+      <span class="boost-th boost-repeat-cell">Repeat</span>
       <span class="boost-th boost-amt-cell">Amount</span>
       <span class="boost-th boost-dates-cell">Active Period</span>
       <span class="boost-th boost-goal-cell">Affect</span>
       <span class="boost-th boost-del-cell"></span>
     </div>
-    <div id="boostRows">${rows || '<div style="padding:14px 0;font-size:13px;color:var(--muted);">No future cashflow changes yet — add one below.</div>'}</div>
+    <div id="boostRows">${rows || '<div style="padding:14px 0;font-size:13px;color:var(--muted);">No cashflow adjustments yet.</div>'}</div>
     <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:14px;">
       <button class="btn-secondary btn-sm" onclick="_addIncomeBoost('boost')">
-        + Add Increase
+        + Increase
       </button>
       <button class="btn-secondary btn-sm" onclick="_addIncomeBoost('reduce')">
-        − Add Reduction
+        − Reduction
       </button>
-      <span class="panel-hint goals-autosave-status" id="boostAutosaveStatus">Autosaves to Excel</span>
+      <button class="btn-primary btn-sm" onclick="_saveIncomeBoostsFromPanel()">Save cashflow</button>
+      <span class="panel-hint goals-autosave-status ${incomeBoostsDirty ? "" : "ok"}" id="boostAutosaveStatus">${incomeBoostsDirty ? "Unsaved cashflow" : "Saved to Excel"}</span>
     </div>
     </div>
   `;
   panel.open = wasOpen;
 }
 
-function _boostDurationLabel(fromMonth, toMonth) {
-  fromMonth = _normaliseBoostMonth(fromMonth);
-  toMonth = _normaliseBoostMonth(toMonth);
+function _boostDurationLabel(itemOrFrom, maybeToMonth) {
+  const item = typeof itemOrFrom === "object"
+    ? itemOrFrom
+    : { fromMonth:itemOrFrom, toMonth:maybeToMonth, frequency:"monthly" };
+  const fromMonth = _normaliseBoostMonth(item.fromMonth);
+  const toMonth = _normaliseBoostMonth(item.toMonth);
+  const frequency = _normaliseBoostFrequency(item);
 
-  if (!fromMonth || !toMonth) return "∞ Permanent";
+  if (!fromMonth) return "Pick start";
+  if (frequency === "once") return `Once in ${formatMonthKeyLabel(fromMonth)}`;
+  if (frequency === "yearly") return toMonth ? `Yearly until ${formatMonthKeyLabel(toMonth)}` : "Yearly";
+  if (!toMonth) return "Permanent";
 
   const [fy, fm] = fromMonth.split("-").map(Number);
   const [ty, tm] = toMonth.split("-").map(Number);
@@ -1596,12 +2068,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   }
 
   function compareProjection(a, b) {
-    const u = (urgOrder[a.gs.urgency] ?? 2) - (urgOrder[b.gs.urgency] ?? 2);
-    if (u !== 0) return u;
-    if (a.gs.deadlineMo !== null && b.gs.deadlineMo !== null) return a.gs.deadlineMo - b.gs.deadlineMo;
-    if (a.gs.deadlineMo !== null) return -1;
-    if (b.gs.deadlineMo !== null) return 1;
-    return a.gi - b.gi;
+    return compareGoalPriorityOrder(a.gs, b.gs);
   }
 
   const goalState = goalsData.map((g, gi) => {
@@ -1622,6 +2089,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
       name: g.name,
       color: g.color || "#4caf50",
       urgency: g.urgency || "Medium",
+      priority: Number(g.priority || 0) || 0,
       baseTarget: g.target,
       bufferPct,
       effectiveTarget,
@@ -1641,7 +2109,8 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
 
   const maxDeadline = goalState.reduce((mx, gs) => Math.max(mx, gs.deadlineMo ?? 0), 0);
   const maxCompletionGuess = goalState.reduce((mx, gs) => {
-    const remaining = Math.max(0, gs.effectiveTarget - gs.initialSaved);
+    const forecastTarget = gs.deadlineMo !== null ? gs.baseTarget : gs.effectiveTarget;
+    const remaining = Math.max(0, forecastTarget - gs.initialSaved);
     const monthly = Math.max(1, gs.monthlyAlloc || forecastBaseMonthly || 1);
     return Math.max(mx, gs.startMo + Math.ceil(remaining / monthly));
   }, 0);
@@ -1654,23 +2123,14 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   goalState.forEach(gs => { goalBoost[gs.name] = Array(MONTHS).fill(0); });
 
   incomeBoosts.forEach(b => {
-    const fromMonth = _normaliseBoostMonth(b.fromMonth);
-    if (!fromMonth || !b.amount) return;
-    const fromMoRaw = monthOffsetFromToday(fromMonth);
-    if (fromMoRaw === null) return;
-    const fromMo = Math.max(0, fromMoRaw);
-    const toMoRaw = b.toMonth ? monthOffsetFromToday(_normaliseBoostMonth(b.toMonth)) : MONTHS - 1;
-    const toMo = Math.min(MONTHS - 1, toMoRaw === null ? MONTHS - 1 : toMoRaw);
-    if (toMo < 0 || fromMo >= MONTHS || toMo < fromMo) return;
-
     const signedAmount = _boostSignedAmount(b);
-    for (let m = fromMo; m <= toMo; m++) {
+    _forEachBoostActiveMonth(b, MONTHS, monthOffsetFromToday, m => {
       if (signedAmount < 0 || b.toGoal === "any") {
         poolBoost[m] += signedAmount;
       } else if (goalBoost[b.toGoal]) {
         goalBoost[b.toGoal][m] += signedAmount;
       }
-    }
+    });
   });
 
   const allocationData = goalState.map(() => Array(MONTHS).fill(0));
@@ -1684,8 +2144,9 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const cashflowReductionData = Array(MONTHS).fill(0);
   const forecastStartMonth = 1;
 
-  function allocateToGoal(gs, gi, m, amount, source="base") {
-    const remaining = Math.max(0, gs.effectiveTarget - gs.saved);
+  function allocateToGoal(gs, gi, m, amount, source="base", targetCap=gs.effectiveTarget) {
+    const cappedTarget = Math.min(gs.effectiveTarget, Math.max(0, targetCap));
+    const remaining = Math.max(0, cappedTarget - gs.saved);
     const used = Math.min(Math.max(0, amount), remaining);
     if (used <= 0) return 0;
 
@@ -1706,6 +2167,35 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     return used;
   }
 
+  function goalItems() {
+    return goalState.map((gs, gi) => ({ gs, gi }));
+  }
+
+  function activeBaseItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.baseTarget);
+  }
+
+  function activeDeadlineBufferItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo !== null && m <= gs.deadlineMo && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+  }
+
+  function activeOpenBufferItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo === null && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+  }
+
+  function isForecastSatisfied(gs, m) {
+    if (gs.saved < gs.baseTarget) return false;
+    if (gs.saved >= gs.effectiveTarget) return true;
+    return gs.deadlineMo !== null && m > gs.deadlineMo;
+  }
+
+  function targetCapForMonth(gs, m) {
+    return gs.deadlineMo !== null && m > gs.deadlineMo ? gs.baseTarget : gs.effectiveTarget;
+  }
+
   for (let m = 0; m < MONTHS; m++) {
     const isForecastMonth = m >= forecastStartMonth;
     let basePool = isForecastMonth ? Math.max(0, forecastBaseMonthly + Math.min(0, poolBoost[m])) : 0;
@@ -1714,19 +2204,19 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     const monthPoolUsed = Array(goalState.length).fill(0);
     cashflowReductionData[m] = isForecastMonth ? -Math.max(0, -poolBoost[m]) : 0;
 
-    const allocateFromForecastPool = (gs, gi, amount) => {
+    const allocateFromForecastPool = (gs, gi, amount, targetCap=gs.effectiveTarget) => {
       let requested = Math.max(0, amount);
       let usedTotal = 0;
 
       if (requested > 0 && basePool > 0) {
-        const baseUsed = allocateToGoal(gs, gi, m, Math.min(basePool, requested), "base");
+        const baseUsed = allocateToGoal(gs, gi, m, Math.min(basePool, requested), "base", targetCap);
         basePool -= baseUsed;
         requested -= baseUsed;
         usedTotal += baseUsed;
       }
 
       if (requested > 0 && cashflowPool > 0) {
-        const cashflowUsed = allocateToGoal(gs, gi, m, Math.min(cashflowPool, requested), "cashflow");
+        const cashflowUsed = allocateToGoal(gs, gi, m, Math.min(cashflowPool, requested), "cashflow", targetCap);
         cashflowPool -= cashflowUsed;
         requested -= cashflowUsed;
         usedTotal += cashflowUsed;
@@ -1736,58 +2226,76 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     };
 
     goalState.forEach((gs, gi) => {
-      if (!isForecastMonth || m < gs.startMo || gs.completedAt !== null) return;
-      const used = allocateToGoal(gs, gi, m, goalBoost[gs.name][m] || 0, "cashflow");
+      if (!isForecastMonth || m < gs.startMo || isForecastSatisfied(gs, m)) return;
+      const used = allocateToGoal(gs, gi, m, goalBoost[gs.name][m] || 0, "cashflow", targetCapForMonth(gs, m));
       monthPoolUsed[gi] += used;
     });
 
-    const active = goalState
-      .map((gs, gi) => ({ gs, gi }))
-      .filter(({ gs }) => m >= gs.startMo && gs.completedAt === null && gs.saved < gs.effectiveTarget);
+    const allocatePhase = (items, targetForGoal, options={}) => {
+      const ordered = items.slice().sort(compareProjection);
+      const useRequired = options.required !== false;
+      const useMonthly = options.monthly !== false;
+      const useSpillover = options.spillover !== false;
+      const useRequiredContribution = options.requiredContribution !== false;
+      const useMonthlyContribution = options.monthlyContribution !== false;
 
-    active.forEach(({ gs, gi }) => {
-      if (gs.deadlineMo === null) return;
-      const monthsLeft = Math.max(1, gs.deadlineMo - m + 1);
-      requiredMonthlyData[gi][m] = Math.max(0, gs.effectiveTarget - gs.saved) / monthsLeft;
-    });
+      if (useRequired) {
+        ordered.forEach(({ gs, gi }) => {
+          if (gs.deadlineMo === null) return;
+          const targetCap = targetForGoal(gs);
+          const monthsLeft = Math.max(1, gs.deadlineMo - m + 1);
+          requiredMonthlyData[gi][m] = Math.max(0, targetCap - gs.saved) / monthsLeft;
+        });
+      }
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0) return;
-        const required = requiredMonthlyData[gi][m] || 0;
-        const desired = Math.max(required, gs.monthlyAlloc || 0);
-        if (desired <= 0) return;
-        const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired));
-        monthPoolUsed[gi] += used;
-      });
+      if (useMonthly) {
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const required = requiredMonthlyData[gi][m] || 0;
+          const desired = Math.max(
+            useRequiredContribution ? required : 0,
+            useMonthlyContribution ? (gs.monthlyAlloc || 0) : 0
+          );
+          if (desired <= 0) return;
+          const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired), targetCap);
+          monthPoolUsed[gi] += used;
+        });
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0 || gs.completedAt !== null) return;
-        const desired = Math.max(0, (gs.monthlyAlloc || 0) - monthPoolUsed[gi]);
-        const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired));
-        monthPoolUsed[gi] += used;
-      });
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const desired = Math.max(0, (gs.monthlyAlloc || 0) - monthPoolUsed[gi]);
+          const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired), targetCap);
+          monthPoolUsed[gi] += used;
+        });
+      }
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0 || gs.completedAt !== null) return;
-        const used = allocateFromForecastPool(gs, gi, availablePool);
-        monthPoolUsed[gi] += used;
-      });
+      if (useSpillover) {
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const used = allocateFromForecastPool(gs, gi, availablePool, targetCap);
+          monthPoolUsed[gi] += used;
+        });
+      }
+    };
+
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { spillover:false, monthlyContribution:false });
+    allocatePhase(activeDeadlineBufferItems(m), gs => gs.effectiveTarget, { monthly:false, spillover:true });
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, monthly:false, spillover:true });
+    allocatePhase(activeOpenBufferItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
 
     unallocatedBaseData[m] = Math.max(0, basePool);
     unallocatedCashflowData[m] = Math.max(0, cashflowPool);
     unallocatedData[m] = unallocatedBaseData[m] + unallocatedCashflowData[m];
 
     goalState.forEach((gs, gi) => {
-      if (m >= gs.startMo && gs.completedAt === null && monthPoolUsed[gi] <= 0 && monthPoolAvailable > 0) {
+      if (m >= gs.startMo && !isForecastSatisfied(gs, m) && monthPoolUsed[gi] <= 0 && monthPoolAvailable > 0) {
         gs.waitMonths += 1;
       }
       progressDollars[gi][m] = gs.saved;
@@ -1828,7 +2336,10 @@ function renderGoalGanttTimeline(container) {
   const displayStart = Math.max(-6, Math.min(0, startMoMin));
   const displayEnd = Math.min(
     MONTHS - 1,
-    Math.max(12, finiteMax(goalState.map(gs => Math.max(gs.deadlineMo ?? 0, gs.completedAt ?? 0, gs.startMo + 2))) + 2)
+    Math.max(12, finiteMax(goalState.map(gs => {
+      const primaryCompletion = gs.deadlineMo !== null ? gs.baseCompletedAt : gs.completedAt;
+      return Math.max(gs.deadlineMo ?? 0, primaryCompletion ?? 0, gs.startMo + 2);
+    })) + 2)
   );
   const offsets = [];
   for (let mo = displayStart; mo <= displayEnd; mo++) offsets.push(mo);
@@ -1893,31 +2404,40 @@ function renderGoalGanttTimeline(container) {
     const monthText = mo === 0 ? "Current balance" : `Forecast balance by end of ${model.monthLabel(mo, true)}`;
     if (amount >= gs.effectiveTarget) return `${monthText}: ${formatCurrency(amount)} - target and buffer met`;
     if (gs.bufferPct > 0 && amount >= gs.baseTarget) {
-      return `${monthText}: ${formatCurrency(amount)} - base met, buffer still needs ${formatCurrency(Math.max(0, gs.effectiveTarget - amount))}`;
+      return `${monthText}: ${formatCurrency(amount)} - base target met; buffer still needs ${formatCurrency(Math.max(0, gs.effectiveTarget - amount))}`;
     }
     return `${monthText}: ${formatCurrency(amount)} - ${formatCurrency(Math.max(0, gs.baseTarget - amount))} to base`;
   }
 
   function goalBalanceCells(gs, gi) {
-    const valueEndMo = Math.max(gs.deadlineMo ?? displayEnd, gs.completedAt ?? displayEnd, gs.startMo + 1);
+    const primaryCompletion = gs.deadlineMo !== null ? gs.baseCompletedAt : gs.completedAt;
+    const valueEndMo = Math.max(gs.deadlineMo ?? displayEnd, primaryCompletion ?? (gs.deadlineMo !== null ? gs.deadlineMo : displayEnd), gs.startMo + 1);
     return offsets.map(mo => {
       if (mo < 0 || (mo !== 0 && mo < gs.startMo) || mo > valueEndMo) return `<span class="gantt-month-value-cell"></span>`;
       const amount = goalBalanceForMonth(gs, gi, mo);
+      const prevAmount = mo > 0 ? goalBalanceForMonth(gs, gi, mo - 1) : null;
+      const changedThisMonth = prevAmount === null || Math.abs(amount - prevAmount) > 0.005;
+      const isCompletionMonth = mo > 0 && (mo === gs.baseCompletedAt || mo === gs.completedAt);
+      const isCurrentMonth = mo === 0;
+      const isMissedDeadlineMonth = gs.deadlineMo !== null && mo === gs.deadlineMo && amount < gs.baseTarget;
+      if (!isCurrentMonth && !changedThisMonth && !isCompletionMonth && !isMissedDeadlineMonth) {
+        return `<span class="gantt-month-value-cell"></span>`;
+      }
       const cls = goalBalanceClass(gs, amount, mo);
       return `<span class="gantt-month-value-cell"><span class="gantt-month-value ${cls}" title="${escapeHtml(goalBalanceTitle(gs, amount, mo))}">${formatCurrencyShort(amount)}</span></span>`;
     }).join("");
   }
 
-  function forecastFundingDateFor(gs, gi) {
-    if (gs.completedAt === null) return null;
+  function forecastFundingDateFor(gs, gi, targetAmount=gs.effectiveTarget, completedMoValue=gs.completedAt) {
+    if (completedMoValue === null) return null;
 
-    const completedMo = Math.max(0, Math.min(MONTHS - 1, gs.completedAt));
+    const completedMo = Math.max(0, Math.min(MONTHS - 1, completedMoValue));
     const monthStart = new Date(today.getFullYear(), today.getMonth() + completedMo, 1);
     const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
     const savedBeforeMonth = completedMo > 0
       ? (progressDollars[gi][completedMo - 1] || gs.initialSaved)
       : gs.initialSaved;
-    const remainingAtMonthStart = Math.max(0, gs.effectiveTarget - savedBeforeMonth);
+    const remainingAtMonthStart = Math.max(0, targetAmount - savedBeforeMonth);
     const allocatedThisMonth = Math.max(0, model.allocationData?.[gi]?.[completedMo] || 0);
 
     if (remainingAtMonthStart <= 0) return monthStart;
@@ -1929,17 +2449,39 @@ function renderGoalGanttTimeline(container) {
 
   function ganttStatus(gs, gi) {
     const completion = gs.completedAt !== null ? model.monthLabel(gs.completedAt, true) : null;
+    const baseCompletion = gs.baseCompletedAt !== null ? model.monthLabel(gs.baseCompletedAt, true) : null;
     const deadline = gs.deadlineMo !== null ? model.monthLabel(gs.deadlineMo, true) : null;
     const originalGoal = goalsData[gs.idx] || {};
     const deadlineDate = _parseGoalDateValue(originalGoal.endDate);
-    const forecastDate = forecastFundingDateFor(gs, gi);
+    const baseForecastDate = forecastFundingDateFor(gs, gi, gs.baseTarget, gs.baseCompletedAt);
+    const bufferForecastDate = forecastFundingDateFor(gs, gi, gs.effectiveTarget, gs.completedAt);
+    const bufferDetail = () => {
+      if (gs.bufferPct <= 0) return "";
+      if (gs.deadlineMo !== null) {
+        const deadlineIdx = Math.max(0, Math.min(MONTHS - 1, gs.deadlineMo));
+        const savedByDeadline = progressDollars[gi][deadlineIdx] || gs.initialSaved;
+        const bufferShort = Math.max(0, gs.effectiveTarget - savedByDeadline);
+        const bufferAdded = Math.max(0, Math.min(savedByDeadline, gs.effectiveTarget) - gs.baseTarget);
+        if (bufferShort <= 0) {
+          const bufferWhen = bufferForecastDate ? ganttDateLabel(bufferForecastDate) : deadline;
+          return ` Buffer covered by ${bufferWhen}.`;
+        }
+        if (bufferAdded > 0) {
+          return ` Buffer adds ${formatCurrency(bufferAdded)} before deadline; ${formatCurrency(bufferShort)} remains optional.`;
+        }
+        return " Buffer is not funded before deadline.";
+      }
+      if (gs.completedAt === null) return " Buffer not forecast yet.";
+      const bufferWhen = bufferForecastDate ? ganttDateLabel(bufferForecastDate) : completion;
+      return ` Buffer forecast ${bufferWhen}.`;
+    };
 
     if (gs.initialSaved >= gs.effectiveTarget) {
       return { cls:"ok", pill:"Already funded", detail:"Target and buffer are fully covered." };
     }
 
-    if (gs.deadlineMo !== null && gs.deadlineMo < 0) {
-      return { cls:"danger", pill:"Overdue", detail:"Deadline has passed and this is not fully funded." };
+    if (gs.deadlineMo !== null && gs.deadlineMo < 0 && gs.initialSaved < gs.baseTarget) {
+      return { cls:"danger", pill:"Overdue", detail:"Deadline has passed and the base target is not funded." };
     }
 
     if (gs.deadlineMo !== null) {
@@ -1951,34 +2493,29 @@ function renderGoalGanttTimeline(container) {
       if (baseShort > 0) {
         return { cls:"danger", pill:"Misses deadline", detail:`Short ${formatCurrency(baseShort)} by ${deadline}.` };
       }
-      if (bufferShort > 0) {
-        const baseCompletion = gs.baseCompletedAt !== null ? model.monthLabel(gs.baseCompletedAt, true) : null;
-        return {
-          cls:"warn",
-          pill:"Base ok, buffer late",
-          detail:completion
-            ? `${baseCompletion ? `Base met ${baseCompletion}; ` : ""}buffer completes ${completion}.`
-            : "Only the extra buffer is at risk."
-        };
+      if (gs.bufferPct > 0 && bufferShort <= 0) {
+        const bufferWhen = bufferForecastDate ? ganttDateLabel(bufferForecastDate) : deadline;
+        return { cls:"ok", pill:"Buffer covered", detail:`Base and buffer funded around ${bufferWhen}, before the ${deadline} deadline.` };
       }
-      if (forecastDate && deadlineDate) {
-        if (forecastDate <= deadlineDate) {
-          return { cls:"ok", pill:"Possible", detail:`Forecast funded around ${ganttDateLabel(forecastDate)}, before the ${ganttDateLabel(deadlineDate)} deadline.` };
+
+      if (baseForecastDate && deadlineDate) {
+        if (baseForecastDate <= deadlineDate) {
+          return { cls:"ok", pill:"Base covered", detail:`Base funded around ${ganttDateLabel(baseForecastDate)}, before the ${ganttDateLabel(deadlineDate)} deadline.${bufferDetail()}` };
         }
-        if (gs.completedAt !== null && gs.completedAt <= gs.deadlineMo) {
-          return { cls:"warn", pill:"Exact-date risk", detail:`Forecast funds around ${ganttDateLabel(forecastDate)}, after the ${ganttDateLabel(deadlineDate)} deadline.` };
+        if (gs.baseCompletedAt !== null && gs.baseCompletedAt <= gs.deadlineMo) {
+          return { cls:"warn", pill:"Exact-date risk", detail:`Base funds around ${ganttDateLabel(baseForecastDate)}, after the ${ganttDateLabel(deadlineDate)} deadline.${bufferDetail()}` };
         }
       }
-      if (gs.completedAt !== null && gs.completedAt <= gs.deadlineMo) {
-        const timing = model.relativeDeadlineText(gs.completedAt, gs.deadlineMo);
+      if (gs.baseCompletedAt !== null && gs.baseCompletedAt <= gs.deadlineMo) {
+        const timing = model.relativeDeadlineText(gs.baseCompletedAt, gs.deadlineMo);
         const timingLabel = timing === "on deadline" ? "deadline month" : timing;
-        return { cls:"ok", pill:"Possible", detail:`Forecast funded ${completion}${timingLabel ? ` (${timingLabel})` : ""}.` };
+        return { cls:"ok", pill:"Base covered", detail:`Base funded ${baseCompletion}${timingLabel ? ` (${timingLabel})` : ""}.${bufferDetail()}` };
       }
-      return { cls:"ok", pill:"Deadline covered", detail:`Deadline ${deadline} is covered by forecast.` };
+      return { cls:"ok", pill:"Base covered", detail:`Base deadline ${deadline} is covered by forecast.${bufferDetail()}` };
     }
 
     if (gs.completedAt !== null) {
-      return { cls:"neutral", pill:"No deadline", detail:forecastDate ? `Forecast funded around ${ganttDateLabel(forecastDate)}.` : `Forecast funded ${completion}.` };
+      return { cls:"neutral", pill:"No deadline", detail:bufferForecastDate ? `Forecast funded around ${ganttDateLabel(bufferForecastDate)}.` : `Forecast funded ${completion}.` };
     }
 
     return { cls:"neutral", pill:"No deadline", detail:"Set a deadline or allocation to judge timing." };
@@ -1987,6 +2524,8 @@ function renderGoalGanttTimeline(container) {
   const displayGoals = goalState
     .map((gs, gi) => ({ gs, gi }))
     .sort((a, b) => {
+      const forcedDiff = (isForcePriorityGoal(b.gs) ? 1 : 0) - (isForcePriorityGoal(a.gs) ? 1 : 0);
+      if (forcedDiff !== 0) return forcedDiff;
       if (a.gs.deadlineMo !== null && b.gs.deadlineMo !== null && a.gs.deadlineMo !== b.gs.deadlineMo) return a.gs.deadlineMo - b.gs.deadlineMo;
       if (a.gs.deadlineMo !== null) return -1;
       if (b.gs.deadlineMo !== null) return 1;
@@ -2009,8 +2548,6 @@ function renderGoalGanttTimeline(container) {
     if (barLeftPct + barWidthPct > 100) barLeftPct = Math.max(0, 100 - barWidthPct);
     const todayPct = dateWithinView(today) ? pctForDate(today) : null;
     const deadlinePct = parsedDeadlineDate && dateWithinView(parsedDeadlineDate) ? pctForDate(parsedDeadlineDate) : null;
-    const completionDate = forecastFundingDateFor(gs, gi);
-    const completionPct = gs.completedAt !== null ? pctForMonthCenter(gs.completedAt) : null;
     const baseCompletionPct = gs.bufferPct > 0 && gs.baseCompletedAt !== null && gs.baseCompletedAt !== gs.completedAt
       ? pctForMonthCenter(gs.baseCompletedAt)
       : null;
@@ -2018,14 +2555,10 @@ function renderGoalGanttTimeline(container) {
     const endLabel = originalGoal.endDate
       ? formatDateDisplay(originalGoal.endDate)
       : (gs.completedAt !== null ? `Projected ${model.monthLabel(gs.completedAt, true)}` : "No deadline");
-    const completionLabel = completionDate ? ganttDateLabel(completionDate) : "";
     const baseCompletionLabel = gs.baseCompletedAt !== null ? model.monthLabel(gs.baseCompletedAt, true) : "";
     const targetLabel = gs.bufferPct > 0
       ? `${formatCurrency(gs.baseTarget)} base + ${formatCurrency(gs.effectiveTarget - gs.baseTarget)} buffer`
       : formatCurrency(gs.effectiveTarget);
-    const completeTitle = gs.bufferPct > 0
-      ? `Buffer funded around: ${completionLabel}`
-      : `Forecast funded around: ${completionLabel}`;
 
     return `
       <div class="gantt-row">
@@ -2045,7 +2578,6 @@ function renderGoalGanttTimeline(container) {
           <div class="gantt-month-values" style="${gridStyle}">${goalBalanceCells(gs, gi)}</div>
           ${deadlinePct !== null ? `<span class="gantt-line deadline" style="left:${pctStyle(deadlinePct)};color:${gs.color};" title="Deadline: ${escapeHtml(endLabel)}"></span>` : ""}
           ${baseCompletionPct !== null ? `<span class="gantt-base-marker" style="left:${pctStyle(baseCompletionPct)};" title="Base met: ${escapeHtml(baseCompletionLabel)}">base</span>` : ""}
-          ${completionPct !== null ? `<span class="gantt-complete-marker ${gs.bufferPct > 0 ? "buffer" : ""}" style="left:${pctStyle(completionPct)};color:${status.cls === "danger" ? "#dc2626" : gs.color};" title="${escapeHtml(completeTitle)}"></span>` : ""}
         </div>
         <div class="gantt-status">
           <span class="gantt-pill ${status.cls}">${status.pill}</span>
@@ -2071,12 +2603,12 @@ function renderGoalGanttTimeline(container) {
     <summary class="panel-header">
       <span class="panel-icon">▤</span>
       <h2>Goal Date Timeline</h2>
-      <span class="panel-hint">Advanced deadline view</span>
+      <span class="panel-hint">Deadline view</span>
       <span class="panel-count-pill">${counts.danger || 0} risks · ${counts.warn || 0} watch</span>
       <span class="panel-caret">▾</span>
     </summary>
     <div class="collapsible-body">
-    <div class="timeline-forecast-note">Current month is context; forecast funding starts <strong>${forecastStartsLabel}</strong>.</div>
+    <div class="timeline-forecast-note">Forecast starts <strong>${forecastStartsLabel}</strong>.</div>
     <div class="gantt-summary">
       <span class="gantt-stat"><strong>${counts.ok || 0}</strong> possible</span>
       <span class="gantt-stat"><strong>${counts.warn || 0}</strong> watch items</span>
@@ -2099,7 +2631,6 @@ function renderGoalGanttTimeline(container) {
       <span><i class="sample-line"></i> deadline</span>
       <span><i class="sample-value"></i> monthly goal balance</span>
       <span><i class="sample-base">base</i> base met, buffer pending</span>
-      <span><i class="sample-dot"></i> funded month</span>
       <span><i class="sample-line" style="border-left-style:solid;border-color:#111827;"></i> today</span>
     </div>
     </div>
@@ -2137,12 +2668,7 @@ function renderSavingsTimelineStacked(container, dep) {
   }
 
   function compareProjection(a, b) {
-    const u = (urgOrder[a.gs.urgency] ?? 2) - (urgOrder[b.gs.urgency] ?? 2);
-    if (u !== 0) return u;
-    if (a.gs.deadlineMo !== null && b.gs.deadlineMo !== null) return a.gs.deadlineMo - b.gs.deadlineMo;
-    if (a.gs.deadlineMo !== null) return -1;
-    if (b.gs.deadlineMo !== null) return 1;
-    return a.gi - b.gi;
+    return compareGoalPriorityOrder(a.gs, b.gs);
   }
 
   const goalState = goalsData.map((g, gi) => {
@@ -2162,6 +2688,7 @@ function renderSavingsTimelineStacked(container, dep) {
       name: g.name,
       color: g.color || "#4caf50",
       urgency: g.urgency || "Medium",
+      priority: Number(g.priority || 0) || 0,
       baseTarget: g.target,
       bufferPct,
       effectiveTarget,
@@ -2188,23 +2715,14 @@ function renderSavingsTimelineStacked(container, dep) {
   goalState.forEach(gs => { goalBoost[gs.name] = Array(MONTHS).fill(0); });
 
   incomeBoosts.forEach(b => {
-    const fromMonth = _normaliseBoostMonth(b.fromMonth);
-    if (!fromMonth || !b.amount) return;
-    const fromMoRaw = monthOffsetFromToday(fromMonth);
-    if (fromMoRaw === null) return;
-    const fromMo = Math.max(0, fromMoRaw);
-    const toMoRaw = b.toMonth ? monthOffsetFromToday(_normaliseBoostMonth(b.toMonth)) : MONTHS - 1;
-    const toMo = Math.min(MONTHS - 1, toMoRaw === null ? MONTHS - 1 : toMoRaw);
-    if (toMo < 0 || fromMo >= MONTHS || toMo < fromMo) return;
-
     const signedAmount = _boostSignedAmount(b);
-    for (let m = fromMo; m <= toMo; m++) {
+    _forEachBoostActiveMonth(b, MONTHS, monthOffsetFromToday, m => {
       if (signedAmount < 0 || b.toGoal === "any") {
         poolBoost[m] += signedAmount;
       } else if (goalBoost[b.toGoal]) {
         goalBoost[b.toGoal][m] += signedAmount;
       }
-    }
+    });
   });
 
   const allocationData = goalState.map(() => Array(MONTHS).fill(0));
@@ -2218,8 +2736,9 @@ function renderSavingsTimelineStacked(container, dep) {
   const cashflowReductionData = Array(MONTHS).fill(0);
   const forecastStartMonth = 1;
 
-  function allocateToGoal(gs, gi, m, amount, source="base") {
-    const remaining = Math.max(0, gs.effectiveTarget - gs.saved);
+  function allocateToGoal(gs, gi, m, amount, source="base", targetCap=gs.effectiveTarget) {
+    const cappedTarget = Math.min(gs.effectiveTarget, Math.max(0, targetCap));
+    const remaining = Math.max(0, cappedTarget - gs.saved);
     const used = Math.min(Math.max(0, amount), remaining);
     if (used <= 0) return 0;
 
@@ -2240,6 +2759,35 @@ function renderSavingsTimelineStacked(container, dep) {
     return used;
   }
 
+  function goalItems() {
+    return goalState.map((gs, gi) => ({ gs, gi }));
+  }
+
+  function activeBaseItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.baseTarget);
+  }
+
+  function activeDeadlineBufferItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo !== null && m <= gs.deadlineMo && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+  }
+
+  function activeOpenBufferItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo === null && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+  }
+
+  function isForecastSatisfied(gs, m) {
+    if (gs.saved < gs.baseTarget) return false;
+    if (gs.saved >= gs.effectiveTarget) return true;
+    return gs.deadlineMo !== null && m > gs.deadlineMo;
+  }
+
+  function targetCapForMonth(gs, m) {
+    return gs.deadlineMo !== null && m > gs.deadlineMo ? gs.baseTarget : gs.effectiveTarget;
+  }
+
   for (let m = 0; m < MONTHS; m++) {
     const isForecastMonth = m >= forecastStartMonth;
     let basePool = isForecastMonth ? Math.max(0, forecastBaseMonthly + Math.min(0, poolBoost[m])) : 0;
@@ -2248,19 +2796,19 @@ function renderSavingsTimelineStacked(container, dep) {
     const monthPoolUsed = Array(goalState.length).fill(0);
     cashflowReductionData[m] = isForecastMonth ? -Math.max(0, -poolBoost[m]) : 0;
 
-    const allocateFromForecastPool = (gs, gi, amount) => {
+    const allocateFromForecastPool = (gs, gi, amount, targetCap=gs.effectiveTarget) => {
       let requested = Math.max(0, amount);
       let usedTotal = 0;
 
       if (requested > 0 && basePool > 0) {
-        const baseUsed = allocateToGoal(gs, gi, m, Math.min(basePool, requested), "base");
+        const baseUsed = allocateToGoal(gs, gi, m, Math.min(basePool, requested), "base", targetCap);
         basePool -= baseUsed;
         requested -= baseUsed;
         usedTotal += baseUsed;
       }
 
       if (requested > 0 && cashflowPool > 0) {
-        const cashflowUsed = allocateToGoal(gs, gi, m, Math.min(cashflowPool, requested), "cashflow");
+        const cashflowUsed = allocateToGoal(gs, gi, m, Math.min(cashflowPool, requested), "cashflow", targetCap);
         cashflowPool -= cashflowUsed;
         requested -= cashflowUsed;
         usedTotal += cashflowUsed;
@@ -2270,58 +2818,76 @@ function renderSavingsTimelineStacked(container, dep) {
     };
 
     goalState.forEach((gs, gi) => {
-      if (!isForecastMonth || m < gs.startMo || gs.completedAt !== null) return;
-      const used = allocateToGoal(gs, gi, m, goalBoost[gs.name][m] || 0, "cashflow");
+      if (!isForecastMonth || m < gs.startMo || isForecastSatisfied(gs, m)) return;
+      const used = allocateToGoal(gs, gi, m, goalBoost[gs.name][m] || 0, "cashflow", targetCapForMonth(gs, m));
       monthPoolUsed[gi] += used;
     });
 
-    const active = goalState
-      .map((gs, gi) => ({ gs, gi }))
-      .filter(({ gs }) => m >= gs.startMo && gs.completedAt === null && gs.saved < gs.effectiveTarget);
+    const allocatePhase = (items, targetForGoal, options={}) => {
+      const ordered = items.slice().sort(compareProjection);
+      const useRequired = options.required !== false;
+      const useMonthly = options.monthly !== false;
+      const useSpillover = options.spillover !== false;
+      const useRequiredContribution = options.requiredContribution !== false;
+      const useMonthlyContribution = options.monthlyContribution !== false;
 
-    active.forEach(({ gs, gi }) => {
-      if (gs.deadlineMo === null) return;
-      const monthsLeft = Math.max(1, gs.deadlineMo - m + 1);
-      requiredMonthlyData[gi][m] = Math.max(0, gs.effectiveTarget - gs.saved) / monthsLeft;
-    });
+      if (useRequired) {
+        ordered.forEach(({ gs, gi }) => {
+          if (gs.deadlineMo === null) return;
+          const targetCap = targetForGoal(gs);
+          const monthsLeft = Math.max(1, gs.deadlineMo - m + 1);
+          requiredMonthlyData[gi][m] = Math.max(0, targetCap - gs.saved) / monthsLeft;
+        });
+      }
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0) return;
-        const required = requiredMonthlyData[gi][m] || 0;
-        const desired = Math.max(required, gs.monthlyAlloc || 0);
-        if (desired <= 0) return;
-        const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired));
-        monthPoolUsed[gi] += used;
-      });
+      if (useMonthly) {
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const required = requiredMonthlyData[gi][m] || 0;
+          const desired = Math.max(
+            useRequiredContribution ? required : 0,
+            useMonthlyContribution ? (gs.monthlyAlloc || 0) : 0
+          );
+          if (desired <= 0) return;
+          const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired), targetCap);
+          monthPoolUsed[gi] += used;
+        });
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0 || gs.completedAt !== null) return;
-        const desired = Math.max(0, (gs.monthlyAlloc || 0) - monthPoolUsed[gi]);
-        const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired));
-        monthPoolUsed[gi] += used;
-      });
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const desired = Math.max(0, (gs.monthlyAlloc || 0) - monthPoolUsed[gi]);
+          const used = allocateFromForecastPool(gs, gi, Math.min(availablePool, desired), targetCap);
+          monthPoolUsed[gi] += used;
+        });
+      }
 
-    active
-      .sort(compareProjection)
-      .forEach(({ gs, gi }) => {
-        const availablePool = basePool + cashflowPool;
-        if (availablePool <= 0 || gs.completedAt !== null) return;
-        const used = allocateFromForecastPool(gs, gi, availablePool);
-        monthPoolUsed[gi] += used;
-      });
+      if (useSpillover) {
+        ordered.forEach(({ gs, gi }) => {
+          const availablePool = basePool + cashflowPool;
+          if (availablePool <= 0) return;
+          const targetCap = targetForGoal(gs);
+          const used = allocateFromForecastPool(gs, gi, availablePool, targetCap);
+          monthPoolUsed[gi] += used;
+        });
+      }
+    };
+
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { spillover:false, monthlyContribution:false });
+    allocatePhase(activeDeadlineBufferItems(m), gs => gs.effectiveTarget, { monthly:false, spillover:true });
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
+    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, monthly:false, spillover:true });
+    allocatePhase(activeOpenBufferItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
 
     unallocatedBaseData[m] = Math.max(0, basePool);
     unallocatedCashflowData[m] = Math.max(0, cashflowPool);
     unallocatedData[m] = unallocatedBaseData[m] + unallocatedCashflowData[m];
 
     goalState.forEach((gs, gi) => {
-      if (m >= gs.startMo && gs.completedAt === null && monthPoolUsed[gi] <= 0 && monthPoolAvailable > 0) {
+      if (m >= gs.startMo && !isForecastSatisfied(gs, m) && monthPoolUsed[gi] <= 0 && monthPoolAvailable > 0) {
         gs.waitMonths += 1;
       }
       progressDollars[gi][m] = gs.saved;
@@ -2346,18 +2912,12 @@ function renderSavingsTimelineStacked(container, dep) {
   function activeCashflowChangesForMonth(monthIndex) {
     return incomeBoosts
       .map(item => {
-        const fromMonth = _normaliseBoostMonth(item.fromMonth);
-        if (!fromMonth || !item.amount) return null;
-        const fromMoRaw = monthOffsetFromToday(fromMonth);
-        if (fromMoRaw === null) return null;
-        const fromMo = Math.max(0, fromMoRaw);
-        const toMoRaw = item.toMonth ? monthOffsetFromToday(_normaliseBoostMonth(item.toMonth)) : MONTHS - 1;
-        const toMo = Math.min(MONTHS - 1, toMoRaw === null ? MONTHS - 1 : toMoRaw);
-        if (monthIndex < fromMo || monthIndex > toMo) return null;
+        if (!_isBoostActiveInMonth(item, monthIndex, MONTHS, monthOffsetFromToday)) return null;
         return {
           label: item.label || "Cashflow change",
           amount: _boostSignedAmount(item),
           toGoal: item.toGoal || "any",
+          cadence: _boostAmountCadence(item),
         };
       })
       .filter(Boolean);
@@ -2393,8 +2953,9 @@ function renderSavingsTimelineStacked(container, dep) {
       const lastSaved = progressDollars[gi][MONTHS - 1] || gs.saved;
       const targetShort = Math.max(0, gs.baseTarget - lastSaved);
       const bufferShort = Math.max(0, gs.effectiveTarget - lastSaved);
+      const requiredTarget = gs.initialSaved < gs.baseTarget ? gs.baseTarget : gs.effectiveTarget;
       const currentRequired = gs.deadlineMo !== null
-        ? Math.max(0, gs.effectiveTarget - gs.initialSaved) / Math.max(1, gs.deadlineMo - forecastStartMonth + 1)
+        ? Math.max(0, requiredTarget - gs.initialSaved) / Math.max(1, gs.deadlineMo - forecastStartMonth + 1)
         : null;
       const avgPlanned = gs.plannedTotal / forecastMonthCount;
 
@@ -2471,10 +3032,10 @@ function renderSavingsTimelineStacked(container, dep) {
     <div class="panel-header">
       <span class="panel-icon">📈</span>
       <h2>Forecast Allocation</h2>
-      <span class="panel-hint">Includes scheduled future cashflow changes</span>
+      <span class="panel-hint">With cashflow adjustments</span>
     </div>
     <div class="timeline-forecast-note">
-      Base forecast savings from ${chartFullLabels[0] || "next month"}: <strong>${formatCurrency(forecastBaseMonthly)}/mo</strong>
+      Forecast pool from ${chartFullLabels[0] || "next month"}: <strong>${formatCurrency(forecastBaseMonthly)}/mo</strong>
       ${hasCashflowChanges ? " · future cashflow is shown as purple/red sections within the bars" : ""}
       ${totalUnallocatedForecast > 0 ? ` · available for new goals over forecast: <strong>${formatCurrency(totalUnallocatedForecast)}</strong>` : ""}
     </div>
@@ -2483,7 +3044,7 @@ function renderSavingsTimelineStacked(container, dep) {
       <canvas id="goalTimelineChart"></canvas>
     </div>
     <details class="timeline-impact-details">
-      <summary>Show goal-by-goal forecast details</summary>
+      <summary>Goal details</summary>
       <div class="timeline-impact-list">${impactRows}</div>
     </details>
   `;
@@ -2627,7 +3188,7 @@ function renderSavingsTimelineStacked(container, dep) {
                   footer.push(
                     "",
                     "Active future cashflow:",
-                    ...activeChanges.map(change => `${change.amount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(change.amount))}/mo — ${change.label}${change.toGoal !== "any" ? ` to ${change.toGoal}` : ""}`)
+                    ...activeChanges.map(change => `${change.amount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(change.amount))}${change.cadence} - ${change.label}${change.toGoal !== "any" ? ` to ${change.toGoal}` : ""}`)
                   );
                 }
                 return footer;
@@ -2661,6 +3222,16 @@ function renderSavingsTimelineStacked(container, dep) {
 function renderSavingsTimeline(container, dep) {
   return renderSavingsTimelineStacked(container, dep);
   const today = new Date();
+
+  function monthOffsetFromToday(dateValue) {
+    if (!dateValue) return null;
+    const p = String(dateValue).split("-");
+    if (p.length < 2) return null;
+    const y = Number(p[0]);
+    const m = Number(p[1]) - 1;
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+    return (y - today.getFullYear()) * 12 + (m - today.getMonth());
+  }
 
   // ── Per-goal state ─────────────────────────────────────────────
   const goalState = goalsData.map((g, gi) => {
@@ -2717,22 +3288,14 @@ function renderSavingsTimeline(container, dep) {
   goalState.forEach(gs => { boostForGoal[gs.name] = Array(MONTHS+1).fill(0); });
 
   incomeBoosts.forEach(b => {
-    if (!b.fromMonth || !b.amount) return;
-    const [by, bmo] = b.fromMonth.split("-").map(Number);
-    const fromMo = Math.max(0, (by - today.getFullYear())*12 + (bmo-1 - today.getMonth()));
-    // toMonth blank = permanent (runs to end of horizon); otherwise clamp
-    let toMo = MONTHS;
-    if (b.toMonth) {
-      const [ty, tmo] = b.toMonth.split("-").map(Number);
-      toMo = Math.min(MONTHS, (ty - today.getFullYear())*12 + (tmo-1 - today.getMonth()));
-    }
-    for (let m = fromMo; m <= toMo; m++) {
-      if (b.toGoal === "any") {
-        baseMonthlyPool[m] += b.amount;
+    const signedAmount = _boostSignedAmount(b);
+    _forEachBoostActiveMonth(b, MONTHS + 1, monthOffsetFromToday, m => {
+      if (signedAmount < 0 || b.toGoal === "any") {
+        baseMonthlyPool[m] += signedAmount;
       } else if (boostForGoal[b.toGoal] !== undefined) {
-        boostForGoal[b.toGoal][m] += b.amount;
+        boostForGoal[b.toGoal][m] += signedAmount;
       }
-    }
+    });
   });
 
   // ── Simulate month by month ────────────────────────────────────
@@ -2896,7 +3459,7 @@ poolExtra = Math.max(0, poolExtra - fromPool);
     </div>
     <div class="timeline-legend-custom" id="timelineLegend" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;margin-bottom:4px;"></div>
     <div class="timeline-forecast-note">
-    Forecast available to save: <strong>${formatCurrency(forecastBaseMonthly)}/mo</strong>
+    Forecast pool: <strong>${formatCurrency(forecastBaseMonthly)}/mo</strong>
     · chart allocates by priority, earliest deadline, required monthly amount, and income boosts
     </div>
     <div class="chart-wrap" style="height:380px;position:relative;">
@@ -2989,15 +3552,16 @@ poolExtra = Math.max(0, poolExtra - fromPool);
     // Income boost markers — show a ⚡ band for the active range
     const boostRanges = [];
     incomeBoosts.forEach(b => {
-      if (!b.fromMonth || !b.amount) return;
-      const [by, bmo] = b.fromMonth.split("-").map(Number);
-      const fromMo = (by - today.getFullYear())*12 + (bmo-1 - today.getMonth());
-      let toMo = MONTHS;
-      if (b.toMonth) {
-        const [ty, tmo] = b.toMonth.split("-").map(Number);
-        toMo = (ty - today.getFullYear())*12 + (tmo-1 - today.getMonth());
-      }
-      if (fromMo >= 0 && fromMo <= MONTHS) boostRanges.push({ fromMo: Math.max(0, fromMo), toMo: Math.min(MONTHS, toMo), label: b.label, amount: b.amount, permanent: !b.toMonth });
+      _forEachBoostActiveMonth(b, MONTHS + 1, monthOffsetFromToday, m => {
+        boostRanges.push({
+          fromMo: m,
+          toMo: m,
+          label: b.label,
+          amount: _boostSignedAmount(b),
+          cadence: _boostAmountCadence(b),
+          permanent: _normaliseBoostFrequency(b) === "monthly" && !b.toMonth
+        });
+      });
     });
 
     const boostPlugin = {
@@ -3028,7 +3592,7 @@ poolExtra = Math.max(0, poolExtra - fromPool);
           c.fillStyle = "#8b5cf6";
           c.font = "bold 10px DM Sans, sans-serif";
           c.textAlign = "left";
-          const tag = br.permanent ? "⚡ " + br.label : "⚡ " + br.label + " (ends " + labels[Math.min(br.toMo, MONTHS)] + ")";
+          const tag = "⚡ " + br.label + " " + (br.amount < 0 ? "-" : "+") + formatCurrency(Math.abs(br.amount)) + br.cadence;
           c.fillText(tag, Math.min(cx1 + 3, chartArea.right - 80), chartArea.bottom + 14);
           c.restore();
         });
@@ -3075,16 +3639,9 @@ return `  ${item.dataset.label}: ${v.toFixed(0)}% · ${formatCurrency(savedAmt)}
               },
               afterBody: items => {
                 const mo = items[0].dataIndex;
-                const activeBoosts = incomeBoosts.filter(b => {
-                  if (!b.fromMonth || !b.amount) return false;
-                  const [by, bmo] = b.fromMonth.split("-").map(Number);
-                  const from = (by - today.getFullYear())*12 + (bmo-1 - today.getMonth());
-                  let to = MONTHS;
-                  if (b.toMonth) { const [ty,tmo] = b.toMonth.split("-").map(Number); to = (ty-today.getFullYear())*12+(tmo-1-today.getMonth()); }
-                  return mo >= from && mo <= to;
-                });
+                const activeBoosts = incomeBoosts.filter(b => _isBoostActiveInMonth(b, mo, MONTHS + 1, monthOffsetFromToday));
                 if (activeBoosts.length === 0) return [];
-                return ["", "⚡ Income changes active:", ...activeBoosts.map(b => `  +${formatCurrency(b.amount)}/mo — ${b.label}`)];
+                return ["", "⚡ Income changes active:", ...activeBoosts.map(b => `  ${_boostSignedAmountLabel(b)} - ${b.label}`)];
               }
             }
           }
@@ -3156,8 +3713,8 @@ function renderRealismCheck(container, dep) {
     const reqMonthly = monthsLeft && monthsLeft > 0 ? remaining / monthsLeft : (goal.monthlyAlloc || 0);
     totalMonthlyNeeded += reqMonthly;
 
-    if (goal.urgency === "Critical" && monthsLeft !== null && reqMonthly > avgSave * 0.6) {
-      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: baseline need is ${formatCurrency(reqMonthly)}/mo — ${Math.round(reqMonthly/avgSave*100)}% of your historical avg savings.`);
+    if (avgSave > 0 && goal.urgency === "Critical" && monthsLeft !== null && reqMonthly > avgSave * 0.6) {
+      issues.push(`🔴 <strong>${escapeHtml(goal.name)}</strong>: baseline need is ${formatCurrency(reqMonthly)}/mo — ${Math.round(reqMonthly/avgSave*100)}% of your salary-based avg savings.`);
     }
     if (goal.endDate && monthsLeft !== null && monthsLeft <= 0) {
       issues.push(`⏰ <strong>${escapeHtml(goal.name)}</strong>: deadline has passed. Update or archive this goal.`);
@@ -3166,11 +3723,11 @@ function renderRealismCheck(container, dep) {
 
   if (totalMonthlyNeeded > avgSave) {
     const gap = totalMonthlyNeeded - avgSave;
-    issues.push(`⚡ Baseline goal pace needs ${formatCurrency(totalMonthlyNeeded)}/mo vs historical avg savings of ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
-    tips.push(`💡 The forecast below includes scheduled future cashflow changes; use this check as the before-changes pressure test.`);
-    tips.push(`💡 Close the baseline gap with lower monthly spending, more income, or lower buffers on lower-priority goals.`);
+    issues.push(`⚡ Baseline goal pace needs ${formatCurrency(totalMonthlyNeeded)}/mo vs salary-based avg savings of ${formatCurrency(avgSave)}/mo — <strong>${formatCurrency(gap)} gap</strong>.`);
+    tips.push(`Forecasts below include cashflow adjustments; this check is the baseline view.`);
+    tips.push(`💡 Close the baseline gap with lower monthly spending, more fixed income, or lower buffers on lower-priority goals.`);
   } else if (totalMonthlyNeeded > 0) {
-    tips.push(`✅ Baseline goal pace is <strong>collectively achievable</strong> against your avg savings of ${formatCurrency(avgSave)}/mo.`);
+    tips.push(`✅ Baseline goal pace is <strong>collectively achievable</strong> against your salary-based avg savings of ${formatCurrency(avgSave)}/mo.`);
   }
 
   if (dep.deployable < 0) {
@@ -3186,8 +3743,8 @@ function renderRealismCheck(container, dep) {
     <div class="goals-panel realism-panel">
       <div class="panel-header">
         <span class="panel-icon">🧠</span>
-        <h2>Baseline Reality Check</h2>
-        <span class="panel-hint">Before scheduled future cashflow changes</span>
+        <h2>Baseline Check</h2>
+        <span class="panel-hint">Before cashflow adjustments</span>
       </div>
       <div class="rc-body">
         ${issueHtml}
@@ -3195,7 +3752,7 @@ function renderRealismCheck(container, dep) {
         <div class="rc-summary">
           <span>Baseline monthly need for goals + buffers:</span>
           <strong class="${totalMonthlyNeeded <= avgSave ? 'green':'red'}">${formatCurrency(totalMonthlyNeeded)}/mo</strong>
-          <span>vs your avg savings</span>
+          <span>vs your salary-based avg savings</span>
           <strong>${formatCurrency(avgSave)}/mo</strong>
         </div>
       </div>
@@ -3219,7 +3776,7 @@ function renderBudgetGoalMotivation(container, dep) {
       <div class="panel-header">
         <span class="panel-icon">↗</span>
         <h2>Goal Momentum</h2>
-        <span class="panel-hint">Daily flexible expense pace and possible goal boost</span>
+        <span class="panel-hint">Flexible spending pace</span>
       </div>
       <div class="gm-grid">
         <div class="gm-hero">
@@ -3329,18 +3886,10 @@ function buildDailyTrendOpportunity(trend) {
 }
 
 function selectGoalForMotivation() {
-  const urgencyOrder = { Critical:0, High:1, Medium:2, Low:3 };
   return goalsData
-    .map((goal, idx) => ({ goal, idx, remaining: getGoalRemainingAmount(goal) }))
+    .map((goal, idx) => ({ goal, idx, originalIdx:idx, remaining: getGoalRemainingAmount(goal) }))
     .filter(item => item.remaining > 0)
-    .sort((a, b) => {
-      const u = (urgencyOrder[a.goal.urgency] ?? 2) - (urgencyOrder[b.goal.urgency] ?? 2);
-      if (u !== 0) return u;
-      if (a.goal.endDate && b.goal.endDate) return a.goal.endDate.localeCompare(b.goal.endDate);
-      if (a.goal.endDate) return -1;
-      if (b.goal.endDate) return 1;
-      return a.idx - b.idx;
-    })[0]?.goal || goalsData[0] || null;
+    .sort((a, b) => compareGoalPriorityOrder({ ...a.goal, originalIdx:a.idx }, { ...b.goal, originalIdx:b.idx }))[0]?.goal || goalsData[0] || null;
 }
 
 function getGoalRemainingAmount(goal) {
@@ -3409,6 +3958,9 @@ function renderGoalCard(goal, idx, container) {
   const today       = new Date();
   const urgColor    = { Critical:"#dc2626", High:"#ea580c", Medium:"#ca8a04", Low:"#16a34a" };
   const urgIcon     = { Critical:"🔴", High:"🟠", Medium:"🟡", Low:"🟢" };
+  const forcePriorityBadge = isForcePriorityGoal(goal)
+    ? `<span class="deadline-badge priority">Forced</span>`
+    : "";
 
   const savedViaGoalTx = getSavedViaTransactions(goal.name);
   const totalSaved     = goal.manualSaved + savedViaGoalTx;
@@ -3526,6 +4078,7 @@ function renderGoalCard(goal, idx, container) {
         <span style="width:12px;height:12px;border-radius:50%;background:${goal.color};flex-shrink:0;display:inline-block;"></span>
         <strong style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(goal.name)}</strong>
         <span style="font-size:12px;font-weight:600;color:${urgColor[goal.urgency]||"#ca8a04"};white-space:nowrap;">${urgIcon[goal.urgency]||"🟡"} ${goal.urgency}</span>
+        ${forcePriorityBadge}
         ${deadlineStatus}
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -3580,18 +4133,25 @@ function renderGoalCard(goal, idx, container) {
           </select>
         </div>
         <div class="gf-group"><label>Buffer % above target</label><input type="number" id="eg_buffer_${idx}" value="${goal.goalBuffer||0}" step="1" min="0" max="100" placeholder="0"></div>
+        <div class="gf-group">
+          <label>Smart Assign Override</label>
+          <label class="goal-force-check">
+            <input type="checkbox" id="eg_priority_${idx}" ${isForcePriorityGoal(goal) ? "checked" : ""}>
+            <span>Force above urgency</span>
+          </label>
+        </div>
         <div class="gf-group"><label>Color</label><input type="color" id="eg_color_${idx}" value="${goal.color}" style="height:38px;padding:2px 4px;border-radius:6px;border:1px solid var(--border);width:100%;"></div>
         <div class="gf-group full"><label>Notes</label><input type="text" id="eg_notes_${idx}" value="${escapeHtml(goal.notes)}"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn-primary btn-sm" onclick="saveEditGoal(${idx})">Save Changes</button>
+        <button class="btn-primary btn-sm" onclick="saveEditGoal(${idx})">Save</button>
         <button class="btn-secondary btn-sm" onclick="toggleGoalEdit(${idx})">Cancel</button>
       </div>
     </div>
 
     <!-- Deduct Form -->
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <button class="btn-deduct btn-sm" onclick="toggleDeductForm(${idx})">💸 Log Expense from Goal</button>
+      <button class="btn-deduct btn-sm" onclick="toggleDeductForm(${idx})">Log Expense</button>
     </div>
     <div id="deductGoal_${idx}" class="goal-edit-form" style="display:none;margin-top:10px;background:#fef2f2;border-color:#fca5a5;">
       <div class="goal-form-grid" style="margin-top:0;">
@@ -3600,7 +4160,7 @@ function renderGoalCard(goal, idx, container) {
         <div class="gf-group"><label>Account</label><select id="dg_acct_${idx}"></select></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;">
-        <button class="btn-primary btn-sm" style="background:#dc2626;" onclick="saveDeductGoal(${idx})">Save Deduction</button>
+        <button class="btn-primary btn-sm" style="background:#dc2626;" onclick="saveDeductGoal(${idx})">Save</button>
         <button class="btn-secondary btn-sm" onclick="toggleDeductForm(${idx})">Cancel</button>
       </div>
     </div>
@@ -3801,6 +4361,7 @@ async function toggleGoalAccount(checkbox) {
   } else {
     goalSavingsAccts = goalSavingsAccts.filter(n => n !== name);
   }
+  historicalStats = computeHistoricalStats(allTxForGoals);
   renderGoalsPage();
   // Auto-save silently — no alert, just log
   try {
@@ -3822,7 +4383,7 @@ function buildGoalsSaveValues() {
 }
 
 function setGoalsAutoSaveStatus(message, tone = "") {
-  ["goalsAutosaveStatus", "allocAutosaveStatus", "boostAutosaveStatus"].forEach(id => {
+  ["goalsAutosaveStatus", "allocAutosaveStatus"].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = message;
@@ -3834,7 +4395,7 @@ function scheduleGoalsAutoSave(delay = 700) {
   clearTimeout(goalsAutoSaveTimer);
   setGoalsAutoSaveStatus("Saving soon...");
   goalsAutoSaveTimer = setTimeout(() => {
-    persistGoalsToExcel({ silent: true });
+    persistGoalsToExcel({ silent: true, includeBoosts: false });
   }, delay);
 }
 
@@ -3845,7 +4406,7 @@ async function persistGoalsToExcel(options = {}) {
   }
 
   const silent = options.silent === true;
-  const includeBoosts = options.includeBoosts !== false;
+  const includeBoosts = options.includeBoosts === true;
   goalsAutoSaveInFlight = true;
 
   try {
@@ -3877,6 +4438,7 @@ async function addGoal() {
   const urg    = document.getElementById("gf_urgency").value;
   const notes  = document.getElementById("gf_notes").value.trim();
   const color  = document.getElementById("gf_color").value;
+  const priority = document.getElementById("gf_priority")?.checked ? 1 : 0;
 
   // Use override input if visible, otherwise use computed value
   const overrideInp = document.getElementById("gf_alloc");
@@ -3889,7 +4451,7 @@ async function addGoal() {
   if (target <= 0) { alert("Please enter a target amount."); return; }
   if (goalsData.length >= MAX_GOALS) { alert("Maximum " + MAX_GOALS + " goals."); return; }
 
-  goalsData.push({ name, target, manualSaved:saved, monthlyAlloc:alloc, startDate:start, endDate:end, urgency:urg, notes, color, goalBuffer:0, priority:0 });
+  goalsData.push({ name, target, manualSaved:saved, monthlyAlloc:alloc, startDate:start, endDate:end, urgency:urg, notes, color, goalBuffer:0, priority });
   renderGoalsPage();
   await persistGoalsToExcel({ silent: true });
 }
@@ -3906,7 +4468,7 @@ async function saveEditGoal(idx) {
     notes:        document.getElementById("eg_notes_"  +idx).value.trim(),
     color:        document.getElementById("eg_color_"  +idx).value,
     goalBuffer:   Math.min(100, Math.max(0, parseFloat(document.getElementById("eg_buffer_"+idx).value) || 0)),
-    priority:     goalsData[idx].priority,
+    priority:     document.getElementById("eg_priority_"+idx)?.checked ? 1 : 0,
   };
   renderGoalsPage();
   await persistGoalsToExcel({ silent: true });
@@ -4010,7 +4572,7 @@ function getClaimReceivableAccount(row) {
 function getClaimAdjustedExpenseAmount(row) {
   const amount = getAmount(row["Amount"]);
   if (!isClaimableRow(row)) return amount;
-  return 0;
+  return Math.max(0, amount - getClaimAmount(row));
 }
 function formatCurrency(v) {
   return v.toLocaleString("en-SG", { style:"currency", currency:"SGD", minimumFractionDigits:2, maximumFractionDigits:2 });

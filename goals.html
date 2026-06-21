@@ -130,54 +130,136 @@
       gap: 22px;
       align-items: start;
     }
-    .balance-flow { display: flex; flex-direction: column; gap: 0; }
-    .balance-row {
+    .capacity-flow {
       display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+    .capacity-hero {
+      display: flex;
+      align-items: flex-start;
       justify-content: space-between;
-      align-items: center;
-      padding: 9px 0;
+      gap: 18px;
+      padding-bottom: 12px;
       border-bottom: 1px solid var(--border);
-      font-size: 13.5px;
     }
-    .balance-row.deduct { color: var(--muted); }
-    .balance-row.total-row {
-      border-top: 2px solid var(--text);
-      border-bottom: 2px solid var(--text);
-      margin-top: 4px;
-      font-weight: 600;
-      padding: 12px 0;
-    }
-    .balance-row.sub-row { font-size: 13px; color: var(--muted); }
-    .balance-row.cash-row {
-      font-size: 13px;
-      color: var(--muted);
-      background: #f8fafc;
-      border-radius: 6px;
-      padding: 7px 8px;
-      margin-top: 5px;
-    }
-    .balance-row.warn-row { background: #fef2f2; border-radius: 6px; padding: 6px 8px; }
-    .balance-row.claim-row {
-      color: #92400e;
-      background: #fffbeb;
-      border: 1px solid #fcd34d;
-      border-radius: 6px;
-      padding: 7px 8px;
-      margin: 5px 0;
-    }
-    .balance-row.claim-cash-row {
-      margin-top: 4px;
-    }
-    .bal-label { color: inherit; }
-    .bal-val { font-family: 'DM Mono', monospace; font-weight: 600; }
-    .bal-val.green { color: var(--green); }
-    .bal-val.red   { color: var(--red); }
-    .bal-val.amber { color: #b45309; }
-    .balance-plain-note {
-      margin-top: 8px;
+    .capacity-label,
+    .capacity-source,
+    .capacity-side span,
+    .capacity-meter-caption,
+    .capacity-metric span,
+    .capacity-chip span,
+    .capacity-chip small {
       color: var(--muted);
       font-size: 12px;
-      line-height: 1.45;
+    }
+    .capacity-value {
+      display: block;
+      margin-top: 5px;
+      font-family: 'DM Mono', monospace;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    .capacity-value.green { color: var(--green); }
+    .capacity-value.red { color: var(--red); }
+    .capacity-source {
+      display: block;
+      margin-top: 5px;
+    }
+    .capacity-side {
+      flex: 0 0 auto;
+      min-width: 112px;
+      text-align: right;
+    }
+    .capacity-side strong {
+      display: block;
+      margin-top: 5px;
+      font-family: 'DM Mono', monospace;
+      font-size: 15px;
+      color: var(--text);
+    }
+    .capacity-meter {
+      height: 10px;
+      border-radius: 999px;
+      background: var(--border);
+      overflow: hidden;
+    }
+    .capacity-meter-fill {
+      height: 100%;
+      border-radius: inherit;
+      transition: width 0.25s ease;
+    }
+    .capacity-meter-fill.green { background: var(--green); }
+    .capacity-meter-fill.red { background: var(--red); }
+    .capacity-meter-caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: -6px;
+    }
+    .capacity-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .capacity-chip {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 7px;
+      max-width: 100%;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 12px;
+    }
+    .capacity-chip strong {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .capacity-chip.in strong { color: var(--green); }
+    .capacity-chip.out strong,
+    .capacity-chip.warn strong { color: var(--red); }
+    .capacity-chip small {
+      max-width: 190px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .capacity-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .capacity-metric {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .capacity-metric strong {
+      font-family: 'DM Mono', monospace;
+      font-size: 15px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .capacity-metric strong.green { color: var(--green); }
+    .capacity-metric strong.red { color: var(--red); }
+    .capacity-metric.warn-row {
+      border-color: #fca5a5;
+      background: #fff7f7;
+    }
+    .claim-cash-metric {
+      margin-top: -4px;
     }
     .claim-risk-note {
       margin-top: 8px;
@@ -225,6 +307,13 @@
     .stat-v { font-family: 'DM Mono', monospace; font-weight: 600; }
     .stat-v.green { color: var(--green); }
     .stat-v.red   { color: var(--red); }
+    .stats-note {
+      max-width: 560px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
 
     /* Realism check */
     .realism-panel .panel-header { margin-bottom: 14px; }
@@ -459,6 +548,7 @@
     .deadline-badge.behind  { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
     .deadline-badge.ontrack { background: #f0fdf4; color: #16a34a; border: 1px solid #86efac; }
     .deadline-badge.buffer  { background: #fff7ed; color: #b45309; border: 1px solid #f59e0b; }
+    .deadline-badge.priority { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
 
     /* Goal edit/deduct forms */
     .goal-edit-form {
@@ -490,6 +580,24 @@
     .gf-group input:focus, .gf-group select:focus {
       outline: none;
       border-color: var(--text);
+    }
+    .goal-force-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .goal-force-check input {
+      width: auto;
+      padding: 0;
+      accent-color: var(--text);
     }
 
     /* Buttons */
@@ -637,6 +745,31 @@
     .alloc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .alloc-name { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .alloc-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+    .alloc-priority-badge {
+      display: inline-flex;
+      vertical-align: middle;
+      margin-left: 5px;
+      padding: 1px 7px;
+      border: 1px solid #c7d2fe;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .alloc-force-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11.5px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .alloc-force-label input {
+      accent-color: var(--text);
+    }
 
     .alloc-bar-col { display: flex; align-items: center; gap: 8px; }
     .alloc-pbar { flex: 1; height: 6px; background: var(--border); border-radius: 20px; overflow: hidden; }
@@ -874,7 +1007,7 @@
       background: var(--bg);
       position: sticky;
       right: 0;
-      z-index: 6;
+      z-index: 30;
       box-shadow: -8px 0 14px -14px rgba(15,23,42,0.75);
     }
     .gantt-month-grid {
@@ -886,6 +1019,8 @@
       position: relative;
       min-height: 38px;
       overflow: hidden;
+      isolation: isolate;
+      z-index: 1;
     }
     .gantt-month {
       padding: 9px 0;
@@ -994,9 +1129,9 @@
       color: #64748b;
     }
     .gantt-month-value.base-met {
-      background: #fff7ed;
-      border-color: #fed7aa;
-      color: #7c2d12;
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #14532d;
     }
     .gantt-month-value.buffer-met {
       background: #dcfce7;
@@ -1023,28 +1158,13 @@
       box-shadow: 0 0 0 2px #fff;
       pointer-events: auto;
     }
-    .gantt-complete-marker {
-      position: absolute;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: 11px;
-      height: 11px;
-      border-radius: 50%;
-      background: #fff;
-      border: 3px solid currentColor;
-      z-index: 7;
-      box-shadow: 0 0 0 2px #fff;
-    }
-    .gantt-complete-marker.buffer {
-      background: #fff7ed;
-    }
     .gantt-status {
       padding: 9px 12px;
       border-left: 1px solid var(--border);
       background: #fff;
       position: sticky;
       right: 0;
-      z-index: 5;
+      z-index: 30;
       box-shadow: -8px 0 14px -14px rgba(15,23,42,0.75);
       display: flex;
       flex-direction: column;
@@ -1094,12 +1214,6 @@
       width: 0;
       height: 14px;
       border-left: 2px dashed #64748b;
-    }
-    .gantt-legend .sample-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      border: 2px solid #16a34a;
     }
     .gantt-legend .sample-value {
       width: 34px;
@@ -1158,8 +1272,8 @@
     .boost-ex-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
     .boost-table-header {
       display: grid;
-      grid-template-columns: 2fr 1.2fr 1.1fr 2.5fr 1.5fr 32px;
-      gap: 10px;
+      grid-template-columns: minmax(160px, 1.8fr) minmax(118px, 1fr) minmax(86px, 0.75fr) minmax(112px, 0.85fr) minmax(220px, 1.7fr) minmax(150px, 1.15fr) 32px;
+      gap: 8px;
       padding: 0 0 8px;
       border-bottom: 1px solid var(--border);
       margin-bottom: 4px;
@@ -1167,10 +1281,10 @@
     .boost-th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .boost-row {
       display: grid;
-      grid-template-columns: 2fr 1.2fr 1.1fr 2.5fr 1.5fr 32px;
-      gap: 10px;
+      grid-template-columns: minmax(160px, 1.8fr) minmax(118px, 1fr) minmax(86px, 0.75fr) minmax(112px, 0.85fr) minmax(220px, 1.7fr) minmax(150px, 1.15fr) 32px;
+      gap: 8px;
       align-items: center;
-      padding: 8px 0;
+      padding: 6px 0;
       border-bottom: 1px solid var(--border);
     }
     .boost-cell { min-width: 0; }
@@ -1182,11 +1296,109 @@
     .boost-currency.boost { color: #16a34a; font-weight: 600; }
     .boost-currency.reduce { color: #dc2626; font-weight: 600; }
     .boost-per-mo { font-size: 12px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
-    .boost-dates-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .boost-dates-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
     .boost-date-group { display: flex; flex-direction: column; gap: 2px; }
     .boost-date-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
-    .boost-month-input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-family: inherit; width: 130px; }
+    .boost-date-control {
+      display: flex;
+      align-items: stretch;
+      width: 112px;
+      position: relative;
+    }
+    .boost-month-input {
+      min-width: 0;
+      width: 100%;
+      padding: 6px 7px;
+      border: 1px solid var(--border);
+      border-right: 0;
+      border-radius: 6px 0 0 6px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .boost-month-input:disabled {
+      color: var(--muted);
+      background: var(--bg);
+    }
     .boost-month-input::placeholder { color: var(--muted); }
+    .boost-date-btn {
+      width: 28px;
+      border: 1px solid var(--border);
+      border-radius: 0 6px 6px 0;
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .boost-date-btn:hover { color: var(--text); background: var(--bg); }
+    .boost-date-btn:disabled {
+      cursor: not-allowed;
+      color: var(--muted);
+      background: var(--bg);
+    }
+    .boost-month-picker {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 80;
+      width: 204px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 12px 28px rgba(15,23,42,0.14);
+    }
+    .bmp-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .bmp-head button,
+    .bmp-grid button,
+    .bmp-clear {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .bmp-head button {
+      width: 28px;
+      height: 26px;
+    }
+    .bmp-head strong {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+    }
+    .bmp-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+    }
+    .bmp-grid button {
+      padding: 6px 0;
+    }
+    .bmp-grid button:hover,
+    .bmp-head button:hover,
+    .bmp-clear:hover {
+      background: var(--bg);
+    }
+    .bmp-grid button.active {
+      border-color: var(--text);
+      background: var(--text);
+      color: var(--surface);
+      font-weight: 600;
+    }
+    .bmp-clear {
+      width: 100%;
+      margin-top: 6px;
+      padding: 6px 0;
+      color: var(--muted);
+    }
     .boost-duration-tag {
       font-size: 11px;
       font-weight: 600;
@@ -1194,9 +1406,13 @@
       border-radius: 20px;
       white-space: nowrap;
       flex-shrink: 0;
+      max-width: 128px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .boost-duration-tag.permanent { background: #f0fdf4; color: #16a34a; border: 1px solid #86efac; }
     .boost-duration-tag.temporary { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+    .boost-duration-tag.once { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
     .boost-select { width: 100%; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; }
     .boost-select:disabled { color: var(--muted); background: var(--bg); }
     .boost-kind-select.boost { color: #14532d; background: #f0fdf4; border-color: #86efac; }
@@ -1268,6 +1484,9 @@
       .alloc-col-labels { grid-template-columns: 1fr auto; }
       .alloc-col-label-bar { display: none; }
       .balance-layout { grid-template-columns: 1fr; }
+      .capacity-hero { flex-direction: column; gap: 10px; }
+      .capacity-side { text-align: left; }
+      .capacity-metrics { grid-template-columns: 1fr; }
       .panel-count-pill { margin-left: 0; }
       .timeline-impact-row { grid-template-columns: 1fr; align-items: stretch; }
       .gm-grid { grid-template-columns: 1fr; }
@@ -2192,7 +2411,7 @@
     <header class="topbar">
       <div class="topbar-left">
         <h1 class="page-title" id="pageTitle">Goals</h1>
-        <p class="page-subtitle" id="pageSubtitle">Smart savings targets with real-time forecasting</p>
+        <p class="page-subtitle" id="pageSubtitle">Savings goals and forecasts</p>
       </div>
       <div class="topbar-right">
         <button class="reload-btn" id="reloadBtn" onclick="loadGoalsPage()">↻ Reload</button>
@@ -2254,7 +2473,7 @@
       if (tab === "planner") {
         reloadBtn.onclick = () => { _plannerLoaded = false; loadGoalItemsTab(); };
         document.getElementById("pageTitle").textContent    = "Purchase Planner";
-        document.getElementById("pageSubtitle").textContent = "Plan and track purchases within each goal";
+        document.getElementById("pageSubtitle").textContent = "Purchases by goal";
         if (!_plannerLoaded) {
           loadGoalItemsTab();
           _plannerLoaded = true;
@@ -2262,7 +2481,7 @@
       } else {
         reloadBtn.onclick = () => loadGoalsPage();
         document.getElementById("pageTitle").textContent    = "Goals";
-        document.getElementById("pageSubtitle").textContent = "Smart savings targets with real-time forecasting";
+        document.getElementById("pageSubtitle").textContent = "Savings goals and forecasts";
       }
     }
 
