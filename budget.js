@@ -5,6 +5,13 @@ let budgetAutoSaveTimer = null;
 let budgetAutoSaveInFlight = false;
 
 const BUDGET_SHEET = "Budget Setup";
+const BUDGET_PROJECTION_STORAGE_KEY = "fintrackBudgetProjectionAssumptions";
+const BUDGET_PROJECTION_RATE_LEVELS = {
+  low: { label: "Low", multiplier: 0.65 },
+  medium: { label: "Med", multiplier: 1 },
+  high: { label: "High", multiplier: 1.35 }
+};
+let budgetProjectionAssumptions = loadBudgetProjectionAssumptions();
 
 async function loadBudgetPage() {
   try {
@@ -37,6 +44,59 @@ async function loadBudgetPage() {
 
 function clean(value) {
   return String(value ?? "").trim();
+}
+
+function loadBudgetProjectionAssumptions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BUDGET_PROJECTION_STORAGE_KEY) || "{}");
+    return saved && typeof saved === "object" ? saved : {};
+  } catch (err) {
+    console.warn("Projection assumptions could not be loaded.", err);
+    return {};
+  }
+}
+
+function saveBudgetProjectionAssumptions() {
+  try {
+    localStorage.setItem(BUDGET_PROJECTION_STORAGE_KEY, JSON.stringify(budgetProjectionAssumptions));
+  } catch (err) {
+    console.warn("Projection assumptions could not be saved.", err);
+  }
+}
+
+function getBudgetProjectionAssumption(category) {
+  const key = budgetCategoryKey(category);
+  const saved = budgetProjectionAssumptions[key] || {};
+  const rate = BUDGET_PROJECTION_RATE_LEVELS[saved.rate] ? saved.rate : "medium";
+  return {
+    includeFuture: saved.includeFuture !== false,
+    rate
+  };
+}
+
+function updateProjectionInclude(encodedKey, checked) {
+  const key = decodeURIComponent(encodedKey);
+  const saved = budgetProjectionAssumptions[key] || {};
+  budgetProjectionAssumptions[key] = {
+    ...saved,
+    includeFuture: Boolean(checked),
+    rate: BUDGET_PROJECTION_RATE_LEVELS[saved.rate] ? saved.rate : "medium"
+  };
+  saveBudgetProjectionAssumptions();
+  renderBudgetProjectionPanel(monthlyBudget.map(item => computeBudgetRow(item)));
+}
+
+function updateProjectionRate(encodedKey, rate) {
+  if (!BUDGET_PROJECTION_RATE_LEVELS[rate]) return;
+  const key = decodeURIComponent(encodedKey);
+  const saved = budgetProjectionAssumptions[key] || {};
+  budgetProjectionAssumptions[key] = {
+    ...saved,
+    includeFuture: saved.includeFuture !== false,
+    rate
+  };
+  saveBudgetProjectionAssumptions();
+  renderBudgetProjectionPanel(monthlyBudget.map(item => computeBudgetRow(item)));
 }
 
 function readTransactionSheet(sheet) {
@@ -75,13 +135,31 @@ function addBudgetItem() {
 }
 
 function deleteBudgetItem(type, index) {
-  (type === "Bills" ? billsBudget : monthlyBudget).splice(index, 1);
+  const list = type === "Bills" ? billsBudget : monthlyBudget;
+  const [removed] = list.splice(index, 1);
+  if (type === "Monthly Expenses" && removed) {
+    delete budgetProjectionAssumptions[budgetCategoryKey(removed.category)];
+    saveBudgetProjectionAssumptions();
+  }
   renderBudget();
   scheduleBudgetAutoSave();
 }
 
 function updateBudgetCategory(type, index, value) {
-  (type === "Bills" ? billsBudget : monthlyBudget)[index].category = clean(value);
+  const list = type === "Bills" ? billsBudget : monthlyBudget;
+  const oldKey = budgetCategoryKey(list[index].category);
+  const category = clean(value);
+  list[index].category = category;
+  if (type === "Monthly Expenses") {
+    const newKey = budgetCategoryKey(category);
+    if (oldKey && oldKey !== newKey && budgetProjectionAssumptions[oldKey]) {
+      if (newKey && !budgetProjectionAssumptions[newKey]) {
+        budgetProjectionAssumptions[newKey] = budgetProjectionAssumptions[oldKey];
+      }
+      delete budgetProjectionAssumptions[oldKey];
+      saveBudgetProjectionAssumptions();
+    }
+  }
   renderBudget();
   scheduleBudgetAutoSave();
 }
@@ -375,7 +453,7 @@ function renderBudgetProjectionPanel(monthlyRows) {
       <div class="bproj-header">
         <div>
           <h2>Monthly Expense Projection</h2>
-          <p>Expected month-end spend using each category's usual timing, with daily pace as fallback.</p>
+          <p>Expected month-end spend using usual timing or daily pace, adjusted by your category assumptions.</p>
         </div>
         <span class="bproj-badge${badgeClass}">${badgeText}</span>
       </div>
@@ -406,14 +484,25 @@ function buildMonthlyProjection(rows) {
     const dailyProjectedSpend = dailyAverage * daysInMonth;
     const timing = buildCategorySpendingTiming(row.type, row.category, today, dayOfMonth);
     const usesHistoricalTiming = timing.months >= 2;
-    const projectedSpend = usesHistoricalTiming
+    const baseProjectedSpend = usesHistoricalTiming
       ? Math.max(row.spent, row.spent + timing.medianRemaining)
       : dailyProjectedSpend;
+    const baseRemaining = Math.max(0, baseProjectedSpend - row.spent);
+    const assumption = getBudgetProjectionAssumption(row.category);
+    const rateConfig = BUDGET_PROJECTION_RATE_LEVELS[assumption.rate] || BUDGET_PROJECTION_RATE_LEVELS.medium;
+    const adjustedRemaining = assumption.includeFuture ? baseRemaining * rateConfig.multiplier : 0;
+    const projectedSpend = row.spent + adjustedRemaining;
     const projectedBalance = row.allocated - projectedSpend;
     return {
       ...row,
       dailyAverage,
       dailyProjectedSpend,
+      baseProjectedSpend,
+      baseRemaining,
+      adjustedRemaining,
+      projectionAssumption: assumption,
+      projectionRateLabel: rateConfig.label,
+      projectionRateMultiplier: rateConfig.multiplier,
       projectedSpend,
       projectedBalance,
       projectionMethod: usesHistoricalTiming ? "history" : "daily",
@@ -496,19 +585,56 @@ function medianNumber(values) {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function renderProjectionRateControls(row, encodedKey) {
+  const assumption = row.projectionAssumption || getBudgetProjectionAssumption(row.category);
+  const disabled = assumption.includeFuture ? "" : " disabled";
+  return `
+    <div class="bproj-rate-group" role="group" aria-label="Spending rate for ${escapeHtml(row.category)}">
+      ${Object.entries(BUDGET_PROJECTION_RATE_LEVELS).map(([rate, config]) => `
+        <button
+          type="button"
+          class="bproj-rate-btn${assumption.rate === rate ? " active" : ""}"
+          onclick="updateProjectionRate('${encodedKey}', '${rate}')"
+          ${disabled}
+        >${config.label}</button>`).join("")}
+    </div>`;
+}
+
+function getProjectionPaceDetail(row) {
+  const assumption = row.projectionAssumption || getBudgetProjectionAssumption(row.category);
+  if (!assumption.includeFuture) return "no more projected spend";
+
+  const rateLabel = (row.projectionRateLabel || "Med").toLowerCase();
+  if (row.projectionMethod === "history") {
+    return `${rateLabel} usual remaining ${formatCurrency(row.adjustedRemaining)} · ${row.historicalMonths} mo`;
+  }
+
+  const adjustedDailyAverage = row.dailyAverage * (row.projectionRateMultiplier || 1);
+  return `${rateLabel} pace ${formatCurrency(adjustedDailyAverage)}/day`;
+}
+
 function renderProjectionRow(row) {
+  const assumption = row.projectionAssumption || getBudgetProjectionAssumption(row.category);
+  const categoryKey = budgetCategoryKey(row.category);
+  const encodedKey = encodeURIComponent(categoryKey);
   const balanceClass = row.projectedBalance >= 0 ? "green" : "red";
   const scale = Math.max(row.allocated, row.projectedSpend, 1);
   const fillPct = Math.min(100, (row.projectedSpend / scale) * 100);
   const budgetPct = Math.min(100, (row.allocated / scale) * 100);
-  const paceDetail = row.projectionMethod === "history"
-    ? `usual remaining ${formatCurrency(row.historicalRemaining)} · ${row.historicalMonths} mo`
-    : `${formatCurrency(row.dailyAverage)}/day`;
+  const paceDetail = getProjectionPaceDetail(row);
+  const checked = assumption.includeFuture ? " checked" : "";
   return `
-    <div class="bproj-row">
+    <div class="bproj-row${assumption.includeFuture ? "" : " paused"}">
       <div class="bproj-row-top">
-        <span class="bproj-row-name">${escapeHtml(row.category)}</span>
-        <strong class="bproj-row-val ${balanceClass}">${formatCurrency(row.projectedBalance)}</strong>
+        <label class="bproj-row-toggle">
+          <input type="checkbox"${checked} onchange="updateProjectionInclude('${encodedKey}', this.checked)" aria-label="Project future spend for ${escapeHtml(row.category)}">
+          <span class="bproj-check-box" aria-hidden="true"></span>
+          <span class="bproj-row-name">${escapeHtml(row.category)}</span>
+        </label>
+        <div class="bproj-row-side">
+          ${renderProjectionRateControls(row, encodedKey)}
+          <strong class="bproj-row-val ${balanceClass}">${formatCurrency(row.projectedBalance)}</strong>
+        </div>
       </div>
       <div class="bproj-track">
         <span class="bproj-fill ${row.projectedBalance < 0 ? "over" : ""}" style="width:${fillPct.toFixed(2)}%;"></span>

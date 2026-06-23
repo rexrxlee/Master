@@ -167,6 +167,83 @@
       color: var(--muted);
     }
 
+    /* Smart prefill */
+    .ai-prefill-panel {
+      margin-bottom: 16px;
+      padding: 12px;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .ai-prefill-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .ai-prefill-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .ai-prefill-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .ai-prefill-bar textarea {
+      min-height: 54px;
+      resize: vertical;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      line-height: 1.35;
+    }
+    .ai-prefill-bar textarea:focus {
+      outline: none;
+      border-color: var(--text);
+    }
+    .ai-prefill-bar button {
+      min-width: 82px;
+      padding: 0 14px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .ai-prefill-bar .ai-prefill-primary {
+      background: var(--text);
+      border-color: var(--text);
+      color: #fff;
+    }
+    .ai-prefill-status {
+      min-height: 18px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .ai-prefill-status.good { color: #166534; }
+    .ai-prefill-status.warn { color: #9a5b10; }
+    @media (max-width: 640px) {
+      .ai-prefill-bar {
+        grid-template-columns: 1fr 1fr;
+      }
+      .ai-prefill-bar textarea {
+        grid-column: 1 / -1;
+      }
+    }
+
     /* Claimable toggle */
     .claimable-toggle {
       padding: 9px 14px;
@@ -447,6 +524,18 @@
       <!-- Expense -->
       <div id="transactionForm" class="tx-form-body">
         <div id="transactionSuccess" class="success-message" style="display:none;margin-bottom:14px;">✅ Transaction saved successfully!</div>
+        <div class="ai-prefill-panel">
+          <div class="ai-prefill-header">
+            <span class="ai-prefill-title">AI Prefill</span>
+            <span class="card-badge">Expense</span>
+          </div>
+          <div class="ai-prefill-bar">
+            <textarea id="aiPrefillText" placeholder="e.g. Yesterday Grab to office $18.40 on UOB"></textarea>
+            <button type="button" class="ai-prefill-primary" onclick="applyAiPrefill()">Prefill</button>
+            <button type="button" onclick="clearAiPrefill()">Clear</button>
+          </div>
+          <div id="aiPrefillStatus" class="ai-prefill-status"></div>
+        </div>
         <div id="recurringSuggestions" class="recurring-suggestions" style="display:none;">
           <div class="recurring-suggestions-header">
             <span class="recurring-suggestions-title">Recurring suggestions</span>

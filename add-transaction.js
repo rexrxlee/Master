@@ -8,6 +8,66 @@ let recentRows = [];               // raw rows from sheet
 let filteredRecentRows = [];       // after applying search/category filter
 let recurringSuggestions = [];      // strict recurring matches from transaction history
 
+const SMART_CATEGORY_RULES = [
+  {
+    hints: ["food"],
+    keywords: ["food", "lunch", "dinner", "breakfast", "coffee", "cafe", "restaurant", "eat", "meal", "snack", "kopi", "yakun", "mcdonald", "kfc", "grabfood", "deliveroo", "grocery", "groceries", "fairprice", "ntuc", "sheng siong", "supermarket"]
+  },
+  {
+    hints: ["transport"],
+    keywords: ["transport", "grab", "gojek", "taxi", "cab", "tada", "comfort", "bus", "mrt", "train", "parking", "petrol", "fuel", "erp", "toll"]
+  },
+  {
+    hints: ["medical", "health"],
+    keywords: ["medical", "clinic", "doctor", "dentist", "dental", "pharmacy", "hospital", "medicine", "medication", "health"]
+  },
+  {
+    hints: ["pet"],
+    keywords: ["pet", "vet", "veterinary", "dog", "cat", "grooming", "paw"]
+  },
+  {
+    hints: ["child", "kid", "baby"],
+    keywords: ["child", "children", "kid", "kids", "baby", "school", "tuition", "childcare", "diaper", "toys"]
+  },
+  {
+    hints: ["bill", "utility", "utilities", "phone", "internet", "insurance"],
+    keywords: ["bill", "utility", "utilities", "phone", "mobile", "internet", "wifi", "electricity", "water", "insurance", "subscription"]
+  },
+  {
+    hints: ["other", "others", "misc"],
+    keywords: ["other", "others", "misc", "miscellaneous"]
+  }
+];
+
+const SMART_MONTHS = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12
+};
+
+const SMART_WEEKDAYS = {
+  sun: 0, sunday: 0,
+  mon: 1, monday: 1,
+  tue: 2, tues: 2, tuesday: 2,
+  wed: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4,
+  fri: 5, friday: 5,
+  sat: 6, saturday: 6
+};
+
+const SMART_STOP_WORDS = new Set([
+  "a", "an", "and", "at", "by", "for", "from", "in", "into", "my", "of", "on", "or", "paid", "pay", "sgd", "the", "to", "using", "via", "with"
+]);
+
 // ── Page load ─────────────────────────────────────────────────────────────────
 async function loadAddTransactionPage() {
   try {
@@ -399,6 +459,399 @@ function setSelectValue(id, value) {
     sel.appendChild(option);
   }
   sel.value = optionValue;
+}
+
+// ── AI prefill helper ─────────────────────────────────────────────────────────
+function applyAiPrefill() {
+  const input = document.getElementById("aiPrefillText");
+  const raw = String(input?.value ?? "").trim();
+  if (!raw) {
+    setAiPrefillStatus("Enter rough expense details first.", "warn");
+    return;
+  }
+
+  const suggestion = buildAiPrefillSuggestion(raw);
+  setMode("transaction");
+
+  if (suggestion.date) setInputValue("txDate", suggestion.date);
+  if (suggestion.amount > 0) setInputValue("txAmount", suggestion.amount.toFixed(2));
+  if (suggestion.description) setInputValue("txTransaction", suggestion.description);
+  if (suggestion.mainCat) {
+    setSelectValue("txMainCategory", suggestion.mainCat);
+    onMainCategoryChange();
+  }
+  if (suggestion.subCat) setSelectValue("txSubCategory", suggestion.subCat);
+  if (suggestion.account) setSelectValue("txAccount", suggestion.account);
+
+  if (suggestion.claimable) {
+    if (!isClaimable) toggleClaimable();
+    setInputValue("txClaimAmount", suggestion.claimAmount > 0 ? suggestion.claimAmount.toFixed(2) : "");
+    setSelectValue("txClaimAccount", suggestion.claimAccount);
+  } else {
+    resetClaimableUi();
+  }
+  syncClaimAmountCap();
+
+  setAiPrefillStatus(buildAiPrefillStatus(suggestion), suggestion.missing.length ? "warn" : "good");
+}
+
+function clearAiPrefill() {
+  setInputValue("aiPrefillText", "");
+  setAiPrefillStatus("");
+}
+
+function setAiPrefillStatus(message, tone = "") {
+  const el = document.getElementById("aiPrefillStatus");
+  if (!el) return;
+  el.textContent = message;
+  el.className = "ai-prefill-status" + (tone ? " " + tone : "");
+}
+
+function buildAiPrefillSuggestion(raw) {
+  const amountInfo = parseSmartAmount(raw);
+  const dateInfo = parseSmartDate(raw);
+  const amount = amountInfo?.value || 0;
+  const roughDescription = buildSmartDescription(raw, amountInfo, dateInfo);
+  const historyMatch = findSmartHistoryMatch(raw, roughDescription, amount);
+  const category = inferSmartCategory(raw, roughDescription, historyMatch);
+  const account = inferSmartAccount(raw, historyMatch);
+  const claim = inferSmartClaim(raw, amount);
+  const description = inferSmartDescription(raw, amountInfo, dateInfo, historyMatch, category, account, claim);
+  const date = dateInfo?.value || document.getElementById("txDate")?.value || todayInputValue();
+
+  const missing = [];
+  if (!date) missing.push("date");
+  if (!(amount > 0)) missing.push("amount");
+  if (!category.mainCat) missing.push("main category");
+  if (!category.subCat) missing.push("sub category");
+  if (!description) missing.push("description");
+  if (!account) missing.push("account");
+
+  return {
+    raw,
+    date,
+    amount,
+    description,
+    mainCat: category.mainCat,
+    subCat: category.subCat,
+    account,
+    claimable: claim.claimable,
+    claimAmount: claim.amount,
+    claimAccount: claim.account,
+    historyMatch,
+    categorySource: category.source,
+    missing
+  };
+}
+
+function buildAiPrefillStatus(suggestion) {
+  const filled = [];
+  if (suggestion.date) filled.push("date");
+  if (suggestion.amount > 0) filled.push("amount");
+  if (suggestion.description) filled.push("description");
+  if (suggestion.mainCat && suggestion.subCat) filled.push("category");
+  if (suggestion.account) filled.push("account");
+  if (suggestion.claimable) filled.push("claim");
+
+  let message = filled.length ? "Prefilled " + filled.join(", ") + "." : "Could not prefill from that text.";
+  if (suggestion.historyMatch) {
+    message += " Matched recent " + suggestion.historyMatch.transaction + ".";
+  } else if (suggestion.categorySource === "fallback") {
+    message += " Category is a fallback, so review it before saving.";
+  }
+  if (suggestion.missing.length) {
+    message += " Still needs " + suggestion.missing.join(", ") + ".";
+  }
+  return message;
+}
+
+function parseSmartAmount(raw) {
+  const candidates = [];
+  const text = String(raw ?? "");
+  const addCandidate = (match, valueIndex, score) => {
+    const rawValue = match[valueIndex];
+    const value = parseMoney(rawValue);
+    if (!(value > 0)) return;
+    candidates.push({
+      value,
+      rawMatch: match[0],
+      index: match.index ?? 0,
+      score
+    });
+  };
+
+  [
+    /(?:sgd|s\$|\$)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/ig,
+    /([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:sgd|s\$|\$)/ig,
+    /(?:amount|amt|spent|paid|cost|costs|for)\s*(?:sgd|s\$|\$)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/ig
+  ].forEach(pattern => {
+    for (const match of text.matchAll(pattern)) addCandidate(match, 1, 90);
+  });
+
+  for (const match of text.matchAll(/\b([0-9][0-9,]*\.\d{1,2})\b/g)) {
+    addCandidate(match, 1, 70);
+  }
+
+  for (const match of text.matchAll(/\b([0-9][0-9,]*)\b/g)) {
+    const value = parseMoney(match[1]);
+    if (!(value > 0) || value > 100000 || isSmartDateNumber(text, match.index ?? 0, match[0].length)) continue;
+    candidates.push({ value, rawMatch: match[0], index: match.index ?? 0, score: 35 });
+  }
+
+  candidates.sort((a, b) => b.score - a.score || b.rawMatch.length - a.rawMatch.length || a.index - b.index);
+  return candidates[0] || null;
+}
+
+function isSmartDateNumber(text, index, length) {
+  const value = Number(text.slice(index, index + length).replace(/,/g, ""));
+  if (value >= 1900 && value <= 2100) return true;
+  const before = text.slice(Math.max(0, index - 12), index).toLowerCase();
+  const after = text.slice(index + length, index + length + 12).toLowerCase();
+  if (/[\/-]\s*$/.test(before) || /^\s*[\/-]/.test(after)) return true;
+  if (value >= 1 && value <= 31) {
+    const near = before + " " + after;
+    if (Object.keys(SMART_MONTHS).some(month => new RegExp("\\b" + month + "\\b", "i").test(near))) return true;
+  }
+  return false;
+}
+
+function parseSmartDate(raw) {
+  const text = String(raw ?? "");
+  const lower = text.toLowerCase();
+  const today = new Date();
+
+  if (/\btoday\b/.test(lower)) return { value: inputDateFromDate(today), rawMatch: "today" };
+  if (/\byesterday\b/.test(lower)) return { value: inputDateFromDate(addDays(today, -1)), rawMatch: "yesterday" };
+  if (/\btomorrow\b/.test(lower)) return { value: inputDateFromDate(addDays(today, 1)), rawMatch: "tomorrow" };
+
+  let match = text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (match) return { value: inputDateFromParts(Number(match[1]), Number(match[2]), Number(match[3])), rawMatch: match[0] };
+
+  match = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  if (match) {
+    const year = match[3] ? normalizeSmartYear(match[3]) : today.getFullYear();
+    return { value: inputDateFromParts(year, Number(match[2]), Number(match[1])), rawMatch: match[0] };
+  }
+
+  const monthNames = Object.keys(SMART_MONTHS).join("|");
+  match = text.match(new RegExp("\\b(\\d{1,2})\\s+(" + monthNames + ")(?:\\s+(\\d{2,4}))?\\b", "i"));
+  if (match) {
+    const year = match[3] ? normalizeSmartYear(match[3]) : today.getFullYear();
+    return { value: inputDateFromParts(year, SMART_MONTHS[match[2].toLowerCase()], Number(match[1])), rawMatch: match[0] };
+  }
+
+  match = text.match(new RegExp("\\b(" + monthNames + ")\\s+(\\d{1,2})(?:\\s+(\\d{2,4}))?\\b", "i"));
+  if (match) {
+    const year = match[3] ? normalizeSmartYear(match[3]) : today.getFullYear();
+    return { value: inputDateFromParts(year, SMART_MONTHS[match[1].toLowerCase()], Number(match[2])), rawMatch: match[0] };
+  }
+
+  match = lower.match(/\blast\s+(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday|rday)?|fri(?:day)?|sat(?:urday)?)\b/);
+  if (match) {
+    const target = SMART_WEEKDAYS[match[1]];
+    if (target !== undefined) {
+      const daysBack = ((today.getDay() - target + 7) % 7) || 7;
+      return { value: inputDateFromDate(addDays(today, -daysBack)), rawMatch: match[0] };
+    }
+  }
+
+  return null;
+}
+
+function findSmartHistoryMatch(raw, description, amount) {
+  const inputNorm = normalizeRecurringText(raw + " " + description);
+  const inputTokens = new Set(tokenizeSmartText(inputNorm));
+  const rows = [...recentRows]
+    .filter(row => row.mainCat !== "Income" && row.mainCat !== "Transfer")
+    .filter(row => row.transaction && row.mainCat && row.subCat)
+    .map(row => {
+      const txNorm = normalizeRecurringText(row.transaction);
+      const rowTokens = tokenizeSmartText(row.transaction + " " + row.subCat + " " + row.account);
+      let score = 0;
+
+      if (txNorm && inputNorm.includes(txNorm)) score += 22;
+      if (txNorm && normalizeRecurringText(description).includes(txNorm)) score += 12;
+      rowTokens.forEach(token => {
+        if (inputTokens.has(token)) score += txNorm.includes(token) ? 4 : 2;
+      });
+      if (amount > 0) {
+        const rowAmount = parseMoney(row.amount);
+        if (Math.abs(rowAmount - amount) < 0.01) score += 8;
+        else if (Math.round(rowAmount) === Math.round(amount)) score += 3;
+      }
+      if (row.account && inputNorm.includes(normalizeRecurringText(row.account))) score += 6;
+      if (row.subCat && inputNorm.includes(normalizeRecurringText(row.subCat))) score += 5;
+
+      return { ...row, _smartScore: score };
+    })
+    .filter(row => row._smartScore >= 6)
+    .sort((a, b) => b._smartScore - a._smartScore || rawDateToInputValue(b.date).localeCompare(rawDateToInputValue(a.date)));
+
+  return rows[0] || null;
+}
+
+function inferSmartCategory(raw, description, historyMatch) {
+  if (historyMatch && isKnownCategory(historyMatch.mainCat, historyMatch.subCat)) {
+    return { mainCat: historyMatch.mainCat, subCat: historyMatch.subCat, source: "history" };
+  }
+
+  const inputNorm = normalizeRecurringText(raw + " " + description);
+  const inputTokens = new Set(tokenizeSmartText(inputNorm));
+  const pairs = getSmartCategoryPairs();
+  const scored = pairs.map(pair => {
+    const categoryNorm = normalizeRecurringText(pair.mainCat + " " + pair.subCat);
+    const categoryTokens = tokenizeSmartText(categoryNorm);
+    let score = 0;
+
+    if (inputNorm.includes(normalizeRecurringText(pair.subCat))) score += 22;
+    if (inputNorm.includes(normalizeRecurringText(pair.mainCat))) score += 5;
+    categoryTokens.forEach(token => { if (inputTokens.has(token)) score += 4; });
+
+    SMART_CATEGORY_RULES.forEach(rule => {
+      const keywordHit = rule.keywords.some(keyword => inputNorm.includes(normalizeRecurringText(keyword)));
+      if (!keywordHit) return;
+      const hintHit = rule.hints.some(hint => categoryNorm.includes(normalizeRecurringText(hint)));
+      if (hintHit) score += 18;
+    });
+
+    return { ...pair, score };
+  }).sort((a, b) => b.score - a.score || a.subCat.localeCompare(b.subCat));
+
+  if (scored[0] && scored[0].score >= 4) {
+    return { mainCat: scored[0].mainCat, subCat: scored[0].subCat, source: "text" };
+  }
+
+  const fallback = pairs.find(pair => normalizeRecurringText(pair.subCat).includes("other"))
+    || pairs.find(pair => pair.mainCat === "Monthly Expenses")
+    || pairs[0];
+  return fallback
+    ? { mainCat: fallback.mainCat, subCat: fallback.subCat, source: "fallback" }
+    : { mainCat: "", subCat: "", source: "" };
+}
+
+function inferSmartAccount(raw, historyMatch) {
+  const inputNorm = normalizeRecurringText(raw);
+  const scored = accounts.map(account => {
+    const accountNorm = normalizeRecurringText(account.name);
+    const accountTokens = tokenizeSmartText(account.name);
+    let score = 0;
+    if (accountNorm && inputNorm.includes(accountNorm)) score += 30;
+    accountTokens.forEach(token => { if (inputNorm.includes(token)) score += 8; });
+    if (account.type === "Credit Card" && /\b(cc|credit card|visa|mastercard|amex)\b/.test(inputNorm)) score += 3;
+    return { account, score };
+  }).sort((a, b) => b.score - a.score || a.account.name.localeCompare(b.account.name));
+
+  if (scored[0]?.score >= 8) return scored[0].account.name;
+  if (historyMatch?.account) return historyMatch.account;
+  return document.getElementById("txAccount")?.value || "";
+}
+
+function inferSmartClaim(raw, amount) {
+  const text = String(raw ?? "");
+  const inputNorm = normalizeRecurringText(text);
+  const claimable = /\b(claim|claimable|reimburse|reimbursed|reimbursement)\b/.test(inputNorm);
+  if (!claimable) return { claimable: false, amount: 0, account: "" };
+
+  let claimAmount = 0;
+  const match = text.match(/(?:claim|claimable|reimburse|reimbursed|reimbursement)\s*(?:amount)?\s*(?:sgd|s\$|\$)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  if (match) claimAmount = parseMoney(match[1]);
+  else if (/\bhalf\b/.test(inputNorm) && amount > 0) claimAmount = amount / 2;
+  else claimAmount = amount;
+
+  const accountMatch = text.match(/(?:claim|reimburse(?:d|ment)?|paid)\s+(?:to|into)\s+(.+)$/i);
+  const claimAccount = accountMatch ? inferSmartAccount(accountMatch[1], null) : "";
+  return { claimable: true, amount: claimAmount, account: claimAccount };
+}
+
+function inferSmartDescription(raw, amountInfo, dateInfo, historyMatch, category, account, claim) {
+  let description = buildSmartDescription(raw, amountInfo, dateInfo);
+  [account, category?.mainCat, category?.subCat, claim?.account].filter(Boolean).forEach(value => {
+    description = removeSmartPhrase(description, value);
+  });
+  if (account) {
+    tokenizeSmartText(account).forEach(token => {
+      description = removeSmartWord(description, token);
+    });
+  }
+  description = description
+    .replace(/\b(claim|claimable|reimburse|reimbursed|reimbursement|amount|amt|spent|paid|pay|using|with|via|from|on|account|card|sgd|s\$|full|half)\b/ig, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[,.;:-]+|[,.;:-]+$/g, "")
+    .replace(/^\s*(to|at|for|by|with|via|on|from)\b\s*/i, "")
+    .replace(/\s*\b(to|at|for|by|with|via|on|from)\b\s*$/i, "")
+    .trim();
+
+  if (description.length >= 3) return description;
+  if (historyMatch?.transaction) return historyMatch.transaction;
+  return String(raw ?? "").trim().slice(0, 80);
+}
+
+function buildSmartDescription(raw, amountInfo, dateInfo) {
+  let description = String(raw ?? "");
+  [amountInfo?.rawMatch, dateInfo?.rawMatch].filter(Boolean).forEach(value => {
+    description = removeSmartPhrase(description, value);
+  });
+  description = description
+    .replace(/\b(today|yesterday|tomorrow)\b/ig, " ")
+    .replace(/\blast\s+(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday|rday)?|fri(?:day)?|sat(?:urday)?)\b/ig, " ")
+    .replace(/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/g, " ")
+    .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return description;
+}
+
+function removeSmartPhrase(value, phrase) {
+  const escaped = String(phrase ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return value;
+  return String(value ?? "").replace(new RegExp(escaped, "ig"), " ");
+}
+
+function removeSmartWord(value, word) {
+  const escaped = String(word ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return value;
+  return String(value ?? "").replace(new RegExp("\\b" + escaped + "\\b", "ig"), " ");
+}
+
+function tokenizeSmartText(value) {
+  return normalizeRecurringText(value)
+    .split(" ")
+    .filter(token => token.length > 1 && !SMART_STOP_WORDS.has(token));
+}
+
+function getSmartCategoryPairs() {
+  return Object.entries(categories).flatMap(([mainCat, subs]) =>
+    (subs || []).map(subCat => ({ mainCat, subCat }))
+  );
+}
+
+function isKnownCategory(mainCat, subCat) {
+  return (categories[mainCat] || []).includes(subCat);
+}
+
+function todayInputValue() {
+  return inputDateFromDate(new Date());
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function inputDateFromDate(date) {
+  return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+}
+
+function inputDateFromParts(year, month, day) {
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+  return inputDateFromDate(date);
+}
+
+function normalizeSmartYear(yearText) {
+  const year = Number(yearText);
+  return year < 100 ? 2000 + year : year;
 }
 
 function normalizeRecurringText(value) {
