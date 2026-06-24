@@ -617,7 +617,7 @@ function openPurchaseModal(itemId) {
         <div class="gi-modal-info">
           <span class="gi-modal-info-icon">ℹ</span>
           This will write a <strong>Savings Goal</strong> transaction row to your Excel sheet,
-          reducing the balance of the selected account. The item will be marked as purchased here.
+          reducing the selected account, lowering the live goal allocation, and counting the purchase as fulfilled progress.
         </div>
 
         <div class="gi-modal-diff" id="giModalDiff" style="display:none;"></div>
@@ -674,23 +674,35 @@ async function confirmPurchase(itemId) {
     // 1. Write transaction row to transaction sheet
     await _writeTransactionRow(date, txdesc, amt, "Savings Goal", "Goal: " + item.goalName, acct);
 
-    // 2. Update item state
+    // 2. Reduce the goal allocation and record why in the goal notes
+    const adjustment = typeof applyGoalExpenseAdjustmentByName === "function"
+      ? applyGoalExpenseAdjustmentByName(item.goalName, amt, txdesc, acct, date)
+      : null;
+
+    // 3. Update item state
     item.status          = "Purchased";
     item.purchasedAmount = amt;
     item.purchasedDate   = date;
 
-    // 3. Save Goal Items sheet
+    // 4. Save Goal Items sheet and linked goal allocation
     await _writeGoalItemsSheet();
+    if (adjustment && typeof persistGoalsToExcel === "function") {
+      const goalsSaved = await persistGoalsToExcel({ silent: true, includeBoosts: false, waitForIdle: true });
+      if (!goalsSaved) throw new Error("Purchase saved, but the linked goal allocation did not save to Excel.");
+    }
 
-    // 4. Close modal & re-render
+    // 5. Close modal & re-render
     closePurchaseModal();
     _reRenderGoalSection(item.goalName);
     _renderGoalsSummaryBar();
 
-    // 5. Reload goals overview data so account balances update
+    // 6. Reload goals overview data so account balances update
     if (typeof loadGoalsPage === "function") await loadGoalsPage();
 
-    alert(`✓ Purchased! ${_fmtCurrency(amt)} deducted from ${acct}.`);
+    const reductionText = adjustment && adjustment.reducedBy < amt
+      ? ` ${_fmtCurrency(adjustment.reducedBy)} was removed from the goal allocation because only ${_fmtCurrency(adjustment.previous)} was allocated.`
+      : ` ${_fmtCurrency(amt)} was removed from the goal allocation.`;
+    alert(`✓ Purchased! ${_fmtCurrency(amt)} deducted from ${acct}.` + reductionText + " The purchase now counts as fulfilled goal progress.");
   } catch (err) {
     if (btn) { btn.disabled = false; btn.textContent = "✓ Confirm Purchase"; }
     alert("Failed to save: " + err.message);

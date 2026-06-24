@@ -964,6 +964,8 @@ function renderGoalsPage() {
 
   // ── 1. Account Selector ──
   const savingsAccountOptions = allAccounts.filter(a => a.type === "Savings");
+  const selectedGoalAccountCount = goalSavingsAccts.length;
+  const selectedGoalAccountBalance = goalSavingsAccts.reduce((sum, account) => sum + (savingsBalances[account] || 0), 0);
   const acctCheckboxes = savingsAccountOptions.map(a => {
     const checked = goalSavingsAccts.includes(a.name) ? "checked" : "";
     return `<label class="acct-check-label">
@@ -974,14 +976,15 @@ function renderGoalsPage() {
   }).join("");
 
   container.innerHTML += `
-    <div class="goals-panel acct-selector-panel">
-      <div class="panel-header">
-        <span class="panel-icon">🏦</span>
+    <details class="goals-panel acct-selector-panel collapsible-panel">
+      <summary class="panel-header">
+        <span class="panel-icon">▦</span>
         <h2>Goal Savings Accounts</h2>
-        <span class="panel-hint">Accounts used for goal funding</span>
-      </div>
+        <span class="simple-account-summary">${selectedGoalAccountCount} selected · ${formatCurrency(selectedGoalAccountBalance)}</span>
+        <span class="panel-caret">▾</span>
+      </summary>
       <div class="acct-checklist">${acctCheckboxes || '<span style="color:var(--muted);font-size:13px;">No savings accounts found. Add them in <a href="accounts.html">Accounts & Setup</a>.</span>'}</div>
-    </div>
+    </details>
   `;
 
   // ── 2. Available Balance + Fund Allocator ──
@@ -1045,6 +1048,7 @@ function renderGoalsPage() {
   // Build per-goal allocator rows
   const allocatorRows = goalsData.map((g, idx) => {
     const savedViaGoalTx  = getSavedViaTransactions(g.name);
+    const spentViaGoalTx  = getGoalSpentViaTransactions(g.name);
     const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
     const totalSaved      = g.manualSaved + savedViaGoalTx;
     const baseRemaining   = Math.max(0, g.target - totalSaved);
@@ -1056,16 +1060,17 @@ function renderGoalsPage() {
     const bufferLabel     = g.goalBuffer > 0 ? ` <span style="color:var(--muted);font-size:11px;">(+${g.goalBuffer}% buffer)</span>` : "";
     const priorityChecked = isForcePriorityGoal(g) ? "checked" : "";
     const priorityBadge = isForcePriorityGoal(g) ? `<span class="alloc-priority-badge">Forced</span>` : "";
+    const spentText = spentViaGoalTx > 0 ? ` &nbsp;·&nbsp; ${formatCurrency(spentViaGoalTx)} already spent` : "";
     return `
       <div class="alloc-row" id="allocRow_${idx}">
         <div class="alloc-name-col">
           <span class="alloc-dot" style="background:${g.color};"></span>
           <div>
             <div class="alloc-name">${escapeHtml(g.name)}${bufferLabel} ${priorityBadge}</div>
-            <div class="alloc-sub">${formatCurrency(totalSaved)} allocated / ${formatCurrency(effectiveTarget)} target &nbsp;·&nbsp; <span style="color:${urgColor[g.urgency]||'#ca8a04'}">${g.urgency}</span></div>
-            <label class="alloc-force-label">
+            <div class="alloc-sub">${formatCurrency(totalSaved)} covered / ${formatCurrency(effectiveTarget)} target${spentText} &nbsp;·&nbsp; <span style="color:${urgColor[g.urgency]||'#ca8a04'}">${g.urgency}</span></div>
+            <label class="alloc-force-label" title="Force this goal above urgency and deadline order">
               <input type="checkbox" ${priorityChecked} onchange="onPriorityChange(${idx}, this.checked)">
-              <span>Force Smart Assign priority</span>
+              <span>Force</span>
             </label>
           </div>
         </div>
@@ -1114,59 +1119,64 @@ function renderGoalsPage() {
   container.innerHTML += `
     <div class="goals-panel balance-panel">
       <div class="panel-header">
-        <span class="panel-icon">💰</span>
-        <h2>Available to Allocate</h2>
-        <span class="panel-hint">After cards, budgets, and reserves</span>
+        <span class="panel-icon">◎</span>
+        <h2>Allocate Funds</h2>
+        <span class="panel-hint goals-autosave-status" id="allocAutosaveStatus">Autosaves to Excel</span>
       </div>
       ${overspendAlert}
-      <div class="balance-layout">
-      <div class="capacity-flow">
-        <div class="capacity-hero">
-          <div>
-            <span class="capacity-label">Available incl. reimbursements</span>
-            <strong class="capacity-value ${depClass}">${formatCurrency(dep.deployable)}</strong>
-            <span class="capacity-source">From ${formatCurrency(dep.rawSavings)} selected cash</span>
-          </div>
-          <div class="capacity-side">
-            <span>Held back</span>
-            <strong>${formatCurrency(heldCapacity)}</strong>
-          </div>
+      <div class="goals-summary-grid">
+        <div class="summary-metric primary">
+          <span>Available</span>
+          <strong class="${depClass}">${formatCurrency(dep.deployable)}</strong>
         </div>
-        <div class="capacity-meter" aria-label="Available capacity">
-          <div class="capacity-meter-fill ${depClass}" style="width:${capacityPct.toFixed(1)}%;"></div>
+        <div class="summary-metric">
+          <span>Allocated</span>
+          <strong id="liveTotalAssigned">${formatCurrency(totalAllocatedToGoals)}</strong>
         </div>
-        <div class="capacity-meter-caption">
-          <span>${capacityPct.toFixed(0)}% available</span>
-          <span>${formatCurrency(grossCapacity)} gross capacity</span>
-        </div>
-        <div class="capacity-chips">${capacityChipHtml}</div>
-        <div class="capacity-metrics">
-          ${cashOnlyMetricHtml}
-          <div class="capacity-metric">
-            <span>Allocated</span>
-            <strong id="liveTotalAssigned">${formatCurrency(totalAllocatedToGoals)}</strong>
-          </div>
-          <div class="capacity-metric ${unassigned>=0?'':'warn-row'}" id="unassignedMetric">
-            <span>Unallocated</span>
-            <strong class="${unassigned>=0?'green':'red'}" id="liveUnassigned">${formatCurrency(unassigned)}</strong>
-          </div>
+        <div class="summary-metric ${unassigned>=0?'':'warn-row'}" id="unassignedMetric">
+          <span>Unallocated</span>
+          <strong class="${unassigned>=0?'green':'red'}" id="liveUnassigned">${formatCurrency(unassigned)}</strong>
         </div>
         ${claimCashMetricHtml}
       </div>
+      <div class="balance-layout">
+      <details class="capacity-details">
+        <summary>
+          <span>Balance details</span>
+          <span>${formatCurrency(dep.rawSavings)} selected cash · ${formatCurrency(heldCapacity)} held back</span>
+        </summary>
+        <div class="capacity-details-body">
+          <div class="capacity-flow">
+            <div class="capacity-hero">
+              <div>
+                <span class="capacity-label">Available incl. reimbursements</span>
+                <strong class="capacity-value ${depClass}">${formatCurrency(dep.deployable)}</strong>
+                <span class="capacity-source">From ${formatCurrency(dep.rawSavings)} selected cash</span>
+              </div>
+              <div class="capacity-side">
+                <span>Held back</span>
+                <strong>${formatCurrency(heldCapacity)}</strong>
+              </div>
+            </div>
+            <div class="capacity-meter" aria-label="Available capacity">
+              <div class="capacity-meter-fill ${depClass}" style="width:${capacityPct.toFixed(1)}%;"></div>
+            </div>
+            <div class="capacity-meter-caption">
+              <span>${capacityPct.toFixed(0)}% available</span>
+              <span>${formatCurrency(grossCapacity)} gross capacity</span>
+            </div>
+            <div class="capacity-chips">${capacityChipHtml}</div>
+          </div>
+        </div>
+      </details>
 
       ${goalsData.length > 0 ? `
       <div class="alloc-section">
         <div class="alloc-header">
-          <span class="alloc-title">🎯 Fund Allocator</span>
+          <span class="alloc-title">Goals</span>
           <div class="alloc-header-actions">
             <button class="btn-smart-assign" onclick="smartAssign()">Smart Assign</button>
           </div>
-        </div>
-        <div class="alloc-hint">Forced goals go first, then urgency and deadline.</div>
-        <div class="alloc-col-labels">
-          <span class="alloc-col-label-name">Goal</span>
-          <span class="alloc-col-label-bar">Progress</span>
-          <span class="alloc-col-label-inp">Allocation &nbsp;&nbsp; + Buffer</span>
         </div>
         <div class="alloc-rows">${allocatorRows}</div>
         <div class="alloc-footer">
@@ -1177,7 +1187,6 @@ function renderGoalsPage() {
                 style="width:${dep.deployable>0?Math.min(100,Math.max(0,(unassigned/dep.deployable)*100)).toFixed(1):0}%;"></div>
             </div>
           </div>
-          <span class="panel-hint goals-autosave-status" id="allocAutosaveStatus" style="white-space:nowrap;">Autosaves to Excel</span>
         </div>
       </div>` : ""}
       </div>
@@ -1186,51 +1195,7 @@ function renderGoalsPage() {
 
   renderInsuranceRenewalGoalPanel(container);
 
-  // ── 3. Historical snapshot ──
-  const salaryOutlierNote = historicalStats.salaryOutlierCount > 0
-    ? `<div class="stats-note">Excluded ${historicalStats.salaryOutlierCount} salary spike${historicalStats.salaryOutlierCount === 1 ? "" : "s"} from recurring income${historicalStats.salaryOutlierMonths?.length ? `: ${historicalStats.salaryOutlierMonths.map(escapeHtml).join(", ")}` : ""}.</div>`
-    : "";
-  container.innerHTML += `
-    <details class="goals-panel stats-panel collapsible-panel">
-      <summary class="panel-header">
-        <span class="panel-icon">📊</span>
-        <h2>Savings Pattern <span style="font-weight:400;font-size:13px;color:var(--muted);">(${historicalStats.months} months)</span></h2>
-        <span class="panel-count-pill">${formatCurrency(historicalStats.avgMonthlySavings)}/mo goal-account savings</span>
-        <span class="panel-caret">▾</span>
-      </summary>
-      <div class="collapsible-body">
-        <div class="stats-grid">
-          <div class="stat-item"><span class="stat-l">Recurring Salary From Goal Accounts</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
-          <div class="stat-item"><span class="stat-l">Avg Net Expenses From Goal Accounts</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
-          <div class="stat-item"><span class="stat-l">Avg Goal-Account Savings</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
-          <div class="stat-item"><span class="stat-l">Budget Committed</span><span class="stat-v">${formatCurrency(budgetSummary.billsTotal+budgetSummary.monthlyTotal)}/mo</span></div>
-        </div>
-        ${salaryOutlierNote}
-      </div>
-    </details>
-  `;
-
-  // ── 4. Multi-goal realism check ──
-  if (goalsData.length > 0) {
-    container.innerHTML += `<div id="goalRealismRegion"></div>`;
-  }
-
-  // ── 4.5 Budget-to-goal motivation ──
-  if (goalsData.length > 0) {
-    container.innerHTML += `<div id="goalMotivationRegion"></div>`;
-  }
-
-  // ── 4.6 Income Boosts ──
-  if (goalsData.length > 0) {
-    renderIncomeBoostsPanel(container);
-  }
-
-  // ── 4.7 Forecast visual placeholders ──
-  if (goalsData.length > 0) {
-    container.innerHTML += `<div id="goalForecastRegion"></div>`;
-  }
-
-  // ── 5. Add Goal Form ──
+  // ── 3. Add Goal Form ──
   container.innerHTML += `
     <div class="goals-panel add-goal-panel" id="addGoalPanel">
       <div class="panel-header" style="cursor:pointer;" onclick="toggleAddForm()">
@@ -1313,14 +1278,57 @@ function renderGoalsPage() {
     sorted.forEach(goal => renderGoalCard(goal, goal.originalIdx, goalsGrid));
   }
 
+  if (goalsData.length > 0) {
+    const salaryOutlierNote = historicalStats.salaryOutlierCount > 0
+      ? `<div class="stats-note">Excluded ${historicalStats.salaryOutlierCount} salary spike${historicalStats.salaryOutlierCount === 1 ? "" : "s"} from recurring income${historicalStats.salaryOutlierMonths?.length ? `: ${historicalStats.salaryOutlierMonths.map(escapeHtml).join(", ")}` : ""}.</div>`
+      : "";
+    container.insertAdjacentHTML("beforeend", `
+      <details class="goals-panel analysis-panel collapsible-panel" id="goalInsightsPanel" ontoggle="if (this.open) refreshGoalInsightPanels()">
+        <summary class="panel-header">
+          <span class="panel-icon">▤</span>
+          <h2>Analysis</h2>
+          <span class="panel-hint">Savings pattern, checks, and forecast</span>
+          <span class="panel-count-pill">${formatCurrency(historicalStats.avgMonthlySavings)}/mo avg savings</span>
+          <span class="panel-caret">▾</span>
+        </summary>
+        <div class="collapsible-body analysis-stack" id="goalAnalysisBody">
+          <details class="goals-panel stats-panel collapsible-panel">
+            <summary class="panel-header">
+              <span class="panel-icon">▥</span>
+              <h2>Savings Pattern</h2>
+              <span class="panel-count-pill">${historicalStats.months} months</span>
+              <span class="panel-caret">▾</span>
+            </summary>
+            <div class="collapsible-body">
+              <div class="stats-grid">
+                <div class="stat-item"><span class="stat-l">Recurring salary</span><span class="stat-v green">${formatCurrency(historicalStats.avgMonthlyIncome)}</span></div>
+                <div class="stat-item"><span class="stat-l">Avg expenses</span><span class="stat-v red">${formatCurrency(historicalStats.avgMonthlyExpenses)}</span></div>
+                <div class="stat-item"><span class="stat-l">Avg savings</span><span class="stat-v ${historicalStats.avgMonthlySavings>=0?'green':'red'}">${formatCurrency(historicalStats.avgMonthlySavings)}</span></div>
+                <div class="stat-item"><span class="stat-l">Budget committed</span><span class="stat-v">${formatCurrency(budgetSummary.billsTotal+budgetSummary.monthlyTotal)}/mo</span></div>
+              </div>
+              ${salaryOutlierNote}
+            </div>
+          </details>
+          <div id="goalRealismRegion"></div>
+          <div id="goalMotivationRegion"></div>
+        </div>
+      </details>
+    `);
+    const analysisBody = document.getElementById("goalAnalysisBody");
+    if (analysisBody) {
+      renderIncomeBoostsPanel(analysisBody);
+      analysisBody.insertAdjacentHTML("beforeend", `<div id="goalForecastRegion"></div>`);
+    }
+  }
+
   // ── 7. Autosave status ──
-  container.innerHTML += `
+  container.insertAdjacentHTML("beforeend", `
     <div style="margin-top:8px;padding-bottom:40px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
       <span class="panel-hint goals-autosave-status" id="goalsAutosaveStatus">Autosaves to Excel</span>
     </div>
-  `;
+  `);
 
-  refreshGoalInsightPanels();
+  if (document.getElementById("goalInsightsPanel")?.open) refreshGoalInsightPanels();
 }
 
 const GOAL_COLORS = [
@@ -1395,6 +1403,7 @@ function _refreshAllocUI() {
   // Refresh per-goal remaining tags and progress
   goalsData.forEach((g, idx) => {
     const savedViaGoalTx  = getSavedViaTransactions(g.name);
+    const spentViaGoalTx  = getGoalSpentViaTransactions(g.name);
     const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
     const totalSaved      = g.manualSaved + savedViaGoalTx;
     const baseRemaining   = Math.max(0, g.target - totalSaved);
@@ -1409,7 +1418,10 @@ function _refreshAllocUI() {
     const tagDiv   = document.getElementById("allocTag_" + idx);
     if (fill)     { fill.style.width = pct.toFixed(1) + "%"; fill.style.background = totalSaved>=effectiveTarget?"#16a34a":g.color; }
     if (pctLabel)  pctLabel.textContent = pct.toFixed(0) + "%";
-    if (subLabel)  subLabel.innerHTML = formatCurrency(totalSaved) + " allocated / " + formatCurrency(effectiveTarget) + " target &nbsp;·&nbsp; <span style='color:" + ({Critical:"#dc2626",High:"#ea580c",Medium:"#ca8a04",Low:"#16a34a"}[g.urgency]||"#ca8a04") + "'>" + g.urgency + "</span>";
+    if (subLabel) {
+      const spentText = spentViaGoalTx > 0 ? " &nbsp;·&nbsp; " + formatCurrency(spentViaGoalTx) + " already spent" : "";
+      subLabel.innerHTML = formatCurrency(totalSaved) + " covered / " + formatCurrency(effectiveTarget) + " target" + spentText + " &nbsp;·&nbsp; <span style='color:" + ({Critical:"#dc2626",High:"#ea580c",Medium:"#ca8a04",Low:"#16a34a"}[g.urgency]||"#ca8a04") + "'>" + g.urgency + "</span>";
+    }
     if (tagDiv) {
       tagDiv.innerHTML = buildAllocStatusTags(remaining, totalSaved >= effectiveTarget, pendingExposure, baseRemaining);
     }
@@ -1558,6 +1570,9 @@ let timelineChart = null;
 let goalInsightsRefreshTimer = null;
 
 function refreshGoalInsightPanels() {
+  const insightsPanel = document.getElementById("goalInsightsPanel");
+  if (insightsPanel && !insightsPanel.open) return;
+
   const realismRegion = document.getElementById("goalRealismRegion");
   const motivationRegion = document.getElementById("goalMotivationRegion");
   const forecastRegion = document.getElementById("goalForecastRegion");
@@ -2073,6 +2088,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
 
   const goalState = goalsData.map((g, gi) => {
     const txSaved = getSavedViaTransactions(g.name);
+    const spentViaGoalTx = getGoalSpentViaTransactions(g.name);
     const initialSaved = g.manualSaved + txSaved;
     const bufferPct = Number(g.goalBuffer || 0) || 0;
     const effectiveTarget = g.target * (1 + bufferPct / 100);
@@ -2093,6 +2109,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
       baseTarget: g.target,
       bufferPct,
       effectiveTarget,
+      spentViaGoalTx,
       initialSaved,
       saved: Math.min(initialSaved, effectiveTarget),
       monthlyAlloc: savedMonthlyAlloc || suggestedNoDeadlineAlloc,
@@ -2416,11 +2433,14 @@ function renderGoalGanttTimeline(container) {
 
   function goalBalanceTitle(gs, amount, mo) {
     const monthText = mo === 0 ? "Current balance" : `Forecast balance by end of ${model.monthLabel(mo, true)}`;
-    if (amount >= gs.effectiveTarget) return `${monthText}: ${formatCurrency(amount)} - target and buffer met`;
+    const spentText = gs.spentViaGoalTx > 0
+      ? `; ${formatCurrency(gs.spentViaGoalTx)} already spent from this goal`
+      : "";
+    if (amount >= gs.effectiveTarget) return `${monthText}: ${formatCurrency(amount)} - target and buffer met${spentText}`;
     if (gs.bufferPct > 0 && amount >= gs.baseTarget) {
-      return `${monthText}: ${formatCurrency(amount)} - base target met; buffer still needs ${formatCurrency(Math.max(0, gs.effectiveTarget - amount))}`;
+      return `${monthText}: ${formatCurrency(amount)} - base target met; buffer still needs ${formatCurrency(Math.max(0, gs.effectiveTarget - amount))}${spentText}`;
     }
-    return `${monthText}: ${formatCurrency(amount)} - ${formatCurrency(Math.max(0, gs.baseTarget - amount))} to base`;
+    return `${monthText}: ${formatCurrency(amount)} - ${formatCurrency(Math.max(0, gs.baseTarget - amount))} to base${spentText}`;
   }
 
   function goalBalanceCells(gs, gi) {
@@ -2694,6 +2714,7 @@ function renderSavingsTimelineStacked(container, dep) {
 
   const goalState = goalsData.map((g, gi) => {
     const txSaved = getSavedViaTransactions(g.name);
+    const spentViaGoalTx = getGoalSpentViaTransactions(g.name);
     const initialSaved = g.manualSaved + txSaved;
     const bufferPct = Number(g.goalBuffer || 0) || 0;
     const effectiveTarget = g.target * (1 + bufferPct / 100);
@@ -2713,6 +2734,7 @@ function renderSavingsTimelineStacked(container, dep) {
       baseTarget: g.target,
       bufferPct,
       effectiveTarget,
+      spentViaGoalTx,
       initialSaved,
       saved: Math.min(initialSaved, effectiveTarget),
       monthlyAlloc: savedMonthlyAlloc || suggestedNoDeadlineAlloc,
@@ -3053,9 +3075,10 @@ function renderSavingsTimelineStacked(container, dep) {
             <div>
               <strong>${escapeHtml(gs.name)}</strong>
               <span>${gs.bufferPct > 0 ? `Target + ${gs.bufferPct}% buffer` : "Target"} ${formatCurrency(gs.effectiveTarget)}</span>
+              ${gs.spentViaGoalTx > 0 ? `<span>${formatCurrency(gs.spentViaGoalTx)} already spent; ${formatCurrency(Math.max(0, gs.effectiveTarget - gs.spentViaGoalTx))} required left</span>` : ""}
             </div>
           </div>
-          <div class="ti-metric"><span>Required</span><strong>${currentRequired ? formatCurrency(currentRequired) + "/mo" : "No deadline"}</strong></div>
+          <div class="ti-metric"><span>Funding Req.</span><strong>${currentRequired ? formatCurrency(currentRequired) + "/mo" : "No deadline"}</strong></div>
           <div class="ti-metric"><span>Forecast avg</span><strong>${formatCurrency(avgPlanned)}/mo</strong></div>
           <div class="ti-status">
             <strong>${status}</strong>
@@ -3275,6 +3298,7 @@ function renderSavingsTimeline(container, dep) {
   // ── Per-goal state ─────────────────────────────────────────────
   const goalState = goalsData.map((g, gi) => {
     const txSaved = getSavedViaTransactions(g.name);
+    const spentViaGoalTx = getGoalSpentViaTransactions(g.name);
     const effectiveTarget = g.target * (1 + (g.goalBuffer || 0) / 100);
     const currentSaved = g.manualSaved + txSaved;
 
@@ -3301,6 +3325,7 @@ function renderSavingsTimeline(container, dep) {
       color: g.color,
       urgency: g.urgency,
       effectiveTarget,
+      spentViaGoalTx,
       monthlyAlloc: g.monthlyAlloc || 0,
       startMo,
       deadlineMo,
@@ -3779,13 +3804,14 @@ function renderRealismCheck(container, dep) {
   const tipHtml   = tips.map(t => `<div class="rc-tip">${t}</div>`).join("");
 
   container.innerHTML += `
-    <div class="goals-panel realism-panel">
-      <div class="panel-header">
-        <span class="panel-icon">🧠</span>
+    <details class="goals-panel realism-panel collapsible-panel">
+      <summary class="panel-header">
+        <span class="panel-icon">!</span>
         <h2>Baseline Check</h2>
-        <span class="panel-hint">Before cashflow adjustments</span>
-      </div>
-      <div class="rc-body">
+        <span class="panel-hint">${totalMonthlyNeeded > avgSave ? formatCurrency(totalMonthlyNeeded - avgSave) + "/mo gap" : "On baseline pace"}</span>
+        <span class="panel-caret">▾</span>
+      </summary>
+      <div class="collapsible-body rc-body">
         ${issueHtml}
         ${tipHtml}
         <div class="rc-summary">
@@ -3795,7 +3821,7 @@ function renderRealismCheck(container, dep) {
           <strong>${formatCurrency(avgSave)}/mo</strong>
         </div>
       </div>
-    </div>
+    </details>
   `;
 }
 
@@ -3811,12 +3837,14 @@ function renderBudgetGoalMotivation(container, dep) {
   const chips = buildGoalMomentumChips(position, trend, focusGoal);
 
   container.innerHTML = `
-    <div class="goals-panel motivation-panel">
-      <div class="panel-header">
+    <details class="goals-panel motivation-panel collapsible-panel">
+      <summary class="panel-header">
         <span class="panel-icon">↗</span>
         <h2>Goal Momentum</h2>
-        <span class="panel-hint">Flexible spending pace</span>
-      </div>
+        <span class="panel-hint">${formatCurrency(trend.projectedBalance)} projected month-end balance</span>
+        <span class="panel-caret">▾</span>
+      </summary>
+      <div class="collapsible-body">
       <div class="gm-grid">
         <div class="gm-hero">
           <div class="gm-kicker">${escapeHtml(opportunity.kicker)}</div>
@@ -3844,7 +3872,8 @@ function renderBudgetGoalMotivation(container, dep) {
         </div>
       </div>
       ${chips}
-    </div>`;
+      </div>
+    </details>`;
 }
 
 function computeFlexibleDailyTrend(position) {
@@ -4002,10 +4031,13 @@ function renderGoalCard(goal, idx, container) {
     : "";
 
   const savedViaGoalTx = getSavedViaTransactions(goal.name);
+  const spentViaGoalTx = getGoalSpentViaTransactions(goal.name);
+  const extraTxProgress = Math.max(0, savedViaGoalTx - spentViaGoalTx);
   const totalSaved     = goal.manualSaved + savedViaGoalTx;
   const bufferPct      = Number(goal.goalBuffer || 0) || 0;
   const bufferAmount   = goal.target * (bufferPct / 100);
   const effectiveTarget = goal.target + bufferAmount;
+  const requirementLeft = Math.max(0, effectiveTarget - spentViaGoalTx);
   const remaining      = Math.max(0, effectiveTarget - totalSaved);
   const baseRemaining  = Math.max(0, goal.target - totalSaved);
   const bufferRemaining = Math.max(0, effectiveTarget - Math.max(totalSaved, goal.target));
@@ -4127,9 +4159,8 @@ function renderGoalCard(goal, idx, container) {
     </div>
 
     <div class="goal-kpis">
-      <div class="gkpi"><span class="gkpi-l">Allocated</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
-      <div class="gkpi"><span class="gkpi-l">${bufferPct > 0 ? "Target + Buffer" : "Target"}</span><span class="gkpi-v">${formatCurrency(effectiveTarget)}</span></div>
-      <div class="gkpi"><span class="gkpi-l">Remaining</span><span class="gkpi-v ${remaining>0?'red':''}">${formatCurrency(remaining)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Covered</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Required Left</span><span class="gkpi-v ${requirementLeft>0?'red':''}">${formatCurrency(requirementLeft)}</span></div>
       <div class="gkpi"><span class="gkpi-l">Monthly</span><span class="gkpi-v">${formatCurrency(goal.monthlyAlloc||effectiveAlloc)}</span></div>
     </div>
 
@@ -4138,20 +4169,29 @@ function renderGoalCard(goal, idx, container) {
       <span class="goal-pct-label">${pct.toFixed(1)}%</span>
     </div>
 
-    <div class="goal-meta">
-      ${goal.startDate ? `<span>📅 Start: ${formatDateDisplay(goal.startDate)}</span>` : ""}
-      <span>🎯 Deadline: ${deadlineLabel}</span>
-      ${goal.notes ? `<span>📝 ${escapeHtml(goal.notes)}</span>` : ""}
+    <div class="goal-compact-meta">
+      <span>Target <strong>${formatCurrency(effectiveTarget)}</strong></span>
+      <span>Funding gap <strong class="${remaining>0?'red':''}">${formatCurrency(remaining)}</strong></span>
+      <span>Deadline <strong>${deadlineLabel}</strong></span>
     </div>
 
-    ${bufferLine}
-    <div class="goal-forecast-line">${forecastText}</div>
-    ${requiredMonthly > 0 ? `<div class="goal-req-line">📋 Required: ${formatCurrency(requiredMonthly)}/mo to hit deadline</div>` : ""}
-    ${bufferPct > 0 && baseRemaining <= 0 && bufferRemaining > 0 ? `<div class="goal-req-line">Buffer left: ${formatCurrency(bufferRemaining)}</div>` : ""}
-    ${recommendation ? `<div class="goal-rec-line">${recommendation}</div>` : ""}
-    ${claimBackedLine}
-
-    ${savedViaGoalTx > 0 ? `<div class="goal-tx-line">💳 ${formatCurrency(savedViaGoalTx)} tracked via transactions · ${formatCurrency(goal.manualSaved)} manually allocated</div>` : ""}
+    <details class="goal-card-details">
+      <summary>Details</summary>
+      <div class="goal-card-detail-body">
+        <div class="goal-meta">
+          ${goal.startDate ? `<span>Start: ${formatDateDisplay(goal.startDate)}</span>` : ""}
+          ${goal.notes ? `<span>${escapeHtml(goal.notes)}</span>` : ""}
+        </div>
+        ${bufferLine}
+        <div class="goal-forecast-line">${forecastText}</div>
+        ${requiredMonthly > 0 ? `<div class="goal-req-line">Funding required: ${formatCurrency(requiredMonthly)}/mo to hit deadline</div>` : ""}
+        ${bufferPct > 0 && baseRemaining <= 0 && bufferRemaining > 0 ? `<div class="goal-req-line">Buffer left: ${formatCurrency(bufferRemaining)}</div>` : ""}
+        ${recommendation ? `<div class="goal-rec-line">${recommendation}</div>` : ""}
+        ${claimBackedLine}
+        ${spentViaGoalTx > 0 ? `<div class="goal-tx-line">${formatCurrency(spentViaGoalTx)} already spent from this goal, reducing required left to ${formatCurrency(requirementLeft)}. ${formatCurrency(goal.manualSaved)} remains allocated.</div>` : ""}
+        ${extraTxProgress > 0 ? `<div class="goal-tx-line">${formatCurrency(extraTxProgress)} tracked via other goal transactions.</div>` : ""}
+      </div>
+    </details>
 
     <!-- Edit Form -->
     <div id="editGoal_${idx}" class="goal-edit-form" style="display:none;">
@@ -4221,7 +4261,71 @@ function renderGoalCard(goal, idx, container) {
 function getSavedViaTransactions(goalName) {
   return allTxForGoals
     .filter(r => clean(r["Sub Category"]).toLowerCase() === ("goal: " + goalName).toLowerCase())
-    .reduce((s,r) => s + getAmount(r["Amount"]), 0);
+    .reduce((s,r) => s + getGoalTransactionProgressImpact(r), 0);
+}
+
+function getGoalTransactionProgressImpact(row) {
+  const amount = getAmount(row["Amount"]);
+  if (amount <= 0) return 0;
+
+  const main = clean(row["Main Category"]).toLowerCase();
+  if (main === "transfer") return 0;
+  return amount;
+}
+
+function getGoalSpentViaTransactions(goalName) {
+  return allTxForGoals
+    .filter(r => clean(r["Sub Category"]).toLowerCase() === ("goal: " + goalName).toLowerCase())
+    .filter(isGoalExpenseTransaction)
+    .reduce((sum, row) => sum + getAmount(row["Amount"]), 0);
+}
+
+function isGoalExpenseTransaction(row) {
+  const main = clean(row["Main Category"]).toLowerCase();
+  return ["saving goal", "saving goals", "savings goal", "savings goals"].includes(main);
+}
+
+function applyGoalExpenseAdjustmentByName(goalName, amount, reason, account, dateStr) {
+  const idx = goalsData.findIndex(g => clean(g.name).toLowerCase() === clean(goalName).toLowerCase());
+  if (idx < 0) return null;
+  return applyGoalExpenseAdjustment(idx, amount, reason, account, dateStr);
+}
+
+function applyGoalExpenseAdjustment(idx, amount, reason, account, dateStr) {
+  const goal = goalsData[idx];
+  if (!goal || !(amount > 0)) return null;
+
+  const previous = roundGoalMoney(goal.manualSaved || 0);
+  const adjusted = roundGoalMoney(Math.max(0, previous - amount));
+  const reducedBy = roundGoalMoney(previous - adjusted);
+  goal.manualSaved = adjusted;
+  goal.notes = appendGoalExpenseNote(goal.notes, {
+    amount,
+    reason,
+    account,
+    dateStr,
+    previous,
+    adjusted,
+    reducedBy
+  });
+
+  return { goal, previous, adjusted, reducedBy };
+}
+
+function appendGoalExpenseNote(existingNotes, details) {
+  const parts = [
+    `Expense ${formatDateDisplay(details.dateStr) || details.dateStr}: -${formatCurrency(details.amount)}`,
+    details.reason ? `for ${details.reason}` : "",
+    details.account ? `from ${details.account}` : "",
+    `(allocation ${formatCurrency(details.previous)} -> ${formatCurrency(details.adjusted)}; required left reduced; counts as fulfilled progress)`
+  ].filter(Boolean);
+  const adjustmentNote = parts.join(" ");
+  const existing = clean(existingNotes);
+  return existing ? `${existing} | ${adjustmentNote}` : adjustmentNote;
+}
+
+function roundGoalMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function toggleAddForm() {
@@ -4438,8 +4542,30 @@ function scheduleGoalsAutoSave(delay = 700) {
   }, delay);
 }
 
+function waitForGoalsAutoSaveIdle(timeoutMs = 5000) {
+  const started = Date.now();
+  return new Promise(resolve => {
+    const check = () => {
+      if (!goalsAutoSaveInFlight) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
 async function persistGoalsToExcel(options = {}) {
   if (goalsAutoSaveInFlight) {
+    if (options.waitForIdle === true) {
+      const idle = await waitForGoalsAutoSaveIdle();
+      if (idle) return persistGoalsToExcel({ ...options, waitForIdle: false });
+    }
     scheduleGoalsAutoSave(1000);
     return false;
   }
@@ -4530,6 +4656,11 @@ async function saveDeductGoal(idx) {
   if (!acct)   { alert("Please select an account."); return; }
 
   const amount = parseFloat(amtVal);
+  if (isNaN(amount) || amount <= 0) { alert("Please enter a valid amount."); return; }
+  const today   = new Date();
+  const dateStr = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
+  let transactionSaved = false;
+
   try {
     log("Saving goal deduction...");
     const token = await getToken();
@@ -4538,14 +4669,23 @@ async function saveDeductGoal(idx) {
       ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
     const data    = await graphGetJson(url, token);
     const nextRow = data.rowCount + 1;
-    const today   = new Date();
-    const dateStr = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:F${nextRow}`, [[
       dateStr, note, amount, "Savings Goal", "Goal: " + goal.name, acct
     ]]);
-    alert("Deduction saved!");
+    transactionSaved = true;
+
+    const adjustment = applyGoalExpenseAdjustment(idx, amount, note, acct, dateStr);
+    const saved = await persistGoalsToExcel({ silent: true, waitForIdle: true });
+    if (!saved) throw new Error("Expense saved, but the goal allocation update did not save to Excel.");
+
+    const reductionText = adjustment && adjustment.reducedBy < amount
+      ? ` ${formatCurrency(adjustment.reducedBy)} was removed from the allocation because the goal only had ${formatCurrency(adjustment.previous)} allocated.`
+      : ` ${formatCurrency(amount)} was removed from the goal allocation.`;
+    alert("Deduction saved!" + reductionText + " The expense now counts as fulfilled goal progress.");
     await loadGoalsPage();
-  } catch(err) { alert("Failed: " + err.message); }
+  } catch(err) {
+    alert((transactionSaved ? "Expense saved, but goal update failed: " : "Failed: ") + err.message);
+  }
 }
 
 // ─── Save to Excel ─────────────────────────────────────────────────
