@@ -2171,6 +2171,11 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     return goalState.map((gs, gi) => ({ gs, gi }));
   }
 
+  function activeForcedTargetItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && isForcePriorityGoal(gs) && gs.saved < gs.effectiveTarget);
+  }
+
   function activeBaseItems(m) {
     return goalItems()
       .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.baseTarget);
@@ -2178,7 +2183,13 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
 
   function activeDeadlineBufferItems(m) {
     return goalItems()
-      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo !== null && m <= gs.deadlineMo && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+      .filter(({ gs }) => (
+        m >= gs.startMo &&
+        gs.deadlineMo !== null &&
+        (m <= gs.deadlineMo || isForcePriorityGoal(gs)) &&
+        gs.saved >= gs.baseTarget &&
+        gs.saved < gs.effectiveTarget
+      ));
   }
 
   function activeOpenBufferItems(m) {
@@ -2189,11 +2200,13 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   function isForecastSatisfied(gs, m) {
     if (gs.saved < gs.baseTarget) return false;
     if (gs.saved >= gs.effectiveTarget) return true;
-    return gs.deadlineMo !== null && m > gs.deadlineMo;
+    return gs.deadlineMo !== null && m > gs.deadlineMo && !isForcePriorityGoal(gs);
   }
 
   function targetCapForMonth(gs, m) {
-    return gs.deadlineMo !== null && m > gs.deadlineMo ? gs.baseTarget : gs.effectiveTarget;
+    return gs.deadlineMo !== null && m > gs.deadlineMo && !isForcePriorityGoal(gs)
+      ? gs.baseTarget
+      : gs.effectiveTarget;
   }
 
   for (let m = 0; m < MONTHS; m++) {
@@ -2284,6 +2297,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
       }
     };
 
+    allocatePhase(activeForcedTargetItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
     allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { spillover:false, monthlyContribution:false });
     allocatePhase(activeDeadlineBufferItems(m), gs => gs.effectiveTarget, { monthly:false, spillover:true });
     allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
@@ -2465,6 +2479,13 @@ function renderGoalGanttTimeline(container) {
         if (bufferShort <= 0) {
           const bufferWhen = bufferForecastDate ? ganttDateLabel(bufferForecastDate) : deadline;
           return ` Buffer covered by ${bufferWhen}.`;
+        }
+        if (isForcePriorityGoal(gs)) {
+          if (gs.completedAt !== null) {
+            const bufferWhen = bufferForecastDate ? ganttDateLabel(bufferForecastDate) : completion;
+            return ` Buffer keeps forced priority after deadline and completes around ${bufferWhen}.`;
+          }
+          return " Buffer keeps forced priority after deadline but is not fully forecast yet.";
         }
         if (bufferAdded > 0) {
           return ` Buffer adds ${formatCurrency(bufferAdded)} before deadline; ${formatCurrency(bufferShort)} remains optional.`;
@@ -2763,6 +2784,11 @@ function renderSavingsTimelineStacked(container, dep) {
     return goalState.map((gs, gi) => ({ gs, gi }));
   }
 
+  function activeForcedTargetItems(m) {
+    return goalItems()
+      .filter(({ gs }) => m >= gs.startMo && isForcePriorityGoal(gs) && gs.saved < gs.effectiveTarget);
+  }
+
   function activeBaseItems(m) {
     return goalItems()
       .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.baseTarget);
@@ -2770,7 +2796,13 @@ function renderSavingsTimelineStacked(container, dep) {
 
   function activeDeadlineBufferItems(m) {
     return goalItems()
-      .filter(({ gs }) => m >= gs.startMo && gs.deadlineMo !== null && m <= gs.deadlineMo && gs.saved >= gs.baseTarget && gs.saved < gs.effectiveTarget);
+      .filter(({ gs }) => (
+        m >= gs.startMo &&
+        gs.deadlineMo !== null &&
+        (m <= gs.deadlineMo || isForcePriorityGoal(gs)) &&
+        gs.saved >= gs.baseTarget &&
+        gs.saved < gs.effectiveTarget
+      ));
   }
 
   function activeOpenBufferItems(m) {
@@ -2781,11 +2813,13 @@ function renderSavingsTimelineStacked(container, dep) {
   function isForecastSatisfied(gs, m) {
     if (gs.saved < gs.baseTarget) return false;
     if (gs.saved >= gs.effectiveTarget) return true;
-    return gs.deadlineMo !== null && m > gs.deadlineMo;
+    return gs.deadlineMo !== null && m > gs.deadlineMo && !isForcePriorityGoal(gs);
   }
 
   function targetCapForMonth(gs, m) {
-    return gs.deadlineMo !== null && m > gs.deadlineMo ? gs.baseTarget : gs.effectiveTarget;
+    return gs.deadlineMo !== null && m > gs.deadlineMo && !isForcePriorityGoal(gs)
+      ? gs.baseTarget
+      : gs.effectiveTarget;
   }
 
   for (let m = 0; m < MONTHS; m++) {
@@ -2876,6 +2910,7 @@ function renderSavingsTimelineStacked(container, dep) {
       }
     };
 
+    allocatePhase(activeForcedTargetItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
     allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { spillover:false, monthlyContribution:false });
     allocatePhase(activeDeadlineBufferItems(m), gs => gs.effectiveTarget, { monthly:false, spillover:true });
     allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
@@ -2980,10 +3015,14 @@ function renderSavingsTimelineStacked(container, dep) {
           impact = "It keeps taking forecast savings after the deadline, delaying lower-priority goals.";
         } else if (gs.bufferPct > 0 && bufferShortAtDeadline > 0) {
           statusClass = "warn";
-          status = `Base target met; buffer short ${formatCurrency(bufferShortAtDeadline)}`;
+          status = isForcePriorityGoal(gs)
+            ? `Base target met; forced buffer short ${formatCurrency(bufferShortAtDeadline)}`
+            : `Base target met; buffer short ${formatCurrency(bufferShortAtDeadline)}`;
           impact = completion
             ? `Buffer completes ${completion}${timingText ? ` (${timingText}; deadline ${deadlineLabel})` : ""}.`
-            : "Only the extra buffer is behind, not the original target.";
+            : (isForcePriorityGoal(gs)
+              ? "Force priority keeps funding the buffer after the deadline."
+              : "Only the extra buffer is behind, not the original target.");
         } else {
           status = timingText && timingText !== "on deadline" ? `Deadline covered ${timingText}` : "Deadline covered";
           impact = completion
