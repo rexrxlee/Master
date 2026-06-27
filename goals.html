@@ -1372,6 +1372,223 @@
     }
     .tl-legend-guide { color: var(--muted); }
 
+    .cashflow-allocation-strip {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .cf-strip-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .cf-strip-head > div:first-child {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .cf-strip-head strong {
+      color: var(--text);
+      font-size: 13.5px;
+    }
+    .cf-strip-head span {
+      color: var(--muted);
+      font-size: 12.5px;
+    }
+    .cf-strip-total {
+      flex-shrink: 0;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .cf-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--border);
+    }
+    .cf-metrics span {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      padding: 8px 10px;
+      background: var(--surface);
+    }
+    .cf-metrics em {
+      color: var(--muted);
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cf-metrics strong {
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 12.5px;
+      white-space: nowrap;
+    }
+    .cf-destination-list {
+      display: flex;
+      flex-direction: column;
+      margin-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .cf-destination-row {
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) minmax(145px, auto);
+      gap: 10px 14px;
+      align-items: center;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+    .cf-destination-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .cf-destination-main > div {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .cf-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .cf-destination-main strong {
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cf-destination-main span,
+    .cf-destination-value span {
+      color: var(--muted);
+    }
+    .cf-destination-value {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      min-width: 0;
+    }
+    .cf-destination-value strong,
+    .cf-money {
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 12.5px;
+      white-space: nowrap;
+    }
+    .cf-destination-bar {
+      grid-column: 1 / -1;
+      height: 5px;
+      overflow: hidden;
+      background: #eef2f7;
+    }
+    .cf-destination-bar span {
+      display: block;
+      height: 100%;
+      min-width: 2px;
+    }
+    .cashflow-month-details {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .cashflow-month-details > summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 600;
+      list-style: none;
+    }
+    .cashflow-month-details > summary::-webkit-details-marker { display: none; }
+    .cf-month-table-wrap {
+      max-height: 260px;
+      margin-top: 10px;
+      overflow: auto;
+      border: 1px solid var(--border);
+    }
+    .cf-month-table {
+      width: 100%;
+      min-width: 860px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .cf-month-table th,
+    .cf-month-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+    .cf-month-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cf-month-table tbody tr:last-child td { border-bottom: none; }
+    .cf-month-chip-list,
+    .cf-source-chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-width: 0;
+    }
+    .cf-month-chip,
+    .cf-source-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      padding: 3px 7px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 11.5px;
+      line-height: 1.3;
+      white-space: nowrap;
+    }
+    .cf-month-chip i {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .cf-month-chip.available i { background: #94a3b8; }
+    .cf-month-chip strong,
+    .cf-source-chip strong {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+    }
+    .cf-source-chip {
+      color: var(--muted);
+    }
+    .cf-source-chip em {
+      color: var(--muted);
+      font-style: normal;
+    }
+
     /* ── Boost panel ─── */
     .boost-explainer {
       display: flex;
@@ -1612,6 +1829,10 @@
       .capacity-metrics { grid-template-columns: 1fr; }
       .panel-count-pill { margin-left: 0; }
       .timeline-impact-row { grid-template-columns: 1fr; align-items: stretch; }
+      .cf-strip-head { flex-direction: column; }
+      .cf-metrics { grid-template-columns: 1fr; }
+      .cf-destination-row { grid-template-columns: 1fr; }
+      .cf-destination-value { align-items: flex-start; }
       .gm-grid { grid-template-columns: 1fr; }
       .gantt-months, .gantt-row { grid-template-columns: var(--gantt-label-width, 190px) minmax(var(--gantt-axis-width, 520px), 1fr) var(--gantt-status-width, 230px); }
       .boost-row, .boost-table-header { grid-template-columns: 1fr; }

@@ -108,6 +108,34 @@ function _goalDateToInputValue(value) {
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
 
+function countGoalContributionMonthsBeforeDeadline(deadlineDate, startDate=new Date()) {
+  if (!deadlineDate) return 0;
+
+  const today = new Date();
+  const cleanToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const rawStart = startDate || cleanToday;
+  const start = rawStart < cleanToday
+    ? cleanToday
+    : new Date(rawStart.getFullYear(), rawStart.getMonth(), rawStart.getDate());
+  const deadline = new Date(deadlineDate.getFullYear(), deadlineDate.getMonth(), deadlineDate.getDate());
+
+  if (deadline <= start) return 0;
+
+  const startsInCurrentMonth = start.getFullYear() === cleanToday.getFullYear() && start.getMonth() === cleanToday.getMonth();
+  let cursor = startsInCurrentMonth || start.getDate() > 1
+    ? new Date(start.getFullYear(), start.getMonth() + 1, 1)
+    : new Date(start.getFullYear(), start.getMonth(), 1);
+
+  let months = 0;
+  let guard = 0;
+  while (cursor < deadline && guard < 240) {
+    months += 1;
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    guard += 1;
+  }
+  return months;
+}
+
 // ─── Data Readers ─────────────────────────────────────────────────
 
 function readAllTx(sheet) {
@@ -2980,6 +3008,160 @@ function renderSavingsTimelineStacked(container, dep) {
       .filter(Boolean);
   }
 
+  function forecastMonthRangeLabel(values) {
+    const firstIdx = values.findIndex(v => v > 0);
+    if (firstIdx < 0) return "No forecast allocation";
+    let lastIdx = firstIdx;
+    values.forEach((v, idx) => { if (v > 0) lastIdx = idx; });
+    const activeMonths = values.filter(v => v > 0).length;
+    const firstLabel = chartFullLabels[firstIdx] || "";
+    const lastLabel = chartFullLabels[lastIdx] || firstLabel;
+    const monthText = `${activeMonths} mo`;
+    return firstLabel === lastLabel ? `${firstLabel} - ${monthText}` : `${firstLabel} to ${lastLabel} - ${monthText}`;
+  }
+
+  const cashflowAllocatedToGoalsTotal = allocationCashflowData.reduce(
+    (sum, arr) => sum + forecastMonthIndexes.reduce((s, m) => s + (arr[m] || 0), 0),
+    0
+  );
+  const cashflowAvailableTotal = forecastMonthIndexes.reduce((sum, m) => sum + (unallocatedCashflowData[m] || 0), 0);
+  const cashflowAppliedTotal = cashflowAllocatedToGoalsTotal + cashflowAvailableTotal;
+  const cashflowDestinationRows = goalState
+    .map((gs, gi) => {
+      const values = forecastMonthIndexes.map(m => allocationCashflowData[gi][m] || 0);
+      const total = values.reduce((sum, v) => sum + v, 0);
+      const activeMonths = values.filter(v => v > 0).length;
+      return {
+        name: gs.name,
+        color: gs.color,
+        total,
+        activeMonths,
+        average: activeMonths > 0 ? total / activeMonths : 0,
+        range: forecastMonthRangeLabel(values),
+        isAvailable: false,
+      };
+    })
+    .filter(row => row.total > 0);
+
+  if (cashflowAvailableTotal > 0) {
+    const values = forecastMonthIndexes.map(m => unallocatedCashflowData[m] || 0);
+    const activeMonths = values.filter(v => v > 0).length;
+    cashflowDestinationRows.push({
+      name: "Available for new goals",
+      color: "#94a3b8",
+      total: cashflowAvailableTotal,
+      activeMonths,
+      average: activeMonths > 0 ? cashflowAvailableTotal / activeMonths : 0,
+      range: forecastMonthRangeLabel(values),
+      isAvailable: true,
+    });
+  }
+
+  const cashflowDestinationHtml = cashflowDestinationRows
+    .sort((a, b) => b.total - a.total)
+    .map(row => {
+      const pct = cashflowAppliedTotal > 0 ? Math.max(2, (row.total / cashflowAppliedTotal) * 100) : 0;
+      return `
+        <div class="cf-destination-row ${row.isAvailable ? "available" : ""}">
+          <div class="cf-destination-main">
+            <span class="cf-dot" style="background:${row.color};"></span>
+            <div>
+              <strong>${escapeHtml(row.name)}</strong>
+              <span>${escapeHtml(row.range)}</span>
+            </div>
+          </div>
+          <div class="cf-destination-value">
+            <strong>${formatCurrency(row.total)}</strong>
+            <span>${formatCurrency(row.average)}/active mo</span>
+          </div>
+          <div class="cf-destination-bar" aria-hidden="true">
+            <span style="width:${pct.toFixed(2)}%;background:${row.isAvailable ? "#94a3b8" : row.color};"></span>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  const cashflowMonthRows = forecastMonthIndexes
+    .map(m => {
+      const goalEntries = goalState
+        .map((gs, gi) => ({ name: gs.name, color: gs.color, amount: allocationCashflowData[gi][m] || 0 }))
+        .filter(entry => entry.amount > 0);
+      const available = unallocatedCashflowData[m] || 0;
+      const allocated = goalEntries.reduce((sum, entry) => sum + entry.amount, 0);
+      const totalAdded = allocated + available;
+      if (totalAdded <= 0) return "";
+
+      const allocationHtml = goalEntries.map(entry => `
+        <span class="cf-month-chip">
+          <i style="background:${entry.color};"></i>
+          ${escapeHtml(entry.name)}
+          <strong>${formatCurrency(entry.amount)}</strong>
+        </span>`).join("") + (available > 0 ? `
+        <span class="cf-month-chip available">
+          <i></i>
+          Available
+          <strong>${formatCurrency(available)}</strong>
+        </span>` : "");
+      const sourceHtml = activeCashflowChangesForMonth(m)
+        .filter(change => change.amount > 0)
+        .map(change => {
+          const cadence = change.cadence === "once" ? " once" : change.cadence;
+          return `
+            <span class="cf-source-chip">
+              ${escapeHtml(change.label)}
+              <strong>+${formatCurrency(change.amount)}${escapeHtml(cadence)}</strong>
+              ${change.toGoal !== "any" ? `<em>to ${escapeHtml(change.toGoal)}</em>` : ""}
+            </span>`;
+        })
+        .join("");
+
+      return `
+        <tr>
+          <td>${chartFullLabels[forecastMonthIndexes.indexOf(m)] || monthLabel(m, true)}</td>
+          <td class="cf-money">${formatCurrency(totalAdded)}</td>
+          <td class="cf-money">${formatCurrency(allocated)}</td>
+          <td class="cf-money">${available > 0 ? formatCurrency(available) : "-"}</td>
+          <td><div class="cf-month-chip-list">${allocationHtml}</div></td>
+          <td><div class="cf-source-chip-list">${sourceHtml || "-"}</div></td>
+        </tr>`;
+    })
+    .join("");
+
+  const cashflowAllocationHtml = hasCashflowAdditions ? `
+    <div class="cashflow-allocation-strip">
+      <div class="cf-strip-head">
+        <div>
+          <strong>Added cashflow allocation</strong>
+          <span>Destinations for the purple portions in the forecast bars.</span>
+        </div>
+        <div class="cf-strip-total">${formatCurrency(cashflowAppliedTotal)}</div>
+      </div>
+      <div class="cf-metrics">
+        <span><em>Added</em><strong>${formatCurrency(cashflowAppliedTotal)}</strong></span>
+        <span><em>To goals</em><strong>${formatCurrency(cashflowAllocatedToGoalsTotal)}</strong></span>
+        <span><em>Available</em><strong>${formatCurrency(cashflowAvailableTotal)}</strong></span>
+      </div>
+      <div class="cf-destination-list">${cashflowDestinationHtml}</div>
+      <details class="cashflow-month-details" open>
+        <summary>Cashflow allocation by month</summary>
+        <div class="cf-month-table-wrap">
+          <table class="cf-month-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Added</th>
+                <th>To goals</th>
+                <th>Available</th>
+                <th>Allocated to</th>
+                <th>Active changes</th>
+              </tr>
+            </thead>
+            <tbody>${cashflowMonthRows}</tbody>
+          </table>
+        </div>
+      </details>
+    </div>` : "";
+
   let legendHtml = goalState.map(gs => `
     <div class="tl-legend-item">
       <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${gs.color};flex-shrink:0;"></span>
@@ -3011,8 +3193,12 @@ function renderSavingsTimelineStacked(container, dep) {
       const targetShort = Math.max(0, gs.baseTarget - lastSaved);
       const bufferShort = Math.max(0, gs.effectiveTarget - lastSaved);
       const requiredTarget = gs.initialSaved < gs.baseTarget ? gs.baseTarget : gs.effectiveTarget;
-      const currentRequired = gs.deadlineMo !== null
-        ? Math.max(0, requiredTarget - gs.initialSaved) / Math.max(1, gs.deadlineMo - forecastStartMonth + 1)
+      const goalDeadlineDate = _parseGoalDateValue(goalsData[gs.idx]?.endDate);
+      const deadlineMonthSlots = goalDeadlineDate
+        ? countGoalContributionMonthsBeforeDeadline(goalDeadlineDate, today)
+        : 0;
+      const currentRequired = gs.deadlineMo !== null && deadlineMonthSlots > 0
+        ? Math.max(0, requiredTarget - gs.initialSaved) / deadlineMonthSlots
         : null;
       const avgPlanned = gs.plannedTotal / forecastMonthCount;
 
@@ -3105,6 +3291,7 @@ function renderSavingsTimelineStacked(container, dep) {
     <div class="chart-wrap timeline-chart-simple" style="height:300px;position:relative;">
       <canvas id="goalTimelineChart"></canvas>
     </div>
+    ${cashflowAllocationHtml}
     <details class="timeline-impact-details">
       <summary>Goal details</summary>
       <div class="timeline-impact-list">${impactRows}</div>
@@ -3769,7 +3956,7 @@ function renderRealismCheck(container, dep) {
       if (endParts.length === 3) {
         const endObj = new Date(+endParts[0], +endParts[1]-1, +endParts[2]);
         if (endObj > today) {
-          monthsLeft = (endObj.getFullYear() - today.getFullYear())*12 + (endObj.getMonth()-today.getMonth());
+          monthsLeft = countGoalContributionMonthsBeforeDeadline(endObj, today);
         }
       }
     }
@@ -4037,8 +4224,8 @@ function renderGoalCard(goal, idx, container) {
   const bufferPct      = Number(goal.goalBuffer || 0) || 0;
   const bufferAmount   = goal.target * (bufferPct / 100);
   const effectiveTarget = goal.target + bufferAmount;
-  const requirementLeft = Math.max(0, effectiveTarget - spentViaGoalTx);
   const remaining      = Math.max(0, effectiveTarget - totalSaved);
+  const requirementLeft = remaining;
   const baseRemaining  = Math.max(0, goal.target - totalSaved);
   const bufferRemaining = Math.max(0, effectiveTarget - Math.max(totalSaved, goal.target));
   const pct            = effectiveTarget > 0 ? Math.min(100, (totalSaved / effectiveTarget) * 100) : 0;
@@ -4056,7 +4243,7 @@ function renderGoalCard(goal, idx, container) {
     if (p.length === 3) {
       endDateObj = new Date(+p[0], +p[1]-1, +p[2]);
       if (endDateObj > today) {
-        monthsLeft = (endDateObj.getFullYear()-today.getFullYear())*12 + (endDateObj.getMonth()-today.getMonth());
+        monthsLeft = countGoalContributionMonthsBeforeDeadline(endDateObj, today);
       }
     }
   }
@@ -4084,6 +4271,9 @@ function renderGoalCard(goal, idx, container) {
   } else if (!goal.monthlyAlloc) {
     recommendation = `💡 Set a monthly allocation or deadline to get a forecast.`;
   }
+  const monthlyKpiAmount = requiredMonthly > 0
+    ? requiredMonthly
+    : (goal.monthlyAlloc || effectiveAlloc);
 
   // Forecast
   const monthsToTarget  = effectiveAlloc > 0 ? Math.ceil(remaining / effectiveAlloc) : null;
@@ -4161,7 +4351,7 @@ function renderGoalCard(goal, idx, container) {
     <div class="goal-kpis">
       <div class="gkpi"><span class="gkpi-l">Covered</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
       <div class="gkpi"><span class="gkpi-l">Required Left</span><span class="gkpi-v ${requirementLeft>0?'red':''}">${formatCurrency(requirementLeft)}</span></div>
-      <div class="gkpi"><span class="gkpi-l">Monthly</span><span class="gkpi-v">${formatCurrency(goal.monthlyAlloc||effectiveAlloc)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Monthly</span><span class="gkpi-v">${formatCurrency(monthlyKpiAmount)}</span></div>
     </div>
 
     <div class="goal-progress-wrap">
@@ -4188,7 +4378,7 @@ function renderGoalCard(goal, idx, container) {
         ${bufferPct > 0 && baseRemaining <= 0 && bufferRemaining > 0 ? `<div class="goal-req-line">Buffer left: ${formatCurrency(bufferRemaining)}</div>` : ""}
         ${recommendation ? `<div class="goal-rec-line">${recommendation}</div>` : ""}
         ${claimBackedLine}
-        ${spentViaGoalTx > 0 ? `<div class="goal-tx-line">${formatCurrency(spentViaGoalTx)} already spent from this goal, reducing required left to ${formatCurrency(requirementLeft)}. ${formatCurrency(goal.manualSaved)} remains allocated.</div>` : ""}
+        ${spentViaGoalTx > 0 ? `<div class="goal-tx-line">${formatCurrency(spentViaGoalTx)} already spent from this goal. With saved money included, required left is ${formatCurrency(requirementLeft)}. ${formatCurrency(goal.manualSaved)} remains allocated.</div>` : ""}
         ${extraTxProgress > 0 ? `<div class="goal-tx-line">${formatCurrency(extraTxProgress)} tracked via other goal transactions.</div>` : ""}
       </div>
     </details>
@@ -4390,9 +4580,12 @@ function _updateAddGoalCalc() {
   if (endVal && startVal) {
     const endDate   = new Date(endVal + "T00:00:00");
     const startDate = new Date(startVal + "T00:00:00");
-    const monthsFromStart = Math.max(1, (endDate.getFullYear()-startDate.getFullYear())*12 + (endDate.getMonth()-startDate.getMonth()));
-    const monthsFromNow   = Math.max(0, (endDate.getFullYear()-today.getFullYear())*12 + (endDate.getMonth()-today.getMonth()));
+    const monthsFromStart = countGoalContributionMonthsBeforeDeadline(endDate, startDate);
+    const monthsFromNow   = countGoalContributionMonthsBeforeDeadline(endDate, today);
     computed = monthsFromStart > 0 ? Math.ceil(remaining / monthsFromStart) : remaining;
+    const monthsText = monthsFromStart > 0
+      ? `over ${monthsFromStart} future month${monthsFromStart===1?"":"s"}`
+      : "before the deadline";
 
     const onTime = computed <= available;
     const feasibility = available > 0
@@ -4403,24 +4596,25 @@ function _updateAddGoalCalc() {
       <div class="gf-calc-row ${onTime?'ok':'warn'}">
         <span class="gf-calc-icon">${onTime?'✅':'⚠️'}</span>
         <div class="gf-calc-body">
-          <strong>${formatCurrency(computed)}/mo</strong> needed over ${monthsFromStart} month${monthsFromStart===1?"":"s"} to reach ${formatCurrency(target)} by ${endDate.toLocaleDateString("en-SG",{month:"short",year:"numeric"})}
+          <strong>${formatCurrency(computed)}/mo</strong> needed ${monthsText} to reach ${formatCurrency(target)} by ${endDate.toLocaleDateString("en-SG",{month:"short",year:"numeric"})}
           <div class="gf-calc-sub">That's ${feasibility}${onTime ? " — you can hit this!" : " — this exceeds your capacity. Extend the deadline or reduce the target."}</div>
-          ${monthsFromNow !== monthsFromStart ? `<div class="gf-calc-sub">📌 Starting from your chosen start date (${monthsFromNow} months remain from today to deadline).</div>` : ""}
+          ${monthsFromNow !== monthsFromStart ? `<div class="gf-calc-sub">📌 Starting from your chosen start date (${monthsFromNow} future month${monthsFromNow===1?"":"s"} remain from today to deadline).</div>` : ""}
         </div>
       </div>`;
   } else if (endVal) {
     const endDate = new Date(endVal + "T00:00:00");
-    const monthsLeft = Math.max(1, (endDate.getFullYear()-today.getFullYear())*12 + (endDate.getMonth()-today.getMonth()));
-    computed = Math.ceil(remaining / monthsLeft);
+    const monthsLeft = countGoalContributionMonthsBeforeDeadline(endDate, today);
+    const divisorMonths = Math.max(1, monthsLeft);
+    computed = monthsLeft > 0 ? Math.ceil(remaining / monthsLeft) : remaining;
 
     // ── Start date suggestions ─────────────────────────────────
     // "Comfortable" = you could do it in half the time, so start that many months later
     // "Latest possible" = start just in time with your full available savings
-    const latestMonths = available > 0 ? Math.floor(remaining / available) : monthsLeft;
-    const comfortMonths = Math.ceil(monthsLeft * 0.5);
+    const latestMonths = available > 0 ? Math.max(1, Math.floor(remaining / available)) : divisorMonths;
+    const comfortMonths = Math.max(1, Math.ceil(divisorMonths * 0.5));
 
-    const latestStart = new Date(today.getFullYear(), today.getMonth() + Math.max(0, monthsLeft - latestMonths), 1);
-    const comfortStart = new Date(today.getFullYear(), today.getMonth() + Math.max(0, monthsLeft - comfortMonths), 1);
+    const latestStart = new Date(today.getFullYear(), today.getMonth() + Math.max(0, divisorMonths - latestMonths), 1);
+    const comfortStart = new Date(today.getFullYear(), today.getMonth() + Math.max(0, divisorMonths - comfortMonths), 1);
 
     const lsStr = toDateInputValue(latestStart);
     const csStr = toDateInputValue(comfortStart);
@@ -4448,11 +4642,14 @@ function _updateAddGoalCalc() {
     }
 
     const onTime = computed <= available;
+    const monthsText = monthsLeft > 0
+      ? `over ${monthsLeft} future month${monthsLeft===1?"":"s"}`
+      : "before the deadline";
     summaryHtml = `
       <div class="gf-calc-row ${onTime?'ok':'warn'}">
         <span class="gf-calc-icon">${onTime?'✅':'⚠️'}</span>
         <div class="gf-calc-body">
-          <strong>${formatCurrency(computed)}/mo</strong> needed over ${monthsLeft} months to reach ${formatCurrency(target)}
+          <strong>${formatCurrency(computed)}/mo</strong> needed ${monthsText} to reach ${formatCurrency(target)}
           <div class="gf-calc-sub">${onTime ? "Within your capacity — pick a start date above to adjust the monthly amount." : "Exceeds your available " + formatCurrency(available) + "/mo. Start sooner, reduce target, or extend deadline."}</div>
         </div>
       </div>`;
@@ -4480,8 +4677,8 @@ function _updateAddGoalCalc() {
   if (startHintEl && endVal) {
     const startDate = new Date((startVal||toDateInputValue(today)) + "T00:00:00");
     const endDate   = new Date(endVal + "T00:00:00");
-    const mos = Math.max(0, (endDate.getFullYear()-startDate.getFullYear())*12+(endDate.getMonth()-startDate.getMonth()));
-    startHintEl.textContent = mos > 0 ? mos + " months to deadline" : "deadline is this month";
+    const mos = countGoalContributionMonthsBeforeDeadline(endDate, startDate);
+    startHintEl.textContent = mos > 0 ? mos + " future month" + (mos === 1 ? "" : "s") + " to deadline" : "no future monthly slot before deadline";
   } else if (startHintEl) {
     startHintEl.textContent = "";
   }
