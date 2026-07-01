@@ -493,6 +493,7 @@ function applyAiPrefill() {
   syncClaimAmountCap();
 
   setAiPrefillStatus(buildAiPrefillStatus(suggestion), suggestion.missing.length ? "warn" : "good");
+  setInputValue("aiPrefillText", "");
 }
 
 function clearAiPrefill() {
