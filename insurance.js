@@ -981,7 +981,7 @@ async function appendInsuranceGoalTransaction({ dateInput, description, amount, 
     ":/workbook/worksheets('" + CONFIG.sheetName.replace(/'/g, "''") + "')/usedRange(valuesOnly=true)";
   const data = await graphGetJson(url, token);
   const nextRow = data.rowCount + 1;
-  const row = [formatInsuranceDateForExcel(dateInput), description, amount, "Savings Goal", "Goal: " + goalName, account, "", "", ""];
+  const row = [formatInsuranceDateForExcel(dateInput), description, amount, "Saving Goals", "Goal: " + goalName, account, "", "", ""];
   await writeExcelRange(CONFIG.sheetName, `A${nextRow}:I${nextRow}`, [row]);
   return nextRow;
 }

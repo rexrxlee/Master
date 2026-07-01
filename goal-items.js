@@ -616,7 +616,7 @@ function openPurchaseModal(itemId) {
 
         <div class="gi-modal-info">
           <span class="gi-modal-info-icon">ℹ</span>
-          This will write a <strong>Savings Goal</strong> transaction row to your Excel sheet,
+          This will write a <strong>Saving Goals</strong> transaction row to your Excel sheet,
           reducing the selected account, lowering the live goal allocation, and counting the purchase as fulfilled progress.
         </div>
 
@@ -672,7 +672,7 @@ async function confirmPurchase(itemId) {
 
   try {
     // 1. Write transaction row to transaction sheet
-    await _writeTransactionRow(date, txdesc, amt, "Savings Goal", "Goal: " + item.goalName, acct);
+    await _writeTransactionRow(date, txdesc, amt, "Saving Goals", "Goal: " + item.goalName, acct);
 
     // 2. Reduce the goal allocation and record why in the goal notes
     const adjustment = typeof applyGoalExpenseAdjustmentByName === "function"

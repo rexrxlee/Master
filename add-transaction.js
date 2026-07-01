@@ -1464,12 +1464,36 @@ async function markClaimed(excelRowNumber) {
     return;
   }
 
+  const claimAmount = row ? getClaimAmount(row) : 0;
+  if (!(claimAmount > 0)) {
+    alert("Could not determine the claim amount for this row.");
+    return;
+  }
+
   try {
     log("Marking row " + excelRowNumber + " as Claimed...");
     await ensureClaimHeaders();
     await writeExcelRange(CONFIG.sheetName, `H${excelRowNumber}:H${excelRowNumber}`, [["Claimed"]]);
     await writeExcelRange(CONFIG.sheetName, `J${excelRowNumber}:J${excelRowNumber}`, [[claimAccount]]);
-    log("Marked as Claimed.");
+
+    // Record the reimbursement itself as income in the claim account.
+    // No sub category — this is a claim receipt, not a categorized income source.
+    log("Recording claim reimbursement as income...");
+    const today = new Date();
+    const dateStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+    const description = "Claim received: " + (row?.transaction || "");
+    const token = await getToken();
+    const encodedPath = getEncodedExcelPath();
+    const usedRangeUrl = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
+      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
+    const data = await graphGetJson(usedRangeUrl, token);
+    const nextRow = data.rowCount + 1;
+    // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow}`, [[
+      dateStr, description, claimAmount, "Income", "", claimAccount, "", ""
+    ]]);
+
+    log("Marked as Claimed and recorded income.");
     await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);

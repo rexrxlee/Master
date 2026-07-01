@@ -808,11 +808,6 @@
       </div>
     </header>
 
-    <details class="debug-panel">
-      <summary>System Log</summary>
-      <pre id="debug"></pre>
-    </details>
-
     <!-- KPI cards -->
     <div class="budget-cards" style="margin-bottom:24px;">
       <div class="kpi-card neutral">
@@ -888,6 +883,7 @@
       document.getElementById(prefix + 'SubCategoryInput').value = '';
       document.getElementById(prefix + 'AllocatedInput').value = '';
       renderBudget();
+      scheduleBudgetAutoSave();
     }
   </script>
 </body>

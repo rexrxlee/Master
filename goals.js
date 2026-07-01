@@ -4867,7 +4867,7 @@ async function saveDeductGoal(idx) {
     const data    = await graphGetJson(url, token);
     const nextRow = data.rowCount + 1;
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:F${nextRow}`, [[
-      dateStr, note, amount, "Savings Goal", "Goal: " + goal.name, acct
+      dateStr, note, amount, "Saving Goals", "Goal: " + goal.name, acct
     ]]);
     transactionSaved = true;
 
