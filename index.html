@@ -98,7 +98,7 @@
     </nav>
 
     <section id="expensesDashboardView" class="dashboard-view active">
-      <section class="kpi-row">
+      <section class="kpi-row kpi-row-3">
         <div class="kpi-card income">
           <div class="kpi-label">Total Income</div>
           <div class="kpi-value" id="totalIncome">$0</div>
@@ -111,10 +111,6 @@
           <div class="kpi-label">Net Cashflow</div>
           <div class="kpi-value" id="netSavings">$0</div>
           <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
-        </div>
-        <div class="kpi-card neutral">
-          <div class="kpi-label">Transactions</div>
-          <div class="kpi-value" id="transactionCount">0</div>
         </div>
       </section>
 
@@ -137,7 +133,31 @@
         <div class="kpi-card neutral">
           <div class="kpi-label">Projected Month End</div>
           <div class="kpi-value" id="monthlyExpenseProjected">$0</div>
-          <div class="kpi-note" id="monthlyExpenseProjectedNote">Based on current daily trend</div>
+          <div class="kpi-note" id="monthlyExpenseProjectedNote">Projected spend based on your current spending so far</div>
+        </div>
+      </section>
+
+      <section class="insight-row">
+        <div class="insight-card">
+          <div class="insight-label">Highest Spending Month</div>
+          <div class="insight-value" id="highestMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">vs Last Month</div>
+          <div class="insight-value" id="vsLastMonthCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Top Category This Month</div>
+          <div class="insight-value" id="topCategoryCard">-</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Daily Avg Spend (All Expenses)</div>
+          <div class="insight-value" id="dailyAvgCard">-</div>
+          <div class="insight-note">All filtered expense categories — different from "Monthly Left / Day" above, which is monthly-expenses budget only</div>
+        </div>
+        <div class="insight-card">
+          <div class="insight-label">Net Cashflow This Month</div>
+          <div class="insight-value" id="thisMonthNetCard">-</div>
         </div>
       </section>
 
@@ -146,8 +166,8 @@
           <h2 class="card-title">Monthly Expenses Budget Balance</h2>
           <span class="card-badge" id="monthlyExpenseBudgetBadge">$0 left</span>
         </div>
-        <div class="table-wrap">
-          <table class="data-table" id="monthlyExpenseBudgetTable"></table>
+        <div class="chart-wrap tall" id="monthlyExpenseBudgetChartWrap">
+          <canvas id="monthlyExpenseBudgetChart"></canvas>
         </div>
       </section>
 
@@ -190,29 +210,6 @@
         </div>
         <div class="chart-wrap tall">
           <canvas id="subCategoryChart"></canvas>
-        </div>
-      </section>
-
-      <section class="insight-row">
-        <div class="insight-card">
-          <div class="insight-label">Highest Spending Month</div>
-          <div class="insight-value" id="highestMonthCard">-</div>
-        </div>
-        <div class="insight-card">
-          <div class="insight-label">vs Last Month</div>
-          <div class="insight-value" id="vsLastMonthCard">-</div>
-        </div>
-        <div class="insight-card">
-          <div class="insight-label">Top Category This Month</div>
-          <div class="insight-value" id="topCategoryCard">-</div>
-        </div>
-        <div class="insight-card">
-          <div class="insight-label">Daily Avg This Month</div>
-          <div class="insight-value" id="dailyAvgCard">-</div>
-        </div>
-        <div class="insight-card">
-          <div class="insight-label">Net Cashflow This Month</div>
-          <div class="insight-value" id="thisMonthNetCard">-</div>
         </div>
       </section>
 

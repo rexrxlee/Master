@@ -496,7 +496,6 @@ function updateDashboard(filters = getCurrentFilters()) {
       ? "All income in date range minus filtered expenses"
       : "Income minus expenses for the selected date range";
   }
-  document.getElementById("transactionCount").innerText = filtered.length;
 
   updateFinanceCards(allTransactions);
   renderMonthlyExpenseBudgetInsight(computeMonthlyExpenseBudgetPosition(allTransactions));
@@ -606,7 +605,7 @@ function renderMonthlyExpenseBudgetInsight(summary) {
 
   const projectedNote = document.getElementById("monthlyExpenseProjectedNote");
   if (projectedNote) {
-    projectedNote.textContent = `Projected spend ${formatCurrency(summary.projectedSpend)} this month`;
+    projectedNote.textContent = `Projected spend ${formatCurrency(summary.projectedSpend)}, based on your current spending so far of ${formatCurrency(summary.spent)}`;
   }
 
   const badge = document.getElementById("monthlyExpenseBudgetBadge");
@@ -617,27 +616,9 @@ function renderMonthlyExpenseBudgetInsight(summary) {
     badge.classList.toggle("warn", summary.balance < 0 || summary.projectedBalance < 0);
   }
 
-  const table = document.getElementById("monthlyExpenseBudgetTable");
-  if (!table) return;
-
-  table.innerHTML = `<tr><th>Sub Category</th><th>Allocated</th><th>Spent</th><th>Balance</th><th>Left / Day</th><th>Status</th></tr>`;
-  if (!summary.rows.length) {
-    table.innerHTML += `<tr><td colspan="6" style="text-align:center;color:#999;">No monthly expense budget rows found</td></tr>`;
-    return;
+  if (typeof drawMonthlyExpenseBudgetChart === "function") {
+    drawMonthlyExpenseBudgetChart(summary);
   }
-
-  summary.rows.forEach(row => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${row.category}</td>
-      <td style="text-align:right;font-family:'DM Mono', monospace;">${formatCurrency(row.allocated)}</td>
-      <td style="text-align:right;font-family:'DM Mono', monospace;font-weight:bold;">${formatCurrency(row.spent)}</td>
-      <td style="text-align:right;font-family:'DM Mono', monospace;color:${row.balance >= 0 ? "#16a34a" : "#dc2626"};font-weight:bold;">${formatCurrency(row.balance)}</td>
-      <td style="text-align:right;font-family:'DM Mono', monospace;color:${row.leftPerDay >= 0 ? "#16a34a" : "#dc2626"};">${formatCurrency(row.leftPerDay)}</td>
-      <td><span class="budget-status ${row.status.className}">${row.status.label}</span></td>
-    `;
-    table.appendChild(tr);
-  });
 }
 
 function setMoneyText(elementId, value, positiveIsGood = true, suffix = "") {

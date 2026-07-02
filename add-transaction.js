@@ -1419,7 +1419,7 @@ function renderClaimsTracker() {
         <td>${formatAmount(row.amount)}</td>
         <td>${escapeHtml(row.subCat)}</td>
         <td>${escapeHtml(row.account)}</td>
-        <td><select id="claim-account-${row._rowIndex}" style="min-width:150px;">${selectedOptions}</select></td>
+        <td><select id="claim-account-${row._rowIndex}" style="min-width:150px;" onchange="assignClaimAccount(${row._rowIndex}, this.value)">${selectedOptions}</select></td>
         <td><button onclick="markClaimed(${row._rowIndex})"
           style="background:#27ae60;color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px;">
           ✓ Mark Claimed</button></td>
@@ -1455,7 +1455,24 @@ function accountOptionsHtml(selectedAccount = "") {
   }).join("");
 }
 
-// ── Mark a row as Claimed (writes status and claim account) ──────────────────
+// ── Assign/save the claim account without marking as Claimed yet ─────────────
+// Fixes: previously the dropdown selection only persisted if "Mark Claimed"
+// was clicked immediately after; any reload before that lost the selection.
+async function assignClaimAccount(excelRowNumber, accountName) {
+  try {
+    log("Saving claim account for row " + excelRowNumber + "...");
+    await ensureClaimHeaders();
+    await writeExcelRange(CONFIG.sheetName, `J${excelRowNumber}:J${excelRowNumber}`, [[accountName || ""]]);
+    const row = recentRows.find(item => item._rowIndex === excelRowNumber);
+    if (row) row.claimAccount = accountName || "";
+    log("Claim account saved.");
+  } catch (err) {
+    log("ERROR: " + err.message);
+    alert("Failed to save claim account: " + err.message);
+  }
+}
+
+// ── Mark a row as Claimed (writes status, claim account, and records income) ─
 async function markClaimed(excelRowNumber) {
   const row = recentRows.find(item => item._rowIndex === excelRowNumber);
   const claimAccount = document.getElementById("claim-account-" + excelRowNumber)?.value || row?.claimAccount || "";
