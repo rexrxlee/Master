@@ -35,11 +35,11 @@ let incomeBoostsDirty = false;
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
-async function loadGoalsPage() {
+async function loadGoalsPage(forceRefresh = false) {
   try {
     clearOutput();
     log("Downloading Excel file...");
-    const arrayBuffer = await downloadExcelFile();
+    const arrayBuffer = await downloadExcelFile(forceRefresh);
     const workbook    = XLSX.read(arrayBuffer, { type:"array" });
     const budgetSheet = workbook.Sheets["Budget Setup"];
     const txSheet     = workbook.Sheets[CONFIG.sheetName];

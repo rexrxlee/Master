@@ -7,6 +7,8 @@ let isClaimable = false;
 let recentRows = [];               // raw rows from sheet
 let filteredRecentRows = [];       // after applying search/category filter
 let recurringSuggestions = [];      // strict recurring matches from transaction history
+let nextTransactionRow = 2;
+let claimHeadersReady = false;
 
 const SMART_CATEGORY_RULES = [
   {
@@ -94,7 +96,10 @@ async function loadAddTransactionPage() {
     // Load recent transactions
     const txSheet = workbook.Sheets[CONFIG.sheetName];
     if (txSheet) {
-      const allTxRows = XLSX.utils.sheet_to_json(txSheet, { header: 1, blankrows: false });
+      const allTxRows = XLSX.utils.sheet_to_json(txSheet, { header: 1, blankrows: true });
+      nextTransactionRow = allTxRows.length + 1;
+      claimHeadersReady = String(allTxRows[0]?.[8] ?? "").trim() === "Claim Amount"
+        && String(allTxRows[0]?.[9] ?? "").trim() === "Claim Account";
       // headers: A=Date B=Transaction C=Amount D=MainCategory E=SubCategory F=Account G=Claimable H=ClaimStatus I=ClaimAmount J=ClaimAccount
       recentRows = allTxRows.slice(1)
         .map((row, i) => ({
@@ -127,6 +132,34 @@ async function loadAddTransactionPage() {
     log("ERROR: " + err.message);
     console.error(err);
   }
+}
+
+function rowToRecentTransaction(row, excelRowNumber) {
+  return {
+    _rowIndex: excelRowNumber,
+    date: row[0] ?? "",
+    transaction: String(row[1] ?? ""),
+    amount: row[2] ?? "",
+    mainCat: String(row[3] ?? ""),
+    subCat: String(row[4] ?? ""),
+    account: String(row[5] ?? ""),
+    claimable: String(row[6] ?? "").trim(),
+    claimStatus: String(row[7] ?? "").trim(),
+    claimAmount: row[8] ?? "",
+    claimAccount: String(row[9] ?? "").trim()
+  };
+}
+
+function addSavedRowsToPage(rows, firstExcelRow) {
+  rows.forEach((row, index) => {
+    const item = rowToRecentTransaction(row, firstExcelRow + index);
+    if (item.date !== "" && item.transaction !== "Opening Balance") recentRows.push(item);
+  });
+  nextTransactionRow = firstExcelRow + rows.length;
+  renderRecentTransactions();
+  populateTxFilterCategories();
+  renderRecurringSuggestions();
+  renderClaimsTracker();
 }
 
 // ── Read helpers ──────────────────────────────────────────────────────────────
@@ -1000,15 +1033,11 @@ async function saveTransaction() {
 
   try {
     log("Saving transaction...");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data = await graphGetJson(url, token);
-    const nextRow = data.rowCount + 1;
+    const nextRow = nextTransactionRow;
 
     await ensureClaimHeaders();
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:J${nextRow}`, [row]);
+    addSavedRowsToPage([row], nextRow);
 
     resetClaimableUi();
 
@@ -1017,8 +1046,7 @@ async function saveTransaction() {
     document.getElementById("transactionSuccess").style.display = "block";
     setTimeout(() => document.getElementById("transactionSuccess").style.display = "none", 4000);
 
-    log("Saved. Reloading recent transactions...");
-    await loadAddTransactionPage();
+    log("Saved.");
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1043,14 +1071,10 @@ async function saveIncome() {
 
   try {
     log("Saving income...");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data = await graphGetJson(url, token);
-    const nextRow = data.rowCount + 1;
+    const nextRow = nextTransactionRow;
 
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow}`, [row]);
+    addSavedRowsToPage([row], nextRow);
 
     document.getElementById("inTransaction").value = "";
     document.getElementById("inAmount").value = "";
@@ -1058,7 +1082,6 @@ async function saveIncome() {
     setTimeout(() => document.getElementById("incomeSuccess").style.display = "none", 4000);
 
     log("Income saved.");
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1086,14 +1109,10 @@ async function saveTransfer() {
 
   try {
     log("Saving transfer...");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data = await graphGetJson(url, token);
-    const nextRow = data.rowCount + 1;
+    const nextRow = nextTransactionRow;
 
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow + 1}`, rows);
+    addSavedRowsToPage(rows, nextRow);
 
     document.getElementById("trAmount").value = "";
     document.getElementById("trNote").value = "";
@@ -1101,7 +1120,6 @@ async function saveTransfer() {
     setTimeout(() => document.getElementById("transferSuccess").style.display = "none", 4000);
 
     log("Transfer saved.");
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1127,21 +1145,16 @@ async function saveCcPayment() {
 
   try {
     log("Saving CC payment...");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data = await graphGetJson(url, token);
-    const nextRow = data.rowCount + 1;
+    const nextRow = nextTransactionRow;
 
     await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow + 1}`, rows);
+    addSavedRowsToPage(rows, nextRow);
 
     document.getElementById("ccPayAmount").value = "";
     document.getElementById("ccPaySuccess").style.display = "block";
     setTimeout(() => document.getElementById("ccPaySuccess").style.display = "none", 4000);
 
     log("CC payment saved.");
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1365,12 +1378,22 @@ async function saveRow(excelRowNumber) {
       `A${excelRowNumber}:J${excelRowNumber}`,
       [[dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount]]
     );
+    const savedRow = recentRows.find(item => item._rowIndex === excelRowNumber);
+    if (savedRow) {
+      Object.assign(savedRow, rowToRecentTransaction(
+        [dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount],
+        excelRowNumber
+      ));
+    }
+    openEditPanel = null;
+    renderRecentTransactions();
+    populateTxFilterCategories();
+    renderRecurringSuggestions();
+    renderClaimsTracker();
     log("Row " + excelRowNumber + " saved.");
     // Flash the row green briefly
     const tr = document.getElementById("tx-row-" + excelRowNumber);
     if (tr) { tr.style.background = "#f0fdf4"; setTimeout(() => { tr.style.background = ""; }, 1500); }
-    // Reload so recentRows stay in sync
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed to save: " + err.message);
@@ -1490,8 +1513,9 @@ async function markClaimed(excelRowNumber) {
   try {
     log("Marking row " + excelRowNumber + " as Claimed...");
     await ensureClaimHeaders();
-    await writeExcelRange(CONFIG.sheetName, `H${excelRowNumber}:H${excelRowNumber}`, [["Claimed"]]);
-    await writeExcelRange(CONFIG.sheetName, `J${excelRowNumber}:J${excelRowNumber}`, [[claimAccount]]);
+    await writeExcelRange(CONFIG.sheetName, `H${excelRowNumber}:J${excelRowNumber}`, [[
+      "Claimed", row?.claimAmount || claimAmount, claimAccount
+    ]]);
 
     // Record the reimbursement itself as income in the claim account.
     // No sub category — this is a claim receipt, not a categorized income source.
@@ -1499,19 +1523,20 @@ async function markClaimed(excelRowNumber) {
     const today = new Date();
     const dateStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
     const description = "Claim received: " + (row?.transaction || "");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const usedRangeUrl = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data = await graphGetJson(usedRangeUrl, token);
-    const nextRow = data.rowCount + 1;
+    const nextRow = nextTransactionRow;
     // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus
-    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow}`, [[
+    const incomeRow = [
       dateStr, description, claimAmount, "Income", "", claimAccount, "", ""
-    ]]);
+    ];
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow}`, [incomeRow]);
+
+    if (row) {
+      row.claimStatus = "Claimed";
+      row.claimAccount = claimAccount;
+    }
+    addSavedRowsToPage([incomeRow], nextRow);
 
     log("Marked as Claimed and recorded income.");
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1525,8 +1550,12 @@ async function deleteRow(excelRowNumber) {
     log("Deleting row " + excelRowNumber + "...");
     // Overwrite with blank row
     await writeExcelRange(CONFIG.sheetName, `A${excelRowNumber}:J${excelRowNumber}`, [["","","","","","","","","",""]]);
+    recentRows = recentRows.filter(row => row._rowIndex !== excelRowNumber);
+    renderRecentTransactions();
+    populateTxFilterCategories();
+    renderRecurringSuggestions();
+    renderClaimsTracker();
     log("Row cleared.");
-    await loadAddTransactionPage();
   } catch (err) {
     log("ERROR: " + err.message);
     alert("Failed: " + err.message);
@@ -1561,7 +1590,9 @@ function getClaimAmount(row) {
 }
 
 async function ensureClaimHeaders() {
+  if (claimHeadersReady) return;
   await writeExcelRange(CONFIG.sheetName, "I1:J1", [["Claim Amount", "Claim Account"]]);
+  claimHeadersReady = true;
 }
 
 function escapeHtml(v) {

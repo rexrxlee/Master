@@ -1,5 +1,7 @@
 /* ── Reset & Base ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+img, svg, canvas { max-width: 100%; }
+input, select, textarea { max-width: 100%; }
 
 :root {
   --bg:        #f7f8fa;
@@ -24,6 +26,7 @@ body {
   background: var(--bg);
   color: var(--text);
   display: flex;
+  width: 100%;
   min-height: 100vh;
 }
 
@@ -140,6 +143,8 @@ body {
 .main {
   margin-left: var(--sidebar-w);
   flex: 1;
+  min-width: 0;
+  width: calc(100vw - var(--sidebar-w));
   padding: 0 32px 32px;
   max-width: calc(100vw - var(--sidebar-w));
 }
@@ -877,7 +882,20 @@ body {
   margin-bottom: 16px;
 }
 
-.table-wrap { overflow-x: auto; }
+.table-wrap,
+.table-container,
+.historical-table-wrap,
+.accounts-table-wrap,
+.gantt-scroll,
+.cf-month-table-wrap,
+.gi-table-wrap,
+.gi-ins-details {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
 
 .data-table {
   width: 100%;
@@ -1644,9 +1662,29 @@ button, select, input {
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
   .brand-name, .nav-item span:not(.nav-icon), .sidebar-status { display: none; }
-  .main { margin-left: 60px; padding: 0 16px 24px; }
+  .main {
+    width: calc(100vw - 60px);
+    max-width: calc(100vw - 60px);
+    margin-left: 60px;
+    padding: 0 12px 24px;
+  }
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-top: 20px;
+  }
+  .topbar-left,
+  .topbar-right { min-width: 0; max-width: 100%; }
+  .topbar-right {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .filters-bar { position: relative; flex-wrap: wrap; }
+  .filter-group { min-width: 0; max-width: 100%; }
   .dashboard-tabs { width: 100%; display: flex; }
-  .dashboard-tab-btn { flex: 1; min-width: 0; }
+  .dashboard-tab-btn { flex: 1; min-width: 0; padding-inline: 6px; }
   .kpi-row, .kpi-row.kpi-row-3 { grid-template-columns: 1fr 1fr; }
   .reward-control-grid,
   .reward-rule-summary,
@@ -1660,6 +1698,29 @@ button, select, input {
   .insurance-goal-group-head,
   .insurance-goal-policy { flex-direction: column; }
   .insurance-modal { align-items: flex-start; padding: 14px; }
+  .insurance-modal-card {
+    max-height: calc(100dvh - 28px);
+    padding: 16px;
+  }
+  .claims-section {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #claimsContainer .data-table { min-width: 680px; }
+}
+
+@media (max-width: 480px) {
+  .kpi-row,
+  .kpi-row.kpi-row-3,
+  .budget-kpi-row,
+  .insurance-kpi-row,
+  .rewards-kpi-row,
+  .insight-row { grid-template-columns: 1fr; }
+  .page-title { font-size: 20px; }
+  .card-header { padding-inline: 14px; }
+  .chart-wrap { padding: 10px; }
 }
 
 /* ── Setup page: existing opening-balance warning ──────────────────────────── */

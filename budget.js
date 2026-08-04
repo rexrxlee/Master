@@ -13,12 +13,12 @@ const BUDGET_PROJECTION_RATE_LEVELS = {
 };
 let budgetProjectionAssumptions = loadBudgetProjectionAssumptions();
 
-async function loadBudgetPage() {
+async function loadBudgetPage(forceRefresh = false) {
   try {
     clearOutput();
 
     log("Downloading Excel file...");
-    const arrayBuffer = await downloadExcelFile();
+    const arrayBuffer = await downloadExcelFile(forceRefresh);
 
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
 

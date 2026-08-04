@@ -53,11 +53,11 @@ let insuranceSheetReady = false;
 let insuranceSheetState = "unknown";
 let insurancePolicySaving = false;
 
-async function loadInsurancePage() {
+async function loadInsurancePage(forceRefresh = false) {
   try {
     clearOutput();
     log("Downloading Excel file...");
-    const arrayBuffer = await downloadExcelFile();
+    const arrayBuffer = await downloadExcelFile(forceRefresh);
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
     const insuranceSheet = workbook.Sheets[INSURANCE_SHEET];
     const budgetSheet = workbook.Sheets["Budget Setup"];

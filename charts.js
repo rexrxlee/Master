@@ -157,20 +157,24 @@ function drawMonthlyExpenseChart(expenseData, incomeData, filters = {}) {
 }
 
 /**
- * Horizontal grouped bar chart of Monthly Expenses budget rows:
- * a faint bar for Allocated and a colored bar for Spent (colored by
- * over/watch/on-track status), replacing the old plain table.
+ * "Bullet chart" style budget view: a wide, pale Allocated bar per category
+ * with a thinner, status-colored Spent bar layered on top of it (not
+ * side-by-side). A "% used" label floats above whichever bar is taller —
+ * so an overspend visibly pokes above the allocated envelope.
  */
 function drawMonthlyExpenseBudgetChart(summary) {
   const canvas = document.getElementById("monthlyExpenseBudgetChart");
   if (!canvas) return;
   const wrap = document.getElementById("monthlyExpenseBudgetChartWrap") || canvas.parentElement;
+  const inner = document.getElementById("monthlyExpenseBudgetChartInner") || wrap;
+  const legendEl = document.getElementById("monthlyExpenseBudgetLegend");
 
   if (monthlyExpenseBudgetChart) { monthlyExpenseBudgetChart.destroy(); monthlyExpenseBudgetChart = null; }
 
   const rows = summary.rows || [];
   if (!rows.length) {
     canvas.style.display = "none";
+    if (legendEl) legendEl.innerHTML = "";
     if (wrap && !wrap.querySelector(".no-data-msg")) {
       const msg = document.createElement("div");
       msg.className = "no-data-msg";
@@ -184,13 +188,33 @@ function drawMonthlyExpenseBudgetChart(summary) {
   canvas.style.display = "";
   const oldMsg = wrap ? wrap.querySelector(".no-data-msg") : null;
   if (oldMsg) oldMsg.remove();
-  if (wrap) wrap.style.height = Math.min(560, Math.max(240, rows.length * 34 + 70)) + "px";
+  // Give each category enough breathing room; scroll horizontally beyond that.
+  if (inner) inner.style.minWidth = Math.max(560, rows.length * 100) + "px";
 
-  const statusColor = { ok: "#16a34a", watch: "#f59e0b", over: "#dc2626" };
+  const STATUS_STYLES = {
+    ok:    { bar: "rgba(22,163,74,0.92)",  border: "#15803d", label: "#15803d" },
+    watch: { bar: "rgba(245,158,11,0.94)", border: "#b45309", label: "#b45309" },
+    over:  { bar: "rgba(220,38,38,0.94)",  border: "#b91c1c", label: "#b91c1c" }
+  };
+  const ALLOCATED_FILL = "rgba(99,138,196,0.20)";
+  const ALLOCATED_BORDER = "rgba(71,105,163,0.65)";
+
+  if (legendEl) {
+    const dot = (color) => `<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${color};margin-right:5px;vertical-align:middle;"></span>`;
+    legendEl.innerHTML = `
+      <span style="display:inline-flex;align-items:center;">${dot(ALLOCATED_FILL.replace("0.20", "0.55"))}Allocated</span>
+      <span style="display:inline-flex;align-items:center;">${dot(STATUS_STYLES.ok.border)}Spent — on track</span>
+      <span style="display:inline-flex;align-items:center;">${dot(STATUS_STYLES.watch.border)}Spent — watch</span>
+      <span style="display:inline-flex;align-items:center;">${dot(STATUS_STYLES.over.border)}Spent — over budget</span>
+    `;
+  }
+
   const labels = rows.map(row => row.category);
   const allocatedData = rows.map(row => row.allocated);
   const spentData = rows.map(row => row.spent);
-  const spentColors = rows.map(row => statusColor[row.status.className] || "#60a5fa");
+  const spentBarColors = rows.map(row => (STATUS_STYLES[row.status.className] || STATUS_STYLES.ok).bar);
+  const spentBorderColors = rows.map(row => (STATUS_STYLES[row.status.className] || STATUS_STYLES.ok).border);
+  const spentLabelColors = rows.map(row => (STATUS_STYLES[row.status.className] || STATUS_STYLES.ok).label);
 
   monthlyExpenseBudgetChart = new Chart(canvas, {
     type: "bar",
@@ -200,40 +224,56 @@ function drawMonthlyExpenseBudgetChart(summary) {
         {
           label: "Allocated",
           data: allocatedData,
-          backgroundColor: "rgba(148,163,184,0.32)",
-          borderColor: "rgba(148,163,184,0.7)",
-          borderWidth: 1,
-          borderRadius: 4,
-          maxBarThickness: 16,
+          backgroundColor: ALLOCATED_FILL,
+          borderColor: ALLOCATED_BORDER,
+          borderWidth: 1.5,
+          borderRadius: 9,
+          borderSkipped: false,
+          barThickness: 38,
+          grouped: false,
           datalabels: { display: false }
         },
         {
           label: "Spent",
           data: spentData,
-          backgroundColor: spentColors,
-          borderRadius: 4,
-          maxBarThickness: 16,
+          backgroundColor: spentBarColors,
+          borderColor: spentBorderColors,
+          borderWidth: 1.5,
+          borderRadius: 6,
+          borderSkipped: false,
+          barThickness: 14,
+          grouped: false,
           datalabels: {
             anchor: "end",
-            align: "right",
+            align: "top",
+            offset: 6,
             clamp: true,
-            color: "#334155",
-            font: { size: 10, weight: "600" },
-            formatter: v => v > 0 ? formatAxisCurrency(v) : ""
+            color: (ctx) => spentLabelColors[ctx.dataIndex],
+            font: { size: 11, weight: "700" },
+            formatter: (value, ctx) => {
+              const row = rows[ctx.dataIndex];
+              if (!row) return "";
+              if (row.allocated <= 0) return formatAxisCurrency(value);
+              const pct = Math.round((value / row.allocated) * 100);
+              return pct + "%";
+            }
           }
         }
       ]
     },
     options: {
-      indexAxis: "y",
       responsive: true,
       maintainAspectRatio: false,
-      layout: { padding: { right: 56, top: 6 } },
+      layout: { padding: { top: 26, right: 8, left: 4, bottom: 4 } },
       plugins: {
-        legend: { display: true, position: "top" },
+        legend: { display: false },
         tooltip: {
+          backgroundColor: "rgba(15,23,42,0.92)",
+          padding: 10,
+          titleFont: { size: 12.5, weight: "600" },
+          bodyFont: { size: 12 },
           callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${formatExactCurrency(ctx.parsed.x || 0)}`,
+            label: ctx => `${ctx.dataset.label}: ${formatExactCurrency(ctx.parsed.y || 0)}`,
             afterLabel: ctx => {
               if (ctx.datasetIndex !== 1) return "";
               const row = rows[ctx.dataIndex];
@@ -245,12 +285,15 @@ function drawMonthlyExpenseBudgetChart(summary) {
       },
       scales: {
         x: {
-          beginAtZero: true,
-          grace: "10%",
-          ticks: { callback: v => formatAxisCurrency(v), font: { size: 11 } }
+          grid: { display: false },
+          ticks: { font: { size: 12, weight: "600" }, color: "#475569" }
         },
         y: {
-          ticks: { font: { size: 11 } }
+          beginAtZero: true,
+          grace: "22%",
+          grid: { color: "rgba(148,163,184,0.18)" },
+          border: { display: false },
+          ticks: { callback: v => formatAxisCurrency(v), font: { size: 11 }, color: "#94a3b8" }
         }
       }
     }

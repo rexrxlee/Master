@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Insurance — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -36,7 +37,7 @@
         <p class="page-subtitle">Policies and premium planning</p>
       </div>
       <div class="topbar-right">
-        <button class="reload-btn" onclick="loadInsurancePage()">↻ Reload</button>
+        <button class="reload-btn" onclick="loadInsurancePage(true)">↻ Reload</button>
         <button class="reload-btn primary-action" onclick="openInsuranceGroupPayModal()">Group Pay</button>
         <button class="reload-btn primary-action" onclick="openInsurancePolicyModal()">+ Add Policy</button>
         <button class="reload-btn primary-action" onclick="createInsuranceSheet()">Create Sheet</button>

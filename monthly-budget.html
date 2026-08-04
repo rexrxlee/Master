@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Budget — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -739,6 +740,12 @@
         }
         @media (max-width: 900px) {
           .budget-page-grid { grid-template-columns: 1fr; }
+          .budget-section-card {
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            -webkit-overflow-scrolling: touch;
+          }
+          .budget-section-card .budget-table { min-width: 520px; }
           .bv-summary-grid,
           .bv-section-grid,
           .bproj-grid { grid-template-columns: 1fr; }
@@ -803,7 +810,7 @@
         <p class="page-subtitle">Spending vs allocation</p>
       </div>
       <div class="topbar-right">
-        <button class="reload-btn" onclick="loadBudgetPage()">↻ Reload</button>
+        <button class="reload-btn" onclick="loadBudgetPage(true)">↻ Reload</button>
         <span class="autosave-status" id="budgetAutosaveStatus">Autosaves to Excel</span>
       </div>
     </header>

@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Goals — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -2758,7 +2759,7 @@
         <p class="page-subtitle" id="pageSubtitle">Savings goals and forecasts</p>
       </div>
       <div class="topbar-right">
-        <button class="reload-btn" id="reloadBtn" onclick="loadGoalsPage()">↻ Reload</button>
+        <button class="reload-btn" id="reloadBtn" onclick="loadGoalsPage(true)">↻ Reload</button>
       </div>
     </header>
 
@@ -2818,7 +2819,7 @@
           _plannerLoaded = true;
         }
       } else {
-        reloadBtn.onclick = () => loadGoalsPage();
+        reloadBtn.onclick = () => loadGoalsPage(true);
         document.getElementById("pageTitle").textContent    = "Goals";
         document.getElementById("pageSubtitle").textContent = "Savings goals and forecasts";
       }

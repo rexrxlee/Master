@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Add Transaction — Fintrack</title>
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -242,6 +243,22 @@
       .ai-prefill-bar textarea {
         grid-column: 1 / -1;
       }
+      .tx-form-body { padding: 16px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .form-field.full { grid-column: 1; }
+      .tx-table-card {
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x pan-y;
+      }
+      #txTableBody { min-width: 760px; }
+      .tx-filter-bar {
+        position: sticky;
+        left: 0;
+        width: calc(100vw - 84px);
+      }
+      .tx-edit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     /* Claimable toggle */
@@ -477,6 +494,16 @@
     .btn-edit-cancel { background: var(--bg); color: var(--muted); border-color: var(--border); }
 
     .tx-empty { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 640px) {
+      .tx-table-card {
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x pan-y;
+      }
+      .tx-edit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body onload="loadAddTransactionPage()">

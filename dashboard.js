@@ -25,11 +25,11 @@ let cashbackRecords = [];
 let rewardSelection = { card: "", quarter: "" };
 let rewardControlsInitialized = false;
 
-async function loadDashboard() {
+async function loadDashboard(forceRefresh = false) {
   try {
     clearOutput();
     log("Downloading Excel file...");
-    const arrayBuffer = await downloadExcelFile();
+    const arrayBuffer = await downloadExcelFile(forceRefresh);
     log("Reading workbook...");
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
     const worksheet = workbook.Sheets[CONFIG.sheetName];
@@ -498,22 +498,23 @@ function updateDashboard(filters = getCurrentFilters()) {
   }
 
   updateFinanceCards(allTransactions);
-  renderMonthlyExpenseBudgetInsight(computeMonthlyExpenseBudgetPosition(allTransactions));
-  if (activeDashboardView === "income") {
-    drawIncomeSubCategoryChart(incomeFiltered, filters);
-  } else {
+  if (activeDashboardView === "expenses") {
+    renderMonthlyExpenseBudgetInsight(computeMonthlyExpenseBudgetPosition(allTransactions));
     drawMonthlyExpenseChart(filtered, incomeByDate, filters);
     drawSubCategoryMonthlyChart(filtered, filters);
+    renderRecentTransactions(filtered);
+    renderTop5Transactions(filtered);
+    renderMonthlyAvgByCategory(filtered);
+    renderInsightCards(filtered, incomeByDate, allTransactions);
+  } else if (activeDashboardView === "income") {
+    drawIncomeSubCategoryChart(incomeFiltered, filters);
+    renderIncomeBreakdown(incomeFiltered, filters);
+    renderIncomeSummaryCards(incomeFiltered, filters);
+    renderIncomeInsightCards(incomeFiltered, allTransactions, filters);
+    renderIncomeMonthlyTable(incomeFiltered);
+  } else {
+    renderTransactionsRewardsView(allTransactions, filters);
   }
-  renderRecentTransactions(filtered);
-  renderTop5Transactions(filtered);
-  renderMonthlyAvgByCategory(filtered);
-  renderIncomeBreakdown(incomeFiltered, filters);
-  renderIncomeSummaryCards(incomeFiltered, filters);
-  renderIncomeInsightCards(incomeFiltered, allTransactions, filters);
-  renderIncomeMonthlyTable(incomeFiltered);
-  renderInsightCards(filtered, incomeByDate, allTransactions);
-  renderTransactionsRewardsView(allTransactions, filters);
 }
 
 // ─── Monthly Expenses Budget Insight ──────────────────────────────────────────

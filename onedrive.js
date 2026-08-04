@@ -17,6 +17,11 @@ let excelBusyDepth = 0;
 let excelBusyOverlay = null;
 let excelBusyMessage = null;
 let excelBusyPreviouslyFocused = null;
+let workbookDownloadPromise = null;
+
+const EXCEL_CACHE_NAME = "fintrack-workbook-v1";
+const EXCEL_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
+const EXCEL_CACHE_TIME_KEY = "fintrack.workbookCacheTime.v1";
 
 const EXCEL_BUSY_ACTIONS = {
   loadDashboard: "Loading dashboard from Excel...",
@@ -286,7 +291,9 @@ async function graphPatch(url, token, body) {
       throw new Error(response.status + " " + errorText);
     }
 
-    return response.json();
+    const result = await response.json();
+    invalidateExcelDownloadCache();
+    return result;
   });
 }
 
@@ -306,12 +313,61 @@ async function graphPost(url, token, body) {
       throw new Error(response.status + " " + errorText);
     }
 
-    return response.json();
+    const result = await response.json();
+    invalidateExcelDownloadCache();
+    return result;
   });
 }
 
-async function downloadExcelFile() {
-  return withExcelBusy("Loading from Excel...", async () => {
+function getExcelCacheRequest() {
+  if (typeof Request === "undefined" || !window.location?.origin) return null;
+  const cacheUrl = new URL("/__fintrack_workbook_cache__", window.location.origin);
+  cacheUrl.searchParams.set("path", CONFIG.filePath);
+  return new Request(cacheUrl.toString());
+}
+
+async function readExcelDownloadCache() {
+  if (!("caches" in window)) return null;
+  const savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY) || 0);
+  if (!savedAt || Date.now() - savedAt > EXCEL_CACHE_MAX_AGE_MS) return null;
+
+  const request = getExcelCacheRequest();
+  if (!request) return null;
+  const cache = await caches.open(EXCEL_CACHE_NAME);
+  const cached = await cache.match(request);
+  return cached ? cached.arrayBuffer() : null;
+}
+
+async function storeExcelDownloadCache(arrayBuffer) {
+  if (!("caches" in window)) return;
+  const request = getExcelCacheRequest();
+  if (!request) return;
+  const cache = await caches.open(EXCEL_CACHE_NAME);
+  await cache.put(request, new Response(arrayBuffer.slice(0)));
+  localStorage.setItem(EXCEL_CACHE_TIME_KEY, String(Date.now()));
+}
+
+function invalidateExcelDownloadCache() {
+  localStorage.removeItem(EXCEL_CACHE_TIME_KEY);
+  if (!("caches" in window)) return;
+  const request = getExcelCacheRequest();
+  if (!request) return;
+  caches.open(EXCEL_CACHE_NAME).then(cache => cache.delete(request)).catch(() => {});
+}
+
+async function downloadExcelFile(forceRefresh = false) {
+  if (!forceRefresh) {
+    try {
+      const cached = await readExcelDownloadCache();
+      if (cached) return cached;
+    } catch (_) {
+      // Cache failures must never prevent a normal workbook download.
+    }
+  }
+
+  if (workbookDownloadPromise) return workbookDownloadPromise;
+
+  workbookDownloadPromise = withExcelBusy("Loading from Excel...", async () => {
     const token = await getToken();
 
     if (!token) {
@@ -326,9 +382,16 @@ async function downloadExcelFile() {
       ":/content";
 
     const response = await graphFetch(downloadUrl, token);
-
-    return response.arrayBuffer();
+    const arrayBuffer = await response.arrayBuffer();
+    try { await storeExcelDownloadCache(arrayBuffer); } catch (_) {}
+    return arrayBuffer;
   });
+
+  try {
+    return await workbookDownloadPromise;
+  } finally {
+    workbookDownloadPromise = null;
+  }
 }
 
 async function readExcelRange(sheetName, rangeAddress) {
