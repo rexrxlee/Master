@@ -189,7 +189,7 @@ function computeBudgetRow(item) {
 
 /**
  * Calculates spending for the current month.
- * Claimable rows are excluded from spending budgets entirely.
+ * Claimable rows count for the portion that cannot be reimbursed.
  * They still affect account/card balances elsewhere until the reimbursement arrives.
  */
 function calculateSpentForCurrentMonth(mainCategory, subCategory) {
@@ -1018,7 +1018,11 @@ function getBudgetImpactAmount(row) {
   const claimableKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claimable") || "Claimable";
   const claimable = clean(row[claimableKey]).toLowerCase();
   if (claimable !== "yes") return amount;
-  return 0;
+
+  const claimAmountKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claim amount") || "Claim Amount";
+  const storedClaimAmount = getAmount(row[claimAmountKey]);
+  const claimAmount = Math.min(amount, storedClaimAmount > 0 ? storedClaimAmount : amount);
+  return Math.max(0, amount - claimAmount);
 }
 
 function toNumber(value) {
