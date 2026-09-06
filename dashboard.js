@@ -32,7 +32,7 @@ async function loadDashboard(forceRefresh = false) {
         .filter(account => account.name !== "");
 
       savingsAccountNames = configuredAccounts
-        .filter(account => account.type.toLowerCase() === "savings")
+        .filter(account => ["savings", "business"].includes(account.type.toLowerCase()))
         .map(account => account.name);
 
       creditCardAccountNames = configuredAccounts
@@ -86,7 +86,8 @@ function prepareTransactions(rows) {
     "Claimable",
     "Claim Status",
     "Claim Amount",
-    "Claim Account"
+    "Claim Account",
+    "Expense For"
   ];
   allTransactions = rows.slice(1).map(row => {
     const obj = {};
@@ -268,7 +269,7 @@ function handleFilterChange() {
 
 function isExpenseRow(row) {
   const cat = clean(row["Main Category"]).toLowerCase();
-  return cat !== "income" && cat !== "transfer" && cat !== "saving goals";
+  return !isBusinessTransaction(row, configuredAccounts) && cat !== "income" && cat !== "transfer" && cat !== "saving goals";
 }
 
 function isClaimableRow(row) {
@@ -317,7 +318,7 @@ function computePendingClaimsByAccount(rows, shouldIncludeAccount = () => true) 
 }
 
 function isIncomeRow(row) {
-  return clean(row["Main Category"]).toLowerCase() === "income"
+  return !isBusinessTransaction(row, configuredAccounts) && clean(row["Main Category"]).toLowerCase() === "income"
     && clean(row["Sub Category"]) !== "Opening Balance";
 }
 
@@ -516,7 +517,7 @@ function computeMonthlyExpenseBudgetPosition(data) {
     if (!rowDate) return;
     if (rowDate.getFullYear() !== currentYear || rowDate.getMonth() !== currentMonth) return;
     if (clean(row["Main Category"]).toLowerCase() !== "monthly expenses") return;
-    if (isClaimableRow(row)) return;
+    if (isClaimableRow(row) || isBusinessTransaction(row, configuredAccounts)) return;
 
     const category = clean(row["Sub Category"]) || "Uncategorised";
     spentByCategory[category] = (spentByCategory[category] || 0) + getAmount(row["Amount"]);
@@ -712,6 +713,15 @@ function updateFinanceCards(data) {
   updateAssetScopeBadge(savingsAccounts.length - includedSavingsAccounts.length, excludedSavingsTotal);
   document.getElementById("assetsBalance").innerText = formatCurrency(assetsBalance);
   drawSavingsTable(savingsAccounts, balances, savingsTotal);
+  const businessPanel = document.getElementById("businessAccountSummary");
+  if (businessPanel) {
+    const pending = businessOutstanding(configuredAccounts, data);
+    businessPanel.innerHTML = configuredAccounts.filter(isBusinessAccount).map(account => {
+      const reserved = pending.filter(item => businessKey(item.business) === businessKey(account.name)).reduce((sum, item) => sum + item.amount, 0);
+      const cash = balances[account.name] || 0;
+      return `<div class="account-line"><span>${escapeHtml(account.name)} · Business</span><span>${formatCurrency(cash - reserved)} available<br><small>${formatCurrency(reserved)} reserved for repayments</small></span></div>`;
+    }).join("");
+  }
 }
 
 function drawSavingsTable(accounts, balances, total) {

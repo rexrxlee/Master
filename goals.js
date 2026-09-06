@@ -54,7 +54,7 @@ async function loadGoalsPage(forceRefresh = false) {
     // Read which accounts are designated for goals
     const acctCell = budgetSheet["AD2"];
     const acctRaw  = acctCell ? String(acctCell.v ?? "").trim() : "";
-    goalSavingsAccts = acctRaw ? acctRaw.split("|").map(s=>s.trim()).filter(Boolean) : [];
+    goalSavingsAccts = acctRaw ? acctRaw.split("|").map(s=>s.trim()).filter(name => allAccounts.some(a => accountKey(a.name) === accountKey(name) && a.type === "Savings")) : [];
 
     // Budget totals
     const billsRows   = readBudgetSection(budgetSheet, "A2:B13");
@@ -148,7 +148,8 @@ function readAllTx(sheet) {
     "Claimable",
     "Claim Status",
     "Claim Amount",
-    "Claim Account"
+    "Claim Account",
+    "Expense For"
   ];
   return rows.slice(1).map(row => {
     const obj = {};
@@ -272,7 +273,10 @@ function computeCCOwed(txData) {
     totalOwed += openingBalance + charges + transferImpact;
   });
 
-  return Math.max(0, totalOwed);
+  const businessCover = businessOutstanding(allAccounts, txData).filter(item =>
+    allAccounts.some(account => businessKey(account.name) === businessKey(item.account) && account.type === "Credit Card")
+  ).reduce((sum, item) => sum + item.amount, 0);
+  return Math.max(0, totalOwed - businessCover);
 }
 
 function getCreditCardAccountsInData(txData) {
@@ -4594,6 +4598,7 @@ function getClaimReceivableAccount(row) {
   return clean(getRowValue(row, "Claim Account"));
 }
 function getClaimAdjustedExpenseAmount(row) {
+  if (isBusinessTransaction(row, allAccounts)) return 0;
   const amount = getAmount(row["Amount"]);
   if (!isClaimableRow(row)) return amount;
   return Math.max(0, amount - getClaimAmount(row));

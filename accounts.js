@@ -38,7 +38,7 @@ async function loadAccountsPage() {
 function readAccountsFromSheet(sheet) {
   const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
   return allRows.slice(1)
-    .map(row => ({ name: String(row[9] ?? "").trim(), type: String(row[10] ?? "Savings").trim() }))
+    .map(row => ({ name: String(row[9] ?? "").trim(), type: String(row[10] ?? "Savings").trim(), bankGroup: readAccountBankGroups(sheet)[accountKey(row[9])] || "" }))
     .filter(a => a.name !== "");
 }
 
@@ -93,7 +93,7 @@ function renderAccountsTable() {
   table.innerHTML = `
     <tr>
       <th class="acct-name-col">Account</th>
-      <th class="acct-type-col">Type</th>
+      <th class="acct-type-col">Type</th><th>Shared bank (optional)</th>
       <th class="acct-date-col">Opening Date</th>
       <th class="acct-balance-col">Opening Balance</th>
       <th class="acct-action-col"></th>
@@ -107,8 +107,10 @@ function renderAccountsTable() {
         <select onchange="updateAccountType(${index}, this.value)">
           <option value="Savings" ${account.type === "Savings" ? "selected" : ""}>Savings</option>
           <option value="Credit Card" ${account.type === "Credit Card" ? "selected" : ""}>Credit Card</option>
+          <option value="Business" ${account.type === "Business" ? "selected" : ""}>Business portion / account</option>
         </select>
       </td>
+      <td><input aria-label="Shared bank" placeholder="e.g. Shared savings" value="${escapeHtml(account.bankGroup || "")}" onchange="accountsList[${index}].bankGroup = this.value.trim(); scheduleAccountsAutoSave();"></td>
       <td>
         <input type="date" id="setupDate_${index}" value="${escapeHtml(opening.date)}"
           onchange="updateOpeningDraft(${index}, 'date', this.value)">
@@ -269,6 +271,7 @@ async function saveAccountsToExcel(options = {}) {
     const acctValues = accountsList.map(a => [a.name, a.type]);
     while (acctValues.length < MAX_ACCOUNTS) acctValues.push(["", ""]);
     await writeBudgetSetupRange(ACCOUNTS_FULL_RANGE, acctValues);
+    await writeBudgetSetupRange("AH2:AH2", [[JSON.stringify(Object.fromEntries(accountsList.map(a => [accountKey(a.name), a.bankGroup || ""])))]]);
     log("Accounts saved.");
 
     log("Saving income sub-categories to column Q...");

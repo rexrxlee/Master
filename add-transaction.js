@@ -97,7 +97,7 @@ async function loadAddTransactionPage(forceRefresh = false) {
     if (budgetSheet) {
       const allRows = XLSX.utils.sheet_to_json(budgetSheet, { header: 1, blankrows: false });
       accounts = allRows.slice(1)
-        .map(row => ({ name: String(row[9] ?? "").trim(), type: String(row[10] ?? "Savings").trim() }))
+        .map(row => ({ name: String(row[9] ?? "").trim(), type: String(row[10] ?? "Savings").trim(), bankGroup: readAccountBankGroups(budgetSheet)[businessKey(row[9])] || "" }))
         .filter(a => a.name !== "");
     }
 
@@ -105,6 +105,8 @@ async function loadAddTransactionPage(forceRefresh = false) {
     const txSheet = workbook.Sheets[CONFIG.sheetName];
     if (txSheet) {
       const allTxRows = XLSX.utils.sheet_to_json(txSheet, { header: 1, blankrows: true });
+      businessHeaderReady = String(allTxRows[0]?.[10] ?? "").trim() === "Expense For";
+      businessColumnConflict = !!String(allTxRows[0]?.[10] ?? "").trim() && !businessHeaderReady;
       openingBalanceRows = allTxRows.slice(1)
         .map((row, index) => rowToRecentTransaction(row, index + 2))
         .filter(row => row.transaction.trim() === "Opening Balance");
@@ -125,6 +127,7 @@ async function loadAddTransactionPage(forceRefresh = false) {
           claimStatus: String(row[7] ?? "").trim(),   // "Pending" | "Claimed" | ""
           claimAmount: row[8] ?? "",
           claimAccount:String(row[9] ?? "").trim(),
+          expenseFor: String(row[10] ?? "").trim(),
         }))
         .filter(r => r.date !== "" && r.transaction !== "Opening Balance");
     }
@@ -133,6 +136,7 @@ async function loadAddTransactionPage(forceRefresh = false) {
     lastAccountChanges = new Map();
     populateMainCategories();
     populateAccountDropdowns();
+    populateBusinessOwners();
     populateIncomeSubCategories();
     setDefaultDates();
     populateExpenseGoals();
@@ -161,6 +165,7 @@ function rowToRecentTransaction(row, excelRowNumber) {
     claimable: String(row[6] ?? "").trim(),
     claimStatus: String(row[7] ?? "").trim(),
     claimAmount: row[8] ?? "",
+    expenseFor: String(row[10] ?? "").trim(),
     claimAccount: String(row[9] ?? "").trim()
   };
 }
@@ -242,10 +247,10 @@ function populateAccountDropdowns() {
   fillSelect("goalExpenseAccount", allAccounts);
   fillSelect("txAccount",        allAccounts);
   fillSelect("txClaimAccount",   allAccounts, "Select credited account");
-  fillSelect("inAccount",        savingsAccounts);
+  fillSelect("inAccount",        accounts.filter(a => a.type !== "Credit Card"));
   fillSelect("trFromAccount",    allAccounts);
   fillSelect("trToAccount",      allAccounts);
-  fillSelect("ccPayFromAccount", savingsAccounts);
+  fillSelect("ccPayFromAccount", accounts.filter(a => a.type !== "Credit Card"));
   fillSelect("ccPayToAccount",   ccAccounts);
 }
 
@@ -967,11 +972,13 @@ function setMode(mode) {
     if (form) form.style.display = (m === mode || (refund && m === "transaction")) ? "block" : "none";
     if (btn)  btn.classList.toggle("mode-active", m === mode);
   });
+  updateBusinessExpenseHint();
+  renderBusinessPaymentSplit();
 }
 
 // ── Claimable toggle (expense form) ──────────────────────────────────────────
 function toggleClaimable() {
-  if (currentMode === "refund") return;
+  if (currentMode === "refund" || document.getElementById("txExpenseFor")?.value) return;
   isClaimable = !isClaimable;
   const btn = document.getElementById("claimableToggle");
   if (btn) {
@@ -1025,6 +1032,71 @@ function formatDateForExcel(dateInputValue) {
   // Excel / Graph API interprets slashes as MM/DD/YYYY (American), causing
   // e.g. 10 June to be stored as 6 October. ISO format is unambiguous.
   return dateInputValue; // input[type="date"] already yields YYYY-MM-DD
+}
+
+let businessHeaderReady = false;
+let businessColumnConflict = false;
+async function ensureBusinessHeader() {
+  if (businessHeaderReady) return;
+  if (businessColumnConflict) throw new Error("The transaction sheet’s next column is already in use. Business classification cannot overwrite it.");
+  await writeExcelRange(CONFIG.sheetName, "K1:K1", [["Expense For"]]);
+  businessHeaderReady = true;
+}
+
+function populateBusinessOwners() {
+  const select = document.getElementById("txExpenseFor");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="">Personal</option>';
+  accounts.filter(isBusinessAccount).forEach(account => {
+    const option = document.createElement("option");
+    option.value = account.name;
+    option.textContent = account.name + " (Business)";
+    select.appendChild(option);
+  });
+  select.value = current;
+  suggestExpenseOwner();
+}
+
+function suggestExpenseOwner() {
+  const account = accounts.find(a => a.name === document.getElementById("txAccount")?.value);
+  if (isBusinessAccount(account)) document.getElementById("txExpenseFor").value = account.name;
+  updateBusinessExpenseHint();
+}
+
+function updateBusinessExpenseHint() {
+  const owner = document.getElementById("txExpenseFor")?.value;
+  if (owner) resetClaimableUi();
+  const hint = document.getElementById("businessExpenseHint");
+  if (hint) hint.textContent = owner ? `${owner} covers this expense. Any card charge stays in your full card debt; personal monthly spending is excluded.` : "";
+  const toggle = document.getElementById("claimableToggle");
+  if (toggle) toggle.hidden = !!owner || currentMode === "refund";
+}
+
+function getBusinessCardPaymentParts(amount, card, personalSource) {
+  let remaining = Math.max(0, amount);
+  const parts = [];
+  businessOutstanding(accounts, recentRows).filter(item => businessKey(item.account) === businessKey(card)).forEach(item => {
+    const paid = Math.min(remaining, item.amount);
+    if (paid > 0) parts.push({ account: item.business, amount: paid, owner: item.business });
+    remaining = Math.round((remaining - paid) * 100) / 100;
+  });
+  if (remaining > 0) parts.push({ account: personalSource, amount: remaining, owner: "" });
+  return parts;
+}
+
+function renderBusinessPaymentSplit() {
+  const hint = document.getElementById("businessPaymentSplit");
+  if (!hint) return;
+  const card = document.getElementById("ccPayToAccount")?.value;
+  const source = document.getElementById("ccPayFromAccount")?.value;
+  const amount = Number(document.getElementById("ccPayAmount")?.value || 0);
+  const outstanding = businessOutstanding(accounts, recentRows).filter(item => businessKey(item.account) === businessKey(card));
+  if (document.getElementById("useBusinessSplit")?.checked === false) { hint.textContent = amount > 0 ? `Payment: ${formatAmount(amount)} from ${source}` : ""; return; }
+  if (!outstanding.length) { hint.textContent = ""; return; }
+  hint.textContent = amount > 0
+    ? "Payment split: " + getBusinessCardPaymentParts(amount, card, source).map(part => `${part.account}: ${formatAmount(part.amount)}`).join(" · ")
+    : "Business portions of this card bill: " + outstanding.map(item => `${item.business}: ${formatAmount(item.amount)}`).join(" · ");
 }
 
 function readExpenseGoals(rows) {
@@ -1150,12 +1222,13 @@ async function saveTransaction() {
   }
 
   const dateStr     = formatDateForExcel(dateVal);
-  const claimFlag   = isClaimable && currentMode !== "refund" ? "Yes" : "";
-  const claimStatus = isClaimable && currentMode !== "refund" ? "Pending" : "";
+  const owner = document.getElementById("txExpenseFor")?.value || "";
+  const claimFlag   = isClaimable && !owner && currentMode !== "refund" ? "Yes" : "";
+  const claimStatus = isClaimable && !owner && currentMode !== "refund" ? "Pending" : "";
   let claimAmount = "";
   let claimAccount = "";
 
-  if (isClaimable && currentMode !== "refund") {
+  if (isClaimable && !owner && currentMode !== "refund") {
     const rawClaimAmount = parseFloat(document.getElementById("txClaimAmount")?.value);
     claimAccount = document.getElementById("txClaimAccount")?.value || "";
     claimAmount = isNaN(rawClaimAmount) ? amount : rawClaimAmount;
@@ -1167,14 +1240,15 @@ async function saveTransaction() {
   // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus, I=ClaimAmount, J=ClaimAccount
   if (!Number.isFinite(amount) || amount <= 0) { alert("Enter an amount greater than zero."); return; }
   const refund = currentMode === "refund";
-  const row = [dateStr, refund ? "Refund: " + txDesc : txDesc, refund ? -amount : amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount, claimAccount];
+  const row = [dateStr, refund ? "Refund: " + txDesc : txDesc, refund ? -amount : amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount, claimAccount, owner];
 
   try {
     log("Saving transaction...");
     const nextRow = nextTransactionRow;
 
     await ensureClaimHeaders();
-    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:J${nextRow}`, [row]);
+    await ensureBusinessHeader();
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:K${nextRow}`, [row]);
     addSavedRowsToPage([row], nextRow);
 
     resetClaimableUi();
@@ -1277,16 +1351,20 @@ async function saveCcPayment() {
   }
 
   const dateStr = formatDateForExcel(dateVal);
-  const rows = [
-    [dateStr, "CC Payment",  amount, "Transfer", "CC Payment Out", fromAccount, "", ""],
-    [dateStr, "CC Payment",  amount, "Transfer", "CC Payment In",  toAccount,   "", ""],
-  ];
+  if (!Number.isFinite(amount) || amount <= 0 || fromAccount === toAccount) { alert("Enter a positive payment and different accounts."); return; }
+  const split = document.getElementById("useBusinessSplit")?.checked !== false;
+  const parts = split ? getBusinessCardPaymentParts(amount, toAccount, fromAccount) : [{account: fromAccount, amount, owner: accounts.some(a => a.name === fromAccount && isBusinessAccount(a)) ? fromAccount : ""}];
+  const rows = parts.flatMap(part => [
+    [dateStr, "CC Payment", part.amount, "Transfer", "CC Payment Out", part.account, "", "", "", "", part.owner],
+    [dateStr, "CC Payment", part.amount, "Transfer", "CC Payment In", toAccount, "", "", "", "", part.owner]
+  ]);
 
   try {
     log("Saving CC payment...");
     const nextRow = nextTransactionRow;
 
-    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:H${nextRow + 1}`, rows);
+    await ensureBusinessHeader();
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:K${nextRow + rows.length - 1}`, rows);
     addSavedRowsToPage(rows, nextRow);
 
     document.getElementById("ccPayAmount").value = "";
@@ -1322,6 +1400,7 @@ function rawDateToInputValue(value) {
 
 function renderRecentTransactions() {
   renderAccountBalanceGlance();
+  renderBusinessPaymentSplit();
   applyTxFilter();
 }
 
@@ -1370,6 +1449,13 @@ function renderAccountBalanceGlance() {
   const container = document.getElementById("accountBalanceGlance");
   if (!container) return;
   const balances = computeTransactionAccountBalances(accounts, [...openingBalanceRows, ...recentRows]);
+  const outstanding = businessOutstanding(accounts, recentRows);
+  balances.forEach(account => {
+    account.cash = account.balance;
+    account.business = accounts.some(a => businessKey(a.name) === account.key && isBusinessAccount(a));
+    account.reserved = outstanding.filter(item => businessKey(item.business) === account.key).reduce((sum, item) => sum + item.amount, 0);
+    if (account.business) account.balance -= account.reserved;
+  });
   if (previousAccountBalances) {
     const changes = new Map();
     balances.forEach(account => {
@@ -1383,14 +1469,23 @@ function renderAccountBalanceGlance() {
   previousAccountBalances = new Map(balances.map(account => [account.key, account.balance]));
   container.innerHTML = balances.length ? balances.map(account => {
     const change = lastAccountChanges.get(account.key);
-    const label = account.card ? (account.balance < 0 ? "Card credit" : "Card owed") : "Balance";
+    const label = account.card ? (account.balance < 0 ? "Card credit" : "Card owed") : account.business ? "Business available" : "Balance";
     return `<div class="balance-glance-item${change ? " balance-glance-changed" : ""}">
       <span>${escapeHtml(account.name)}</span>
       <strong>${formatAmount(account.card ? Math.abs(account.balance) : account.balance)}</strong>
       <small>${label}</small>
+      ${account.business ? `<small>${formatAmount(account.reserved)} reserved for repayments · ${formatAmount(account.cash)} cash</small>` : ""}
       ${change ? `<small class="balance-glance-change">${formatAmount(change.before)} → ${formatAmount(account.balance)} (${change.delta > 0 ? "+" : "−"}${formatAmount(Math.abs(change.delta))}${account.card ? " owed" : ""})</small>` : ""}
     </div>`;
   }).join("") : '<p class="tx-empty">Add accounts in Accounts & Setup to track balances.</p>';
+  const groups = new Map();
+  accounts.filter(a => a.bankGroup && a.type !== "Credit Card").forEach(a => {
+    const amount = balances.find(b => b.key === businessKey(a.name))?.cash || 0;
+    groups.set(a.bankGroup, (groups.get(a.bankGroup) || 0) + amount);
+  });
+  groups.forEach((amount, name) => {
+    container.insertAdjacentHTML("beforeend", `<div class="balance-glance-item"><span>${escapeHtml(name)}</span><strong>${formatAmount(amount)}</strong><small>Combined bank balance — includes its portions</small></div>`);
+  });
 }
 
 function populateTxFilterCategories() {
@@ -1424,7 +1519,8 @@ function applyTxFilter() {
       r.transaction.toLowerCase().includes(text) ||
       r.subCat.toLowerCase().includes(text) ||
       r.account.toLowerCase().includes(text) ||
-      r.claimAccount.toLowerCase().includes(text);
+      r.claimAccount.toLowerCase().includes(text) ||
+      (r.expenseFor || "").toLowerCase().includes(text);
     return matchesCat && matchesText;
   });
 
@@ -1489,7 +1585,7 @@ function renderRecentTransactionsTable() {
     html += `
       <div class="tx-row" id="tx-row-${idx}" onclick="toggleEditPanel(${idx})">
         <span class="tx-row-date">${dispDate}</span>
-        <span class="tx-row-desc">${escapeHtml(row.transaction)}${claimBadge}</span>
+        <span class="tx-row-desc">${escapeHtml(row.transaction)}${row.expenseFor ? ` <small>Business: ${escapeHtml(row.expenseFor)}</small>` : ""}${claimBadge}</span>
         <span class="tx-row-amount">${amtStr}</span>
         <span class="tx-row-cat">${escapeHtml(catLabel)}</span>
         <span class="tx-row-account">${escapeHtml(row.account)}</span>
@@ -1501,7 +1597,8 @@ function renderRecentTransactionsTable() {
           <div class="ef"><label>Description</label><input type="text" id="edit-desc-${idx}" value="${escapeHtml(row.transaction)}"></div>
           <div class="ef"><label>Amount</label><input type="number" step="0.01" id="edit-amt-${idx}" value="${amt || ""}"></div>
           <div class="ef"><label>Account</label><select id="edit-acc-${idx}">${acctOptions}</select></div>
-          <div class="ef"><label>Main Category</label><select id="edit-main-${idx}">${catOptions}</select></div>
+          <div class="ef"><label>Expense for</label><select id="edit-owner-${idx}"><option value="">Personal</option>${[...new Set([...accounts.filter(isBusinessAccount).map(a => a.name), row.expenseFor].filter(Boolean))].map(name => `<option value="${escapeHtml(name)}" ${row.expenseFor === name ? "selected" : ""}>${escapeHtml(name)} (Business)</option>`).join("")}</select></div>
+        <div class="ef"><label>Main Category</label><select id="edit-main-${idx}">${catOptions}</select></div>
           <div class="ef"><label>Sub Category</label><input type="text" id="edit-sub-${idx}" value="${escapeHtml(row.subCat)}"></div>
           <div class="ef"><label>Claimable</label>
             <select id="edit-claim-${idx}">
@@ -1560,7 +1657,8 @@ async function saveRow(excelRowNumber) {
   const mainCat   = document.getElementById("edit-main-" + excelRowNumber).value;
   const subCat    = document.getElementById("edit-sub-" + excelRowNumber).value.trim();
   const account   = document.getElementById("edit-acc-" + excelRowNumber).value;
-  const claimable = document.getElementById("edit-claim-" + excelRowNumber).value;
+  const owner = document.getElementById("edit-owner-" + excelRowNumber)?.value || "";
+  const claimable = owner ? "" : document.getElementById("edit-claim-" + excelRowNumber).value;
   const claimSt   = document.getElementById("edit-claimst-" + excelRowNumber).value;
   const claimAccount = claimable === "Yes"
     ? document.getElementById("edit-claimacc-" + excelRowNumber).value
@@ -1582,17 +1680,19 @@ async function saveRow(excelRowNumber) {
   try {
     log("Saving row " + excelRowNumber + "...");
     await ensureClaimHeaders();
+    await ensureBusinessHeader();
     await writeExcelRange(
       CONFIG.sheetName,
-      `A${excelRowNumber}:J${excelRowNumber}`,
-      [[dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount]]
+      `A${excelRowNumber}:K${excelRowNumber}`,
+      [[dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount, owner]]
     );
     const savedRow = recentRows.find(item => item._rowIndex === excelRowNumber);
     if (savedRow) {
       Object.assign(savedRow, rowToRecentTransaction(
-        [dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount],
+        [dateInput, desc, amt, mainCat, subCat, account, claimable, claimSt, claimAmount, claimAccount, owner],
         excelRowNumber
       ));
+      savedRow.expenseFor = owner;
     }
     openEditPanel = null;
     renderRecentTransactions();
@@ -1758,7 +1858,7 @@ async function deleteRow(excelRowNumber) {
   try {
     log("Deleting row " + excelRowNumber + "...");
     // Overwrite with blank row
-    await writeExcelRange(CONFIG.sheetName, `A${excelRowNumber}:J${excelRowNumber}`, [["","","","","","","","","",""]]);
+    await writeExcelRange(CONFIG.sheetName, `A${excelRowNumber}:K${excelRowNumber}`, [["","","","","","","","","","",""]]);
     recentRows = recentRows.filter(row => row._rowIndex !== excelRowNumber);
     renderRecentTransactions();
     populateTxFilterCategories();

@@ -588,8 +588,13 @@
             <input type="text" id="txTransaction" placeholder="e.g. Lunch, Grab, Netflix">
           </div>
           <div class="form-field">
-            <label>Account</label>
-            <select id="txAccount"></select>
+            <label>Paid with</label>
+            <select id="txAccount" onchange="suggestExpenseOwner()"></select>
+          </div>
+          <div class="form-field">
+            <label for="txExpenseFor">Expense for</label>
+            <select id="txExpenseFor" onchange="updateBusinessExpenseHint()"><option value="">Personal</option></select>
+            <small id="businessExpenseHint"></small>
           </div>
         </div>
         <div class="form-actions">
@@ -702,17 +707,18 @@
           </div>
           <div class="form-field">
             <label>Amount (SGD)</label>
-            <input type="number" step="0.01" id="ccPayAmount" placeholder="0.00">
+            <input type="number" step="0.01" id="ccPayAmount" oninput="renderBusinessPaymentSplit()" placeholder="0.00">
           </div>
           <div class="form-field">
             <label>Pay From (Savings)</label>
-            <select id="ccPayFromAccount"></select>
+            <select id="ccPayFromAccount" onchange="renderBusinessPaymentSplit()"></select>
           </div>
           <div class="form-field">
             <label>Pay To (Credit Card)</label>
-            <select id="ccPayToAccount"></select>
+            <select id="ccPayToAccount" onchange="renderBusinessPaymentSplit()"></select>
           </div>
         </div>
+        <label><input type="checkbox" id="useBusinessSplit" checked onchange="renderBusinessPaymentSplit()"> Use business portions first, then the selected account for the rest</label><p id="businessPaymentSplit" role="status"></p>
         <div class="form-actions">
           <button class="btn-save" onclick="saveCcPayment()">Save CC Payment</button>
         </div>
@@ -758,6 +764,7 @@
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
+  <script src="business.js"></script>
   <script src="add-transaction.js"></script>
   <script>
     let claimsBannerOpen = false;

@@ -202,7 +202,7 @@
           <h2 class="card-title">Accounts</h2>
         </div>
         <p class="merged-note">
-          <span>Manage your accounts and their starting balances here.</span>
+          <span>For a shared bank, enter only each portion’s money (e.g. Stash and RHQ), and give both the same bank label. Do not enter the full bank balance twice.</span>
         </p>
         <div class="accounts-table-wrap">
           <table class="budget-table" id="accountsTable"></table>
@@ -212,6 +212,7 @@
           <select id="accountTypeInput">
             <option value="Savings">Savings</option>
             <option value="Credit Card">Credit Card</option>
+            <option value="Business">Business portion / account</option>
           </select>
           <button onclick="addAccount()">+ Add</button>
         </div>
@@ -238,6 +239,7 @@
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
+  <script src="business.js"></script>
   <script src="accounts.js"></script>
   <script src="setup.js"></script>
   <script src="ui.js"></script>

@@ -1,3 +1,4 @@
+let budgetAccountTypes = [];
 let budgetTransactions = [];
 let billsBudget = [];
 let monthlyBudget = [];
@@ -32,6 +33,7 @@ async function loadBudgetPage(forceRefresh = false) {
     billsBudget        = readBudgetSection(budgetSheet, "A2:B13", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
+    budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
 
     renderBudget();
     log("Budget page loaded.");
@@ -1014,6 +1016,7 @@ function getAmount(value) {
 }
 
 function getBudgetImpactAmount(row) {
+  if (isBusinessTransaction(row, budgetAccountTypes)) return 0;
   const amount = getAmount(row["Amount"]);
   const claimableKey = Object.keys(row).find(k => k.trim().toLowerCase() === "claimable") || "Claimable";
   const claimable = clean(row[claimableKey]).toLowerCase();
