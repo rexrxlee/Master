@@ -18,6 +18,9 @@ let excelBusyOverlay = null;
 let excelBusyMessage = null;
 let excelBusyPreviouslyFocused = null;
 let workbookDownloadPromise = null;
+let excelWriteQueue = Promise.resolve();
+let excelCacheGeneration = 0;
+let excelCacheQueue = Promise.resolve();
 
 const EXCEL_CACHE_NAME = "fintrack-workbook-v1";
 const EXCEL_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
@@ -30,27 +33,12 @@ const EXCEL_BUSY_ACTIONS = {
   loadSetupPage: "Loading setup from Excel...",
   loadAddTransactionPage: "Loading transactions from Excel...",
   loadGoalsPage: "Loading goals from Excel...",
-  loadGoalItemsTab: "Loading goal items from Excel...",
-  loadInsurancePage: "Loading insurance from Excel...",
-  refreshInsuranceGoalsForPicker: "Refreshing goals from Excel...",
-  refreshInsuranceGoalsFromWorkbook: "Refreshing goals from Excel...",
   saveBudgetSetupToExcel: "Autosaving budget to Excel...",
   saveAccountsToExcel: "Autosaving accounts to Excel...",
   saveAllocations: "Saving allocations to Excel...",
   saveIncomeBoosts: "Saving cashflow changes to Excel...",
-  persistRewardStateToExcel: "Saving card rewards to Excel...",
-  saveRewardActual: "Saving cashback comparison to Excel...",
-  resetRewardSettings: "Saving card reward rules to Excel...",
   persistGoalsToExcel: "Autosaving goals to Excel...",
   saveGoalsToExcel: "Saving goals to Excel...",
-  persistGoalItemsToExcel: "Autosaving goal items to Excel...",
-  saveAllGoalItems: "Saving goal items to Excel...",
-  writeInsuranceHeadersForWrite: "Saving insurance headers to Excel...",
-  writeInsurancePolicyFields: "Saving insurance policy to Excel...",
-  getNextInsuranceRowNumber: "Reading insurance sheet from Excel...",
-  appendInsuranceGoalTransaction: "Saving goal transaction to Excel...",
-  updateInsurancePaidCells: "Saving insurance payment to Excel...",
-  writeInsuranceGoal: "Saving insurance goal to Excel..."
 };
 
 function ensureExcelBusyOverlay() {
@@ -275,7 +263,7 @@ async function graphGetJson(url, token) {
   });
 }
 
-async function graphPatch(url, token, body) {
+async function graphPatch(url, token, body, preserveCache = false) {
   return withExcelBusy("Saving to Excel...", async () => {
     const response = await fetch(url, {
       method: "PATCH",
@@ -292,7 +280,7 @@ async function graphPatch(url, token, body) {
     }
 
     const result = await response.json();
-    invalidateExcelDownloadCache();
+    if (!preserveCache) await invalidateExcelDownloadCache();
     return result;
   });
 }
@@ -314,7 +302,7 @@ async function graphPost(url, token, body) {
     }
 
     const result = await response.json();
-    invalidateExcelDownloadCache();
+    await invalidateExcelDownloadCache();
     return result;
   });
 }
@@ -338,21 +326,33 @@ async function readExcelDownloadCache() {
   return cached ? cached.arrayBuffer() : null;
 }
 
-async function storeExcelDownloadCache(arrayBuffer) {
-  if (!("caches" in window)) return;
-  const request = getExcelCacheRequest();
-  if (!request) return;
-  const cache = await caches.open(EXCEL_CACHE_NAME);
-  await cache.put(request, new Response(arrayBuffer.slice(0)));
-  localStorage.setItem(EXCEL_CACHE_TIME_KEY, String(Date.now()));
+function storeExcelDownloadCache(arrayBuffer, savedAt = Date.now(), generation = excelCacheGeneration) {
+  const store = excelCacheQueue.then(async () => {
+    if (!("caches" in window) || generation !== excelCacheGeneration) return;
+    const request = getExcelCacheRequest();
+    if (!request) return;
+    const cache = await caches.open(EXCEL_CACHE_NAME);
+    await cache.put(request, new Response(arrayBuffer.slice(0)));
+    if (generation === excelCacheGeneration) {
+      localStorage.setItem(EXCEL_CACHE_TIME_KEY, String(savedAt));
+    }
+  });
+  excelCacheQueue = store.catch(() => {});
+  return store;
 }
 
-function invalidateExcelDownloadCache() {
-  localStorage.removeItem(EXCEL_CACHE_TIME_KEY);
-  if (!("caches" in window)) return;
-  const request = getExcelCacheRequest();
-  if (!request) return;
-  caches.open(EXCEL_CACHE_NAME).then(cache => cache.delete(request)).catch(() => {});
+async function invalidateExcelDownloadCache() {
+  excelCacheGeneration++;
+  try { localStorage.removeItem(EXCEL_CACHE_TIME_KEY); } catch (_) {}
+  const clear = excelCacheQueue.then(async () => {
+    if (!("caches" in window)) return;
+    const request = getExcelCacheRequest();
+    if (!request) return;
+    const cache = await caches.open(EXCEL_CACHE_NAME);
+    await cache.delete(request);
+  });
+  excelCacheQueue = clear.catch(() => {});
+  await excelCacheQueue;
 }
 
 async function downloadExcelFile(forceRefresh = false) {
@@ -368,6 +368,7 @@ async function downloadExcelFile(forceRefresh = false) {
   if (workbookDownloadPromise) return workbookDownloadPromise;
 
   workbookDownloadPromise = withExcelBusy("Loading from Excel...", async () => {
+    const generation = excelCacheGeneration;
     const token = await getToken();
 
     if (!token) {
@@ -383,7 +384,9 @@ async function downloadExcelFile(forceRefresh = false) {
 
     const response = await graphFetch(downloadUrl, token);
     const arrayBuffer = await response.arrayBuffer();
-    try { await storeExcelDownloadCache(arrayBuffer); } catch (_) {}
+    if (generation === excelCacheGeneration) {
+      try { await storeExcelDownloadCache(arrayBuffer, Date.now(), generation); } catch (_) {}
+    }
     return arrayBuffer;
   });
 
@@ -417,7 +420,13 @@ async function readExcelRange(sheetName, rangeAddress) {
   });
 }
 
-async function writeExcelRange(sheetName, rangeAddress, values) {
+function writeExcelRange(sheetName, rangeAddress, values) {
+  const write = excelWriteQueue.then(() => writeExcelRangeNow(sheetName, rangeAddress, values));
+  excelWriteQueue = write.catch(() => {});
+  return write;
+}
+
+async function writeExcelRangeNow(sheetName, rangeAddress, values) {
   return withExcelBusy("Saving to Excel...", async () => {
     const token = await getToken();
 
@@ -436,9 +445,36 @@ async function writeExcelRange(sheetName, rangeAddress, values) {
       rangeAddress +
       "')";
 
-    return graphPatch(url, token, {
-      values: values
-    });
+    // Retain the downloaded snapshot after confirmed range writes. This avoids
+    // downloading the entire workbook again when navigating to another page.
+    let cached = null;
+    let savedAt = 0;
+    try {
+      cached = await readExcelDownloadCache();
+      savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY));
+    } catch (_) {}
+    const result = await graphPatch(url, token, { values }, true);
+    await invalidateExcelDownloadCache();
+    if (cached) {
+      try {
+        const workbook = XLSX.read(cached, { type: "array" });
+        const sheet = workbook.Sheets[sheetName];
+        // Formula dependencies need a server refresh, not a partial local update.
+        const hasFormulas = Object.values(workbook.Sheets).some(ws =>
+          Object.keys(ws).some(key => !key.startsWith("!") && ws[key]?.f));
+        const writesFormula = values.some(row => row.some(value =>
+          typeof value === "string" && value.startsWith("=")));
+        if (sheet && !hasFormulas && !writesFormula) {
+          XLSX.utils.sheet_add_aoa(sheet, values, { origin: rangeAddress.split(":")[0] });
+          const updated = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+          // Keep the original freshness deadline so external edits are still checked.
+          await storeExcelDownloadCache(updated, savedAt);
+        }
+      } catch (_) {
+        // The server save succeeded; cache failures must not turn it into a failed save.
+      }
+    }
+    return result;
   });
 }
 

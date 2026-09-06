@@ -9,6 +9,9 @@ let filteredRecentRows = [];       // after applying search/category filter
 let recurringSuggestions = [];      // strict recurring matches from transaction history
 let nextTransactionRow = 2;
 let claimHeadersReady = false;
+let openingBalanceRows = [];
+let previousAccountBalances = null;
+let lastAccountChanges = new Map();
 
 const SMART_CATEGORY_RULES = [
   {
@@ -32,8 +35,8 @@ const SMART_CATEGORY_RULES = [
     keywords: ["child", "children", "kid", "kids", "baby", "school", "tuition", "childcare", "diaper", "toys"]
   },
   {
-    hints: ["bill", "utility", "utilities", "phone", "internet", "insurance"],
-    keywords: ["bill", "utility", "utilities", "phone", "mobile", "internet", "wifi", "electricity", "water", "insurance", "subscription"]
+    hints: ["bill", "utility", "utilities", "phone", "internet"],
+    keywords: ["bill", "utility", "utilities", "phone", "mobile", "internet", "wifi", "electricity", "water", "subscription"]
   },
   {
     hints: ["other", "others", "misc"],
@@ -71,11 +74,11 @@ const SMART_STOP_WORDS = new Set([
 ]);
 
 // ── Page load ─────────────────────────────────────────────────────────────────
-async function loadAddTransactionPage() {
+async function loadAddTransactionPage(forceRefresh = false) {
   try {
     clearOutput();
     log("Loading data...");
-    const arrayBuffer = await downloadExcelFile();
+    const arrayBuffer = await downloadExcelFile(forceRefresh);
     const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
     // Load categories from Budget Setup
@@ -97,6 +100,9 @@ async function loadAddTransactionPage() {
     const txSheet = workbook.Sheets[CONFIG.sheetName];
     if (txSheet) {
       const allTxRows = XLSX.utils.sheet_to_json(txSheet, { header: 1, blankrows: true });
+      openingBalanceRows = allTxRows.slice(1)
+        .map((row, index) => rowToRecentTransaction(row, index + 2))
+        .filter(row => row.transaction.trim() === "Opening Balance");
       nextTransactionRow = allTxRows.length + 1;
       claimHeadersReady = String(allTxRows[0]?.[8] ?? "").trim() === "Claim Amount"
         && String(allTxRows[0]?.[9] ?? "").trim() === "Claim Account";
@@ -118,6 +124,8 @@ async function loadAddTransactionPage() {
         .filter(r => r.date !== "" && r.transaction !== "Opening Balance");
     }
 
+    previousAccountBalances = null;
+    lastAccountChanges = new Map();
     populateMainCategories();
     populateAccountDropdowns();
     populateIncomeSubCategories();
@@ -1182,7 +1190,76 @@ function rawDateToInputValue(value) {
 }
 
 function renderRecentTransactions() {
+  renderAccountBalanceGlance();
   applyTxFilter();
+}
+
+function computeTransactionAccountBalances(accountList, rows) {
+  const key = value => String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const grouped = new Map();
+  rows.forEach(row => {
+    const name = key(row.account);
+    if (!grouped.has(name)) grouped.set(name, []);
+    grouped.get(name).push(row);
+  });
+  const known = new Map(accountList.map(account => [key(account.name), account]));
+  rows.forEach(row => {
+    if (key(row.account) && !known.has(key(row.account))) {
+      known.set(key(row.account), { name: row.account, type: "Savings" });
+    }
+  });
+  return [...known].map(([accountKey, account]) => {
+    const card = key(account.type) === "credit card";
+    const accountRows = grouped.get(accountKey) || [];
+    const opening = accountRows.find(row => key(row.transaction) === "opening balance");
+    const openingDate = opening ? rawDateToInputValue(opening.date) : "";
+    const money = value => Number(String(value ?? "").replace(/[$,]/g, "")) || 0;
+    let balance = opening ? money(opening.amount) : 0;
+    accountRows.forEach(row => {
+      if (key(row.transaction) === "opening balance") return;
+      const date = rawDateToInputValue(row.date);
+      if (!date || (openingDate && date < openingDate)) return;
+      const amount = Math.abs(money(row.amount));
+      const main = key(row.mainCat);
+      const sub = key(row.subCat);
+      let movement = -amount;
+      if (main === "income") movement = amount;
+      if (main === "transfer") {
+        if (sub === "transfer in" || sub === "cc payment in") movement = amount;
+        else if (sub === "transfer out" || sub === "cc payment out") movement = -amount;
+        else movement = 0;
+      }
+      balance += card ? -movement : movement;
+    });
+    return { key: accountKey, name: account.name, card, balance: Math.round(balance * 100) / 100 };
+  });
+}
+
+function renderAccountBalanceGlance() {
+  const container = document.getElementById("accountBalanceGlance");
+  if (!container) return;
+  const balances = computeTransactionAccountBalances(accounts, [...openingBalanceRows, ...recentRows]);
+  if (previousAccountBalances) {
+    const changes = new Map();
+    balances.forEach(account => {
+      const before = previousAccountBalances.get(account.key);
+      if (before !== undefined && Math.abs(account.balance - before) >= 0.005) {
+        changes.set(account.key, { before, delta: account.balance - before });
+      }
+    });
+    if (changes.size) lastAccountChanges = changes;
+  }
+  previousAccountBalances = new Map(balances.map(account => [account.key, account.balance]));
+  container.innerHTML = balances.length ? balances.map(account => {
+    const change = lastAccountChanges.get(account.key);
+    const label = account.card ? (account.balance < 0 ? "Card credit" : "Card owed") : "Balance";
+    return `<div class="balance-glance-item${change ? " balance-glance-changed" : ""}">
+      <span>${escapeHtml(account.name)}</span>
+      <strong>${formatAmount(account.card ? Math.abs(account.balance) : account.balance)}</strong>
+      <small>${label}</small>
+      ${change ? `<small class="balance-glance-change">${formatAmount(change.before)} → ${formatAmount(account.balance)} (${change.delta > 0 ? "+" : "−"}${formatAmount(Math.abs(change.delta))}${account.card ? " owed" : ""})</small>` : ""}
+    </div>`;
+  }).join("") : '<p class="tx-empty">Add accounts in Accounts & Setup to track balances.</p>';
 }
 
 function populateTxFilterCategories() {
@@ -1206,10 +1283,11 @@ function applyTxFilter() {
 
   const sorted = [...recentRows]
     .filter(r => rawDateToInputValue(r.date))
-    .sort((a, b) => rawDateToInputValue(b.date).localeCompare(rawDateToInputValue(a.date)))
-    .slice(0, 50);
+    .sort((a, b) => rawDateToInputValue(b.date).localeCompare(rawDateToInputValue(a.date)));
 
-  filteredRecentRows = sorted.filter(r => {
+  // Keep the default view recent, but search/filter across the full history.
+  const rows = text || mainCat ? sorted : sorted.slice(0, 50);
+  filteredRecentRows = rows.filter(r => {
     const matchesCat  = !mainCat || r.mainCat === mainCat;
     const matchesText = !text ||
       r.transaction.toLowerCase().includes(text) ||

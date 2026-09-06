@@ -517,7 +517,6 @@
       <a href="index.html" class="nav-item"><span class="nav-icon">▦</span> Dashboard</a>
       <a href="goals.html" class="nav-item"><span class="nav-icon">◎</span> Goals</a>
       <a href="monthly-budget.html" class="nav-item"><span class="nav-icon">▤</span> Budget</a>
-      <a href="insurance.html" class="nav-item"><span class="nav-icon">▥</span> Insurance</a>
       <a href="add-transaction.html" class="nav-item active"><span class="nav-icon">＋</span> Add Transaction</a>
       <a href="accounts.html" class="nav-item"><span class="nav-icon">▣</span> Accounts & Setup</a>
     </nav>
@@ -532,7 +531,18 @@
         <h1 class="page-title">Add Transaction</h1>
         <p class="page-subtitle">Expense, income, or transfer</p>
       </div>
+      <div class="topbar-right">
+        <button class="reload-btn" onclick="loadAddTransactionPage(true)">↻ Reload</button>
+      </div>
     </header>
+
+    <section class="tx-table-card balance-glance" aria-label="Account balances">
+      <div class="card-header"><h2 class="card-title">Account balances</h2></div>
+      <p class="balance-glance-note">Based on saved transactions. Highlighted accounts show the last balance change.</p>
+      <div id="accountBalanceGlance" class="balance-glance-grid" aria-live="polite">
+        <p class="tx-empty">Loading balances…</p>
+      </div>
+    </section>
 
     <!-- ── Form card ── -->
     <div class="tx-form-card">
