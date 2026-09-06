@@ -12,7 +12,7 @@
   <style>
     .accounts-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 24px;
       align-items: start;
     }
@@ -186,7 +186,7 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-left">
-        <h1 class="page-title">Accounts & Setup</h1>
+        <h1 class="page-title">Accounts &amp; Setup</h1>
         <p class="page-subtitle">Accounts, income categories, opening balances</p>
       </div>
       <div class="topbar-right">
@@ -202,7 +202,7 @@
           <h2 class="card-title">Accounts</h2>
         </div>
         <p class="merged-note">
-          <span>Opening balances are saved as account-level starting transactions.</span>
+          <span>Manage your accounts and their starting balances here.</span>
         </p>
         <div class="accounts-table-wrap">
           <table class="budget-table" id="accountsTable"></table>
@@ -218,17 +218,17 @@
       </div>
 
       <!-- Income sub categories -->
-      <div class="section-card">
+      <details class="simple-details"><summary>Income categories</summary><div class="simple-details-body"><div class="section-card">
         <div class="card-header">
           <h2 class="card-title">Income Sub Categories</h2>
         </div>
-        <p class="card-hint">These appear in the dropdown when adding income. Saved to Budget Setup column Q.</p>
+        <p class="card-hint">Choose the categories available when recording income.</p>
         <table class="budget-table" id="incomeSubsTable"></table>
         <div class="section-add-row">
           <input id="incomeSubInput" placeholder="e.g. Salary, Bonus, Dividend">
           <button onclick="addIncomeSub()">+ Add</button>
         </div>
-      </div>
+      </div></div></details>
 
     </div>
     <div id="setupSuccess" class="success-message" style="display:none;margin-top:16px;">
@@ -240,5 +240,6 @@
   <script src="onedrive.js"></script>
   <script src="accounts.js"></script>
   <script src="setup.js"></script>
+  <script src="ui.js"></script>
 </body>
 </html>

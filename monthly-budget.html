@@ -841,12 +841,12 @@
 
     <section id="budgetVisualPanel"></section>
 
-    <section id="budgetProjectionPanel"></section>
 
-    <section id="budgetPressurePanel"></section>
+
+
 
     <!-- Budget tables side by side -->
-    <div class="budget-page-grid">
+    <details class="simple-details"><summary>Edit budget categories &amp; amounts</summary><div class="simple-details-body"><div class="budget-page-grid">
       <div class="budget-section-card">
         <div class="card-header">
           <h2 class="card-title">Bills</h2>
@@ -870,8 +870,8 @@
           <button onclick="addBudgetItemFor('Monthly Expenses')">+ Add</button>
         </div>
       </div>
-    </div>
-  </main>
+    </div></div></details>
+  <details class="simple-details"><summary>Forecasts &amp; budget adjustments</summary><div class="simple-details-body"><section id="budgetProjectionPanel"></section><section id="budgetPressurePanel"></section></div></details></main>
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
@@ -892,5 +892,6 @@
       scheduleBudgetAutoSave();
     }
   </script>
+  <script src="ui.js"></script>
 </body>
 </html>

@@ -532,7 +532,7 @@ function buildCategorySpendingTiming(mainCategory, subCategory, today, cutoffDay
     if (!matchesBudgetCategory(row, mainCategory, subCategory)) return;
 
     const amount = getBudgetImpactAmount(row);
-    if (amount <= 0) return;
+    if (amount === 0) return;
 
     const year = rowDate.getFullYear();
     const month = rowDate.getMonth();
@@ -1010,7 +1010,7 @@ function parseBudgetDate(value) {
 
 function getAmount(value) {
   const n = Number(String(value).replace(/[$,]/g, ""));
-  return isNaN(n) ? 0 : Math.abs(n);
+  return isNaN(n) ? 0 : n;
 }
 
 function getBudgetImpactAmount(row) {

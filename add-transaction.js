@@ -9,6 +9,9 @@ let filteredRecentRows = [];       // after applying search/category filter
 let recurringSuggestions = [];      // strict recurring matches from transaction history
 let nextTransactionRow = 2;
 let claimHeadersReady = false;
+let expenseGoals = [];
+let pendingGoalExpense = null;
+let goalExpenseSaving = false;
 let openingBalanceRows = [];
 let previousAccountBalances = null;
 let lastAccountChanges = new Map();
@@ -88,6 +91,8 @@ async function loadAddTransactionPage(forceRefresh = false) {
       incomeSubCategories = readIncomeSubCategories(budgetSheet);
     }
 
+    expenseGoals = budgetSheet ? readExpenseGoals(XLSX.utils.sheet_to_json(budgetSheet, { header: 1, range: "S2:AC20", blankrows: true })) : [];
+
     // Load accounts
     if (budgetSheet) {
       const allRows = XLSX.utils.sheet_to_json(budgetSheet, { header: 1, blankrows: false });
@@ -130,6 +135,8 @@ async function loadAddTransactionPage(forceRefresh = false) {
     populateAccountDropdowns();
     populateIncomeSubCategories();
     setDefaultDates();
+    populateExpenseGoals();
+    restorePendingGoalExpense();
     renderRecentTransactions();
     populateTxFilterCategories();
     renderRecurringSuggestions();
@@ -197,7 +204,7 @@ function readIncomeSubCategories(sheet) {
 function setDefaultDates() {
   const today = new Date();
   const val = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
-  ["txDate","inDate","trDate","ccPayDate"].forEach(id => {
+  ["txDate","inDate","trDate","ccPayDate","goalExpenseDate"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = val;
   });
@@ -232,6 +239,7 @@ function populateAccountDropdowns() {
   const ccAccounts       = accounts.filter(a => a.type === "Credit Card");
   const allAccounts      = accounts;
 
+  fillSelect("goalExpenseAccount", allAccounts);
   fillSelect("txAccount",        allAccounts);
   fillSelect("txClaimAccount",   allAccounts, "Select credited account");
   fillSelect("inAccount",        savingsAccounts);
@@ -329,6 +337,7 @@ function buildRecurringSuggestions(rows) {
 }
 
 function rowToRecurringCandidate(row) {
+  if (Number(String(row.amount).replace(/[$,]/g, "")) < 0) return null;
   const dateParts = parseInputDateParts(rawDateToInputValue(row.date));
   if (!dateParts) return null;
 
@@ -938,21 +947,31 @@ function daysInMonth(year, month) {
 
 // ── Mode switching ─────────────────────────────────────────────────────────────
 function setMode(mode) {
+  if (!["transaction", "refund", "income", "transfer", "ccpay", "goal"].includes(mode)) return;
   currentMode = mode;
-  ["transaction","income","transfer","ccpay"].forEach(m => {
+  const refund = mode === "refund";
+  if (refund) resetClaimableUi();
+  document.getElementById("refundHint").hidden = !refund;
+  document.getElementById("saveExpenseBtn").textContent = refund ? "Save Refund" : "Save Expense";
+  document.getElementById("claimableToggle").hidden = refund;
+  const picker = document.getElementById("transactionType");
+  if (picker) picker.value = mode;
+  ["transaction","income","transfer","ccpay","goal"].forEach(m => {
     const formId = m === "transaction" ? "transactionForm"
                  : m === "income"      ? "incomeForm"
                  : m === "transfer"    ? "transferForm"
-                 :                       "ccPayForm";
+                 : m === "ccpay"       ? "ccPayForm"
+                 :                       "goalForm";
     const btn = document.getElementById("btn" + m.charAt(0).toUpperCase() + m.slice(1));
     const form = document.getElementById(formId);
-    if (form) form.style.display = m === mode ? "block" : "none";
+    if (form) form.style.display = (m === mode || (refund && m === "transaction")) ? "block" : "none";
     if (btn)  btn.classList.toggle("mode-active", m === mode);
   });
 }
 
 // ── Claimable toggle (expense form) ──────────────────────────────────────────
 function toggleClaimable() {
+  if (currentMode === "refund") return;
   isClaimable = !isClaimable;
   const btn = document.getElementById("claimableToggle");
   if (btn) {
@@ -1008,6 +1027,115 @@ function formatDateForExcel(dateInputValue) {
   return dateInputValue; // input[type="date"] already yields YYYY-MM-DD
 }
 
+function readExpenseGoals(rows) {
+  return rows.map((row, index) => ({
+    row: index + 2, name: String(row[0] ?? "").trim(),
+    allocated: parseMoney(row[2])
+  })).filter(goal => goal.name);
+}
+
+function populateExpenseGoals() {
+  const select = document.getElementById("goalExpenseGoal");
+  const selected = select.value || new URLSearchParams(window.location.search).get("goal");
+  select.innerHTML = '<option value="">Select a goal</option>';
+  expenseGoals.forEach(goal => {
+    const option = document.createElement("option");
+    option.value = goal.name;
+    option.textContent = goal.name;
+    select.appendChild(option);
+  });
+  if (expenseGoals.some(goal => goal.name === selected)) select.value = selected;
+  if (new URLSearchParams(window.location.search).has("goal")) setMode("goal");
+  updateGoalExpenseHint();
+}
+
+function updateGoalExpenseHint() {
+  const goal = expenseGoals.find(item => item.name === document.getElementById("goalExpenseGoal").value);
+  document.getElementById("goalExpenseHint").textContent = goal
+    ? `${formatAmount(goal.allocated)} currently allocated. The purchase reduces this allocation, down to $0, and counts toward your goal.`
+    : expenseGoals.length ? "Choose the goal this purchase belongs to." : "Create a savings goal on the Goals page first.";
+}
+
+function goalExpensePendingKey() {
+  return "fintrack.pendingGoalExpense:" + CONFIG.filePath;
+}
+
+function restorePendingGoalExpense() {
+  try { pendingGoalExpense = JSON.parse(sessionStorage.getItem(goalExpensePendingKey()) || "null"); } catch (_) {}
+  if (pendingGoalExpense) {
+    setMode("goal");
+    document.getElementById("goalExpenseStatus").textContent = `The expense for ${pendingGoalExpense.name} is recorded. Finish updating its goal allocation below.`;
+    document.getElementById("saveGoalExpenseBtn").textContent = "Finish Goal Update";
+  }
+}
+
+async function finishGoalExpenseAllocation() {
+  const pending = pendingGoalExpense;
+  const range = await readBudgetSetupRange("S2:AC20");
+  const goals = readExpenseGoals(range.values || []);
+  const goal = goals.find(item => item.name === pending.name);
+  if (!goal) throw new Error("The linked goal no longer exists. Restore the goal before finishing this update.");
+  if (Math.abs(goal.allocated - pending.after) > 0.005) {
+    if (Math.abs(goal.allocated - pending.before) > 0.005) {
+      throw new Error("The goal allocation changed elsewhere. Restore its previous allocation before retrying.");
+    }
+    await writeBudgetSetupRange(`U${goal.row}:U${goal.row}`, [[pending.after]]);
+  }
+  goal.allocated = pending.after;
+  expenseGoals = goals;
+  pendingGoalExpense = null;
+  try { sessionStorage.removeItem(goalExpensePendingKey()); } catch (_) {}
+  document.getElementById("saveGoalExpenseBtn").textContent = "Save Goal Expense";
+  document.getElementById("goalExpenseStatus").textContent = `Saved to ${pending.name}. Allocation: ${formatAmount(pending.before)} → ${formatAmount(pending.after)}. Account balances updated.`;
+  updateGoalExpenseHint();
+}
+
+async function saveGoalExpense() {
+  if (goalExpenseSaving) return;
+  const button = document.getElementById("saveGoalExpenseBtn");
+  const status = document.getElementById("goalExpenseStatus");
+  goalExpenseSaving = true;
+  button.disabled = true;
+  try {
+    if (pendingGoalExpense) {
+      await finishGoalExpenseAllocation();
+      return;
+    }
+    const name = document.getElementById("goalExpenseGoal").value;
+    const date = document.getElementById("goalExpenseDate").value;
+    const amount = Number(document.getElementById("goalExpenseAmount").value);
+    const account = document.getElementById("goalExpenseAccount").value;
+    const description = document.getElementById("goalExpenseDescription").value.trim() || "Goal expense";
+    if (!name || !date || !account || !Number.isFinite(amount) || amount <= 0) {
+      status.textContent = "Choose a goal, date, payment account, and an amount greater than zero.";
+      return;
+    }
+    status.textContent = "Saving goal expense…";
+    const range = await readBudgetSetupRange("S2:AC20");
+    const goal = readExpenseGoals(range.values || []).find(item => item.name === name);
+    if (!goal) throw new Error("This goal no longer exists. Reload and select another goal.");
+    const value = Math.round(amount * 100) / 100;
+    if (value <= 0) throw new Error("Enter at least $0.01.");
+    const nextRow = nextTransactionRow;
+    const row = [date, description, value, "Saving Goals", "Goal: " + name, account, "", "", "", ""];
+    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:J${nextRow}`, [row]);
+    pendingGoalExpense = { name, before: goal.allocated, after: Math.round(Math.max(0, goal.allocated - value) * 100) / 100 };
+    try { sessionStorage.setItem(goalExpensePendingKey(), JSON.stringify(pendingGoalExpense)); } catch (_) {}
+    addSavedRowsToPage([row], nextRow);
+    document.getElementById("goalExpenseAmount").value = "";
+    document.getElementById("goalExpenseDescription").value = "";
+    await finishGoalExpenseAllocation();
+  } catch (err) {
+    status.textContent = pendingGoalExpense
+      ? `Expense recorded; goal allocation still needs updating. ${err.message} Use Finish Goal Update to retry without recording another expense.`
+      : `Could not save: ${err.message}`;
+    if (pendingGoalExpense) button.textContent = "Finish Goal Update";
+  } finally {
+    goalExpenseSaving = false;
+    button.disabled = false;
+  }
+}
+
 // ── Save transaction ──────────────────────────────────────────────────────────
 async function saveTransaction() {
   const dateVal  = document.getElementById("txDate").value;
@@ -1022,12 +1150,12 @@ async function saveTransaction() {
   }
 
   const dateStr     = formatDateForExcel(dateVal);
-  const claimFlag   = isClaimable ? "Yes" : "";
-  const claimStatus = isClaimable ? "Pending" : "";
+  const claimFlag   = isClaimable && currentMode !== "refund" ? "Yes" : "";
+  const claimStatus = isClaimable && currentMode !== "refund" ? "Pending" : "";
   let claimAmount = "";
   let claimAccount = "";
 
-  if (isClaimable) {
+  if (isClaimable && currentMode !== "refund") {
     const rawClaimAmount = parseFloat(document.getElementById("txClaimAmount")?.value);
     claimAccount = document.getElementById("txClaimAccount")?.value || "";
     claimAmount = isNaN(rawClaimAmount) ? amount : rawClaimAmount;
@@ -1037,7 +1165,9 @@ async function saveTransaction() {
   }
 
   // Columns: A=Date, B=Transaction, C=Amount, D=MainCategory, E=SubCategory, F=Account, G=Claimable, H=ClaimStatus, I=ClaimAmount, J=ClaimAccount
-  const row = [dateStr, txDesc, amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount, claimAccount];
+  if (!Number.isFinite(amount) || amount <= 0) { alert("Enter an amount greater than zero."); return; }
+  const refund = currentMode === "refund";
+  const row = [dateStr, refund ? "Refund: " + txDesc : txDesc, refund ? -amount : amount, mainCat, subCat, account, claimFlag, claimStatus, claimAmount, claimAccount];
 
   try {
     log("Saving transaction...");
@@ -1051,6 +1181,7 @@ async function saveTransaction() {
 
     document.getElementById("txTransaction").value = "";
     document.getElementById("txAmount").value = "";
+    document.getElementById("transactionSuccess").textContent = refund ? "Refund saved. Spending and account balances updated." : "Transaction saved successfully!";
     document.getElementById("transactionSuccess").style.display = "block";
     setTimeout(() => document.getElementById("transactionSuccess").style.display = "none", 4000);
 
@@ -1222,7 +1353,7 @@ function computeTransactionAccountBalances(accountList, rows) {
       const amount = Math.abs(money(row.amount));
       const main = key(row.mainCat);
       const sub = key(row.subCat);
-      let movement = -amount;
+      let movement = -money(row.amount);
       if (main === "income") movement = amount;
       if (main === "transfer") {
         if (sub === "transfer in" || sub === "cc payment in") movement = amount;

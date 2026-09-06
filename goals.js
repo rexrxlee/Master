@@ -202,7 +202,7 @@ function getAccountBalanceImpact(row) {
     if (sub === "transfer out" || sub === "cc payment out") return -amount;
     return 0;
   }
-  return -amount;
+  return -getSignedAmount(row["Amount"]);
 }
 
 function getCreditCardTransferOwedImpact(row) {
@@ -263,7 +263,7 @@ function computeCCOwed(txData) {
 
     const charges = subsequent
       .filter(row => { const cat = clean(row["Main Category"]).toLowerCase(); return cat !== "income" && cat !== "transfer"; })
-      .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
+      .reduce((sum, row) => sum + getSignedAmount(row["Amount"]), 0);
 
     const transferImpact = subsequent
       .filter(row => clean(row["Main Category"]).toLowerCase() === "transfer")
@@ -314,7 +314,7 @@ function computeHistoricalStats(txData) {
     }
 
     const expenseAmount = getClaimAdjustedExpenseAmount(row);
-    if (expenseAmount <= 0) return;
+    if (expenseAmount === 0) return;
     monthlyExpenses[key] = (monthlyExpenses[key]||0) + expenseAmount;
   });
   const allMonths = [...new Set([...Object.keys(monthlyIncome),...Object.keys(monthlyExpenses)])].sort();
@@ -501,7 +501,7 @@ function computeBudgetPositionForMonth(monthDate) {
     if (!bucket) return;
 
     const impactAmount = getClaimAdjustedExpenseAmount(row);
-    if (impactAmount <= 0) return;
+    if (impactAmount === 0) return;
 
     const subCategory = clean(row["Sub Category"]) || "(Uncategorised)";
     spentByType[bucket].set(
@@ -724,6 +724,7 @@ function buildAllocStatusTags(remaining, isFullyFunded, pendingExposure, baseRem
 
 function renderGoalsPage() {
   const container = document.getElementById("goalsContainer");
+  const fundingOpen = document.getElementById("goalFundingDetails")?.open || false;
   container.innerHTML = "";
 
   const today = new Date();
@@ -1093,6 +1094,20 @@ function renderGoalsPage() {
       <span class="panel-hint goals-autosave-status" id="goalsAutosaveStatus">Autosaves to Excel</span>
     </div>
   `);
+
+  const funding = document.createElement("details");
+  funding.id = "goalFundingDetails";
+  funding.className = "simple-details";
+  funding.open = fundingOpen;
+  funding.innerHTML = '<summary>Manage funding & accounts</summary><div class="simple-details-body"></div>';
+  const fundingBody = funding.querySelector("div");
+  [container.querySelector(".balance-panel"), container.querySelector(".acct-selector-panel")]
+    .filter(Boolean).forEach(panel => fundingBody.appendChild(panel));
+  const grid = document.getElementById("goalCardsGrid");
+  const addPanel = document.getElementById("addGoalPanel");
+  container.prepend(addPanel);
+  if (grid) addPanel.after(grid);
+  (grid || addPanel).after(funding);
 
   if (document.getElementById("goalInsightsPanel")?.open) refreshGoalInsightPanels();
 }
@@ -4087,9 +4102,10 @@ function renderGoalCard(goal, idx, container) {
     </div>
 
     <div class="goal-kpis">
-      <div class="gkpi"><span class="gkpi-l">Covered</span><span class="gkpi-v green">${formatCurrency(totalSaved)}</span></div>
-      <div class="gkpi"><span class="gkpi-l">Required Left</span><span class="gkpi-v ${requirementLeft>0?'red':''}">${formatCurrency(requirementLeft)}</span></div>
-      <div class="gkpi"><span class="gkpi-l">Monthly</span><span class="gkpi-v">${formatCurrency(monthlyKpiAmount)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Target</span><span class="gkpi-v">${formatCurrency(effectiveTarget)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Allocated</span><span class="gkpi-v green">${formatCurrency(goal.manualSaved)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Spent</span><span class="gkpi-v">${formatCurrency(spentViaGoalTx)}</span></div>
+      <div class="gkpi"><span class="gkpi-l">Remaining</span><span class="gkpi-v ${requirementLeft>0?'red':''}">${formatCurrency(requirementLeft)}</span></div>
     </div>
 
     <div class="goal-progress-wrap">
@@ -4098,14 +4114,13 @@ function renderGoalCard(goal, idx, container) {
     </div>
 
     <div class="goal-compact-meta">
-      <span>Target <strong>${formatCurrency(effectiveTarget)}</strong></span>
-      <span>Funding gap <strong class="${remaining>0?'red':''}">${formatCurrency(remaining)}</strong></span>
       <span>Deadline <strong>${deadlineLabel}</strong></span>
     </div>
 
     <details class="goal-card-details">
-      <summary>Details</summary>
+      <summary>Forecast & details</summary>
       <div class="goal-card-detail-body">
+        <p>${formatCurrency(totalSaved)} covered · ${formatCurrency(monthlyKpiAmount)}/month planned</p>
         <div class="goal-meta">
           ${goal.startDate ? `<span>Start: ${formatDateDisplay(goal.startDate)}</span>` : ""}
           ${goal.notes ? `<span>${escapeHtml(goal.notes)}</span>` : ""}
@@ -4156,32 +4171,13 @@ function renderGoalCard(goal, idx, container) {
       </div>
     </div>
 
-    <!-- Deduct Form -->
-    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <button class="btn-deduct btn-sm" onclick="toggleDeductForm(${idx})">Log Expense</button>
-    </div>
-    <div id="deductGoal_${idx}" class="goal-edit-form" style="display:none;margin-top:10px;background:#fef2f2;border-color:#fca5a5;">
-      <div class="goal-form-grid" style="margin-top:0;">
-        <div class="gf-group"><label>Amount (SGD)</label><input type="number" id="dg_amt_${idx}" step="0.01" placeholder="0.00"></div>
-        <div class="gf-group"><label>Description</label><input type="text" id="dg_note_${idx}" placeholder="What was it for?"></div>
-        <div class="gf-group"><label>Account</label><select id="dg_acct_${idx}"></select></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button class="btn-primary btn-sm" style="background:#dc2626;" onclick="saveDeductGoal(${idx})">Save</button>
-        <button class="btn-secondary btn-sm" onclick="toggleDeductForm(${idx})">Cancel</button>
-      </div>
+    <div style="margin-top:10px;">
+      <a class="btn-deduct btn-sm" href="add-transaction.html?goal=${encodeURIComponent(goal.name)}">Record goal expense</a>
     </div>
   `;
   container.appendChild(div);
 
-  // Populate account dropdown for deduct
-  const sel = div.querySelector(`#dg_acct_${idx}`);
-  allAccounts.forEach(a => {
-    const opt = document.createElement("option");
-    opt.value = a.name;
-    opt.textContent = `${a.name} (${a.type})`;
-    sel.appendChild(opt);
-  });
+
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -4211,45 +4207,6 @@ function getGoalSpentViaTransactions(goalName) {
 function isGoalExpenseTransaction(row) {
   const main = clean(row["Main Category"]).toLowerCase();
   return ["saving goal", "saving goals", "savings goal", "savings goals"].includes(main);
-}
-
-function applyGoalExpenseAdjustmentByName(goalName, amount, reason, account, dateStr) {
-  const idx = goalsData.findIndex(g => clean(g.name).toLowerCase() === clean(goalName).toLowerCase());
-  if (idx < 0) return null;
-  return applyGoalExpenseAdjustment(idx, amount, reason, account, dateStr);
-}
-
-function applyGoalExpenseAdjustment(idx, amount, reason, account, dateStr) {
-  const goal = goalsData[idx];
-  if (!goal || !(amount > 0)) return null;
-
-  const previous = roundGoalMoney(goal.manualSaved || 0);
-  const adjusted = roundGoalMoney(Math.max(0, previous - amount));
-  const reducedBy = roundGoalMoney(previous - adjusted);
-  goal.manualSaved = adjusted;
-  goal.notes = appendGoalExpenseNote(goal.notes, {
-    amount,
-    reason,
-    account,
-    dateStr,
-    previous,
-    adjusted,
-    reducedBy
-  });
-
-  return { goal, previous, adjusted, reducedBy };
-}
-
-function appendGoalExpenseNote(existingNotes, details) {
-  const parts = [
-    `Expense ${formatDateDisplay(details.dateStr) || details.dateStr}: -${formatCurrency(details.amount)}`,
-    details.reason ? `for ${details.reason}` : "",
-    details.account ? `from ${details.account}` : "",
-    `(allocation ${formatCurrency(details.previous)} -> ${formatCurrency(details.adjusted)}; required left reduced; counts as fulfilled progress)`
-  ].filter(Boolean);
-  const adjustmentNote = parts.join(" ");
-  const existing = clean(existingNotes);
-  return existing ? `${existing} | ${adjustmentNote}` : adjustmentNote;
 }
 
 function roundGoalMoney(value) {
@@ -4427,11 +4384,6 @@ function toggleGoalEdit(idx) {
   el.style.display = el.style.display === "none" ? "block" : "none";
 }
 
-function toggleDeductForm(idx) {
-  const el = document.getElementById("deductGoal_" + idx);
-  el.style.display = el.style.display === "none" ? "block" : "none";
-}
-
 async function toggleGoalAccount(checkbox) {
   const name = checkbox.value;
   if (checkbox.checked) {
@@ -4581,48 +4533,6 @@ async function deleteGoal(idx) {
   await persistGoalsToExcel({ silent: true });
 }
 
-async function saveDeductGoal(idx) {
-  const goal   = goalsData[idx];
-  const amtVal = document.getElementById("dg_amt_"  +idx).value;
-  const note   = document.getElementById("dg_note_" +idx).value.trim() || "Goal expense";
-  const acct   = document.getElementById("dg_acct_" +idx).value;
-
-  if (!amtVal) { alert("Please enter an amount."); return; }
-  if (!acct)   { alert("Please select an account."); return; }
-
-  const amount = parseFloat(amtVal);
-  if (isNaN(amount) || amount <= 0) { alert("Please enter a valid amount."); return; }
-  const today   = new Date();
-  const dateStr = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
-  let transactionSaved = false;
-
-  try {
-    log("Saving goal deduction...");
-    const token = await getToken();
-    const encodedPath = getEncodedExcelPath();
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodedPath +
-      ":/workbook/worksheets('" + CONFIG.sheetName + "')/usedRange(valuesOnly=true)";
-    const data    = await graphGetJson(url, token);
-    const nextRow = data.rowCount + 1;
-    await writeExcelRange(CONFIG.sheetName, `A${nextRow}:F${nextRow}`, [[
-      dateStr, note, amount, "Saving Goals", "Goal: " + goal.name, acct
-    ]]);
-    transactionSaved = true;
-
-    const adjustment = applyGoalExpenseAdjustment(idx, amount, note, acct, dateStr);
-    const saved = await persistGoalsToExcel({ silent: true, waitForIdle: true });
-    if (!saved) throw new Error("Expense saved, but the goal allocation update did not save to Excel.");
-
-    const reductionText = adjustment && adjustment.reducedBy < amount
-      ? ` ${formatCurrency(adjustment.reducedBy)} was removed from the allocation because the goal only had ${formatCurrency(adjustment.previous)} allocated.`
-      : ` ${formatCurrency(amount)} was removed from the goal allocation.`;
-    alert("Deduction saved!" + reductionText + " The expense now counts as fulfilled goal progress.");
-    await loadGoalsPage();
-  } catch(err) {
-    alert((transactionSaved ? "Expense saved, but goal update failed: " : "Failed: ") + err.message);
-  }
-}
-
 // ─── Save to Excel ─────────────────────────────────────────────────
 
 async function saveGoalsToExcel(options = {}) {
@@ -4660,7 +4570,7 @@ function formatDateDisplay(value) {
 function clean(v)    { return String(v??"").trim(); }
 function accountKey(v) { return clean(v).toLowerCase().replace(/\s+/g, " "); }
 function fieldKey(v) { return clean(v).toLowerCase().replace(/[^a-z0-9]/g, ""); }
-function getAmount(v){ const n = Number(String(v).replace(/[$,]/g,"")); return isNaN(n) ? 0 : Math.abs(n); }
+function getAmount(v){ const n = Number(String(v).replace(/[$,]/g,"")); return isNaN(n) ? 0 : n; }
 function getRowValue(row, fieldName) {
   const wanted = fieldKey(fieldName);
   const key = Object.keys(row || {}).find(k => fieldKey(k) === wanted);

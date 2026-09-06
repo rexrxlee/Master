@@ -21,11 +21,12 @@
     }
     .tx-form-card .mode-toggle {
       display: flex;
+      flex-wrap: wrap;
       gap: 0;
       border-bottom: 1px solid var(--border);
     }
     .tx-form-card .mode-toggle button {
-      flex: 1;
+      flex: 1 1 110px;
       padding: 13px 8px;
       border: none;
       border-right: 1px solid var(--border);
@@ -536,27 +537,17 @@
       </div>
     </header>
 
-    <section class="tx-table-card balance-glance" aria-label="Account balances">
-      <div class="card-header"><h2 class="card-title">Account balances</h2></div>
-      <p class="balance-glance-note">Based on saved transactions. Highlighted accounts show the last balance change.</p>
-      <div id="accountBalanceGlance" class="balance-glance-grid" aria-live="polite">
-        <p class="tx-empty">Loading balances…</p>
-      </div>
-    </section>
+
 
     <!-- ── Form card ── -->
     <div class="tx-form-card">
-      <div class="mode-toggle">
-        <button id="btnTransaction" class="mode-active" onclick="setMode('transaction')">💳 Expense</button>
-        <button id="btnIncome" onclick="setMode('income')">💰 Income</button>
-        <button id="btnTransfer" onclick="setMode('transfer')">↔ Transfer</button>
-        <button id="btnCcpay" onclick="setMode('ccpay')">🏦 Pay CC</button>
-      </div>
+      <div class="transaction-type-picker"><label for="transactionType">Transaction type</label><select id="transactionType" onchange="setMode(this.value)"><option value="transaction">Expense</option><option value="refund">Refund</option><option value="income">Income</option><option value="transfer">Transfer between accounts</option><option value="ccpay">Credit card payment</option><option value="goal">Goal expense</option></select></div>
 
       <!-- Expense -->
       <div id="transactionForm" class="tx-form-body">
+        <p id="refundHint" hidden>Enter the returned amount as a positive number. Choose the original spending category and the account receiving the refund. Spending is reduced in the refund month.</p>
         <div id="transactionSuccess" class="success-message" style="display:none;margin-bottom:14px;">✅ Transaction saved successfully!</div>
-        <div class="ai-prefill-panel">
+        <details class="simple-details"><summary>Quick entry from text</summary><div class="simple-details-body"><div class="ai-prefill-panel">
           <div class="ai-prefill-header">
             <span class="ai-prefill-title">AI Prefill</span>
             <span class="card-badge">Expense</span>
@@ -567,7 +558,7 @@
             <button type="button" onclick="clearAiPrefill()">Clear</button>
           </div>
           <div id="aiPrefillStatus" class="ai-prefill-status"></div>
-        </div>
+        </div></div></details>
         <div id="recurringSuggestions" class="recurring-suggestions" style="display:none;">
           <div class="recurring-suggestions-header">
             <span class="recurring-suggestions-title">Recurring suggestions</span>
@@ -602,7 +593,7 @@
           </div>
         </div>
         <div class="form-actions">
-          <button class="btn-save" onclick="saveTransaction()">Save Expense</button>
+          <button id="saveExpenseBtn" class="btn-save" onclick="saveTransaction()">Save Expense</button>
           <button type="button" id="claimableToggle" class="claimable-toggle" onclick="toggleClaimable()">🔖 Mark as Claimable</button>
         </div>
         <div id="claimableHint" class="claimable-hint">
@@ -625,6 +616,20 @@
             Example: if expense is $100 and claim amount is $40, only $60 counts against your budget. Claim account is where reimbursement will be received, not necessarily where you spent.
           </div>
         </div>
+      </div>
+
+      <div id="goalForm" class="tx-form-body" style="display:none;">
+        <p>Record a purchase against a savings goal. It counts toward goal progress and is separate from monthly spending.</p>
+        <div class="form-grid">
+          <div class="form-field"><label for="goalExpenseGoal">Goal</label><select id="goalExpenseGoal" onchange="updateGoalExpenseHint()"></select></div>
+          <div class="form-field"><label for="goalExpenseDate">Date</label><input type="date" id="goalExpenseDate"></div>
+          <div class="form-field"><label for="goalExpenseAmount">Amount (SGD)</label><input type="number" id="goalExpenseAmount" min="0.01" step="0.01" placeholder="0.00"></div>
+          <div class="form-field"><label for="goalExpenseAccount">Pay from</label><select id="goalExpenseAccount"></select></div>
+          <div class="form-field"><label for="goalExpenseDescription">Description</label><input type="text" id="goalExpenseDescription" placeholder="What did you buy?"></div>
+        </div>
+        <p id="goalExpenseHint"></p>
+        <div class="form-actions"><button id="saveGoalExpenseBtn" class="btn-save" onclick="saveGoalExpense()">Save Goal Expense</button></div>
+        <p id="goalExpenseStatus" role="status" aria-live="polite"></p>
       </div>
 
       <!-- Income -->
@@ -712,7 +717,13 @@
           <button class="btn-save" onclick="saveCcPayment()">Save CC Payment</button>
         </div>
       </div>
-    </div>
+    </div><section class="tx-table-card balance-glance" aria-label="Account balances">
+      <div class="card-header"><h2 class="card-title">Account balances</h2></div>
+      <p class="balance-glance-note">Based on saved transactions. Highlighted accounts show the last balance change.</p>
+      <div id="accountBalanceGlance" class="balance-glance-grid" aria-live="polite">
+        <p class="tx-empty">Loading balances…</p>
+      </div>
+    </section>
 
     <!-- ── Claims banner ── -->
     <div class="claims-banner">
@@ -756,5 +767,6 @@
       document.getElementById("claimsChevron").style.transform = claimsBannerOpen ? "rotate(180deg)" : "";
     }
   </script>
+  <script src="ui.js"></script>
 </body>
 </html>

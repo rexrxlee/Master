@@ -47,12 +47,12 @@
         <h1 class="page-title">Dashboard</h1>
         <p class="page-subtitle">Financial overview</p>
       </div>
-      <div class="topbar-right">
+      <div class="topbar-right"><a href="add-transaction.html" class="simple-primary-link">+ Add transaction</a>
         <button class="reload-btn" onclick="loadDashboard(true)">↻ Reload</button>
       </div>
     </header>
 
-    <section class="filters-bar">
+    <details class="simple-details"><summary>Filter dashboard</summary><div class="simple-details-body"><section class="filters-bar">
       <div class="filter-group">
         <div class="filter-box">
           <button class="dropdown-button" onclick="toggleDropdown('mainCategoryMenu')">Main Category <span class="chevron">▾</span></button>
@@ -85,7 +85,7 @@
         </div>
       </div>
       <button id="clearFiltersBtn" onclick="resetFilters()" style="display:none;" class="clear-btn">✕ Clear Filters</button>
-    </section>
+    </section></div></details>
 
     <div id="activeFilterBadges" class="filter-badges"></div>
 
@@ -94,24 +94,7 @@
       <button type="button" id="incomeDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('income')">Income</button>
     </nav>
 
-    <section id="expensesDashboardView" class="dashboard-view active">
-      <section class="kpi-row kpi-row-3">
-        <div class="kpi-card income">
-          <div class="kpi-label">Total Income</div>
-          <div class="kpi-value" id="totalIncome">$0</div>
-        </div>
-        <div class="kpi-card expense">
-          <div class="kpi-label">Total Expenses</div>
-          <div class="kpi-value" id="totalExpenses">$0</div>
-        </div>
-        <div class="kpi-card net">
-          <div class="kpi-label">Net Cashflow</div>
-          <div class="kpi-value" id="netSavings">$0</div>
-          <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
-        </div>
-      </section>
-
-      <section class="kpi-row budget-kpi-row">
+    <section id="expensesDashboardView" class="dashboard-view active"><section class="kpi-row budget-kpi-row">
         <div class="kpi-card net">
           <div class="kpi-label">Monthly Expenses Balance</div>
           <div class="kpi-value" id="monthlyExpenseBalance">$0</div>
@@ -132,9 +115,50 @@
           <div class="kpi-value" id="monthlyExpenseProjected">$0</div>
           <div class="kpi-note" id="monthlyExpenseProjectedNote">Projected spend based on your current spending so far</div>
         </div>
-      </section>
-
-      <section class="insight-row">
+      </section><section class="tables-row daily-overview"><div class="accounts-card">
+          <div class="card-header">
+            <h2 class="card-title">Assets &amp; Accounts</h2>
+            <span class="card-badge" id="assetScopeBadge">All included</span>
+          </div>
+          <table id="savingsTable" class="accounts-table"></table>
+          <div id="pendingClaimsAssets" class="pending-claims-assets"></div>
+          <div class="accounts-footer">
+            <div class="account-line">
+              <span class="acc-label">Credit Cards (owed)</span>
+              <span class="acc-val" id="uobOneBalance">$0</span>
+            </div>
+            <div class="account-line claim-line" id="pendingClaimsLine" style="display:none;">
+              <span class="acc-label">Pending claims receivable</span>
+              <span class="acc-val positive" id="pendingClaimsBalance">$0</span>
+            </div>
+            <div class="account-line total-line">
+              <span class="acc-label">Net Assets</span>
+              <span class="acc-val" id="assetsBalance">$0</span>
+            </div>
+          </div>
+        </div><div class="table-card">
+          <div class="card-header">
+            <h2 class="card-title">Recent Transactions</h2>
+            <span class="card-badge">Last 10</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="recentTransactionsTable"></table>
+          </div>
+        </div></section><details class="simple-details"><summary>Spending details &amp; cashflow</summary><div class="simple-details-body"><section class="kpi-row kpi-row-3">
+        <div class="kpi-card income">
+          <div class="kpi-label">Total Income</div>
+          <div class="kpi-value" id="totalIncome">$0</div>
+        </div>
+        <div class="kpi-card expense">
+          <div class="kpi-label">Total Expenses</div>
+          <div class="kpi-value" id="totalExpenses">$0</div>
+        </div>
+        <div class="kpi-card net">
+          <div class="kpi-label">Net Cashflow</div>
+          <div class="kpi-value" id="netSavings">$0</div>
+          <div class="kpi-note" id="netSavingsNote">Income minus filtered expenses, not asset balance</div>
+        </div>
+      </section><section class="insight-row">
         <div class="insight-card">
           <div class="insight-label">Highest Spending Month</div>
           <div class="insight-value" id="highestMonthCard">-</div>
@@ -156,9 +180,7 @@
           <div class="insight-label">Net Cashflow This Month</div>
           <div class="insight-value" id="thisMonthNetCard">-</div>
         </div>
-      </section>
-
-      <section class="table-card full monthly-budget-card">
+      </section><section class="table-card full monthly-budget-card">
         <div class="card-header">
           <h2 class="card-title">Monthly Expenses Budget Balance</h2>
           <span class="card-badge" id="monthlyExpenseBudgetBadge">$0 left</span>
@@ -169,9 +191,7 @@
             <canvas id="monthlyExpenseBudgetChart"></canvas>
           </div>
         </div>
-      </section>
-
-      <section class="charts-row">
+      </section><section class="charts-row">
         <div class="chart-card wide">
           <div class="card-header">
             <h2 class="card-title">Monthly Overview</h2>
@@ -180,68 +200,29 @@
             <canvas id="expenseChart"></canvas>
           </div>
         </div>
-        <div class="accounts-card">
-          <div class="card-header">
-            <h2 class="card-title">Assets & Accounts</h2>
-            <span class="card-badge" id="assetScopeBadge">All included</span>
-          </div>
-          <table id="savingsTable" class="accounts-table"></table>
-          <div id="pendingClaimsAssets" class="pending-claims-assets"></div>
-          <div class="accounts-footer">
-            <div class="account-line">
-              <span class="acc-label">Credit Cards (owed)</span>
-              <span class="acc-val" id="uobOneBalance">$0</span>
-            </div>
-            <div class="account-line claim-line" id="pendingClaimsLine" style="display:none;">
-              <span class="acc-label">Pending claims receivable</span>
-              <span class="acc-val positive" id="pendingClaimsBalance">$0</span>
-            </div>
-            <div class="account-line total-line">
-              <span class="acc-label">Net Assets</span>
-              <span class="acc-val" id="assetsBalance">$0</span>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <section class="chart-card full">
+      </section><section class="chart-card full">
         <div class="card-header">
           <h2 class="card-title">Expenses by Sub Category</h2>
         </div>
         <div class="chart-wrap tall">
           <canvas id="subCategoryChart"></canvas>
         </div>
-      </section>
-
-      <section class="tables-row">
-        <div class="table-card">
-          <div class="card-header">
-            <h2 class="card-title">Recent Transactions</h2>
-            <span class="card-badge">Last 10</span>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table" id="recentTransactionsTable"></table>
-          </div>
-        </div>
-        <div class="table-card">
+      </section><div class="table-card">
           <div class="card-header">
             <h2 class="card-title">Top 5 by Amount</h2>
           </div>
           <div class="table-wrap">
             <table class="data-table" id="top5Table"></table>
           </div>
-        </div>
-      </section>
-
-      <section class="table-card full" style="margin-bottom: 40px;">
+        </div><section class="table-card full" style="margin-bottom: 40px;">
         <div class="card-header">
           <h2 class="card-title">Monthly Average by Sub Category</h2>
         </div>
         <div class="table-wrap">
           <table class="data-table" id="avgCategoryTable"></table>
         </div>
-      </section>
-    </section>
+      </section></div></details></section>
 
     <section id="incomeDashboardView" class="dashboard-view">
       <section class="kpi-row income-kpi-row">
@@ -284,7 +265,10 @@
         </div>
       </section>
 
-      <section class="insight-row income-insight-row">
+
+
+
+    <details class="simple-details"><summary>Income trends &amp; monthly history</summary><div class="simple-details-body"><section class="insight-row income-insight-row">
         <div class="insight-card">
           <div class="insight-label">Income This Month</div>
           <div class="insight-value" id="incomeThisMonthCard">-</div>
@@ -305,9 +289,7 @@
           <div class="insight-label">Income Entries</div>
           <div class="insight-value" id="incomeFilteredCountCard">0</div>
         </div>
-      </section>
-
-      <section class="table-card full" style="margin-bottom: 40px;">
+      </section><section class="table-card full" style="margin-bottom: 40px;">
         <div class="card-header">
           <h2 class="card-title">Income by Month</h2>
           <span class="card-badge" id="incomeMonthlyTotal">$0</span>
@@ -315,8 +297,7 @@
         <div class="table-wrap">
           <table class="data-table" id="incomeMonthlyTable"></table>
         </div>
-      </section>
-    </section>
+      </section></div></details></section>
 
   </main>
 
@@ -324,5 +305,6 @@
   <script src="onedrive.js"></script>
   <script src="charts.js"></script>
   <script src="dashboard.js"></script>
+  <script src="ui.js"></script>
 </body>
 </html>

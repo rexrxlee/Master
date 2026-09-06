@@ -676,7 +676,7 @@ function updateFinanceCards(data) {
         const cat = clean(row["Main Category"]).toLowerCase();
         return cat !== "income" && cat !== "transfer";
       })
-      .reduce((sum, row) => sum + Math.abs(getSignedAmount(row["Amount"])), 0);
+      .reduce((sum, row) => sum + getSignedAmount(row["Amount"]), 0);
 
     // Transfers into a CC reduce what is owed; transfers out of a CC increase it.
     const transferImpact = subsequent
@@ -1206,7 +1206,7 @@ function parseExcelDate(value) {
   return null;
 }
 
-function getAmount(value) { const n = Number(String(value).replace(/[$,]/g,"")); return isNaN(n) ? 0 : Math.abs(n); }
+function getAmount(value) { const n = Number(String(value).replace(/[$,]/g,"")); return isNaN(n) ? 0 : n; }
 function getSignedAmount(value) { if (typeof value === "number") return value; const n = Number(String(value).replace(/\$/g,"").replace(/,/g,"").trim()); return isNaN(n) ? 0 : n; }
 
 function getAccountBalanceImpact(row) {
@@ -1220,7 +1220,7 @@ function getAccountBalanceImpact(row) {
     if (sub === "transfer out" || sub === "cc payment out") return -amount;
     return 0;
   }
-  return -amount;
+  return -getSignedAmount(row["Amount"]);
 }
 
 function getCreditCardTransferOwedImpact(row) {
