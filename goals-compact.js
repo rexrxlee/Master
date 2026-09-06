@@ -1,11 +1,78 @@
 let compactGoalChart = null;
 let compactForecastFrame = null;
+let compactSavedPlan = null;
+let compactSaving = false;
+
+function captureCompactSavedPlan() {
+  incomeBoosts.forEach(boost => {
+    boost.kind = _normaliseBoostKind(boost);
+    boost.frequency = _normaliseBoostFrequency(boost);
+    boost.amount = Math.abs(Number(boost.amount || 0) || 0);
+    boost.fromMonth = _normaliseBoostMonth(boost.fromMonth);
+    boost.toMonth = boost.frequency === "once" ? "" : _normaliseBoostMonth(boost.toMonth);
+    if (boost.kind === "reduce") boost.toGoal = "any";
+  });
+  compactSavedPlan = JSON.stringify({ goals: goalsData, boosts: incomeBoosts });
+}
+
+function compactPlanChanged() {
+  return compactSavedPlan !== null && compactSavedPlan !== JSON.stringify({ goals: goalsData, boosts: incomeBoosts });
+}
+
+function updateCompactSaveStatus() {
+  const status = document.getElementById("goalsAutosaveStatus");
+  if (status) status.textContent = compactSaving ? "Saving…" : compactPlanChanged() ? "Preview — not saved" : "No unsaved changes";
+  const save = document.getElementById("compactSavePlan");
+  const reset = document.getElementById("compactResetPlan");
+  if (save) save.disabled = compactSaving || !compactPlanChanged();
+  if (reset) reset.disabled = compactSaving || !compactPlanChanged();
+}
+
+async function saveCompactPlan() {
+  if (compactSaving || !compactPlanChanged()) return;
+  compactSaving = true;
+  updateCompactSaveStatus();
+  try {
+    const saved = await persistGoalsToExcel({ silent: false, includeBoosts: true, waitForIdle: true });
+    if (!saved) throw new Error("Save is still pending. Please try Save plan again.");
+    captureCompactSavedPlan();
+    renderCompactGoalsPage();
+  } catch (error) {
+    const status = document.getElementById("goalsAutosaveStatus");
+    if (status) status.textContent = "Save failed — your preview is kept. " + error.message;
+  } finally {
+    compactSaving = false;
+    const save = document.getElementById("compactSavePlan");
+    const reset = document.getElementById("compactResetPlan");
+    if (save) save.disabled = !compactPlanChanged();
+    if (reset) reset.disabled = !compactPlanChanged();
+    if (!compactPlanChanged()) updateCompactSaveStatus();
+  }
+}
+
+function resetCompactPlan() {
+  if (compactSaving || !compactSavedPlan) return;
+  cancelAnimationFrame(compactForecastFrame);
+  clearTimeout(goalInsightsRefreshTimer);
+  const saved = JSON.parse(compactSavedPlan);
+  goalsData = saved.goals;
+  incomeBoosts = saved.boosts;
+  incomeBoostsDirty = false;
+  renderCompactGoalsPage();
+}
+
+function deleteCompactGoal(idx) {
+  goalsData.splice(idx, 1);
+  renderCompactGoalsPage();
+  updateCompactSaveStatus();
+}
 
 function compactPriorityOptions(value) {
   return ["Critical", "High", "Medium", "Low"].map(name => `<option ${name === value ? "selected" : ""}>${name}</option>`).join("");
 }
 
 function renderCompactGoalsPage() {
+  if (!compactSavedPlan) captureCompactSavedPlan();
   const container = document.getElementById("goalsContainer");
   const adjustmentsOpen = document.getElementById("boostsPanel")?.open || incomeBoostsDirty;
   if (compactGoalChart) { compactGoalChart.destroy(); compactGoalChart = null; }
@@ -27,9 +94,9 @@ function renderCompactGoalsPage() {
     <div class="cg-workspace">
       <section class="cg-controls">
         <div class="cg-heading"><h2>Assign money</h2><button class="btn-primary" onclick="compactSmartAssign()" ${goalsData.length ? "" : "disabled"}>Smart Assign</button></div>
-        <p class="cg-note">Sliders assign money you have today. Smart Assign funds priorities first, then earlier deadlines.</p>
+        <p class="cg-note">Try allocations freely. Sliders and Smart Assign only preview your plan; choose Save plan when ready.</p>
         <div id="compactGoalRows">${goalsData.map((goal, idx) => compactGoalRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal to start planning.</p>'}</div>
-        <span id="goalsAutosaveStatus" class="goals-autosave-status">Autosaves to Excel</span>
+        <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save plan</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
       </section>
       <section class="cg-forecast">
         <div class="cg-heading"><h2>Can I reach my goals?</h2></div>
@@ -46,6 +113,7 @@ function renderCompactGoalsPage() {
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
   refreshCompactGoalForecast();
+  updateCompactSaveStatus();
 }
 
 function compactGoalRow(goal, idx) {
@@ -62,7 +130,7 @@ function compactGoalRow(goal, idx) {
       <label><input type="checkbox" ${goal.priority ? "checked" : ""} onchange="updateCompactGoal(${idx}, 'priority', this.checked ? 1 : 0)">Fund before other priorities</label>
       <label>Notes<input value="${escapeHtml(goal.notes || "")}" onchange="updateCompactGoal(${idx}, 'notes', this.value)"></label>
       <a href="add-transaction.html?goal=${encodeURIComponent(goal.name)}">Record goal expense</a>
-      <button class="btn-secondary" onclick="deleteGoal(${idx})">Delete goal</button>
+      <button class="btn-secondary" onclick="deleteCompactGoal(${idx})">Delete goal</button>
     </div></details>
   </article>`;
 }
@@ -152,6 +220,7 @@ function compactSmartAssign() {
 function refreshCompactGoalForecast() {
   const canvas = document.getElementById("compactGoalChart");
   if (!canvas) return;
+  updateCompactSaveStatus();
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
@@ -205,3 +274,20 @@ function refreshCompactGoalForecast() {
 // Keep existing persistence, account selection, and adjustment handlers on one renderer.
 renderGoalsPage = renderCompactGoalsPage;
 refreshGoalInsightPanels = refreshCompactGoalForecast;
+// All goal edits are drafts. No network writes or blocking autosave while exploring.
+scheduleGoalsAutoSave = function() {
+  clearTimeout(goalsAutoSaveTimer);
+  updateCompactSaveStatus();
+};
+_saveIncomeBoostsFromPanel = saveCompactPlan;
+const redrawCompactAdjustments = _redrawBoostsPanel;
+_redrawBoostsPanel = function(panel) {
+  redrawCompactAdjustments(panel);
+  const button = panel?.querySelector('[onclick="_saveIncomeBoostsFromPanel()"]');
+  if (button) button.textContent = "Save plan";
+};
+window.addEventListener("beforeunload", event => {
+  if (!compactPlanChanged()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});

@@ -35,6 +35,8 @@ let incomeBoostsDirty = false;
 // ─── Entry Point ──────────────────────────────────────────────────
 
 async function loadGoalsPage(forceRefresh = false) {
+  if (typeof compactPlanChanged === "function" && compactPlanChanged() &&
+      !confirm("Reload and discard your unsaved goal plan?")) return;
   try {
     clearOutput();
     log("Downloading Excel file...");
@@ -75,6 +77,7 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals
     goalsData = readGoalsFromSheet(budgetSheet);
     loadIncomeBoosts(budgetSheet);
+    if (typeof captureCompactSavedPlan === "function") captureCompactSavedPlan();
 
     renderGoalsPage();
     log("Goals loaded.");
