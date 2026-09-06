@@ -1,5 +1,19 @@
 let compactGoalChart = null;
 let compactForecastFrame = null;
+let compactGoalSort = "original";
+
+function sortCompactGoalRows(value) {
+  if (!["original", "priority"].includes(value)) return;
+  compactGoalSort = value;
+  const container = document.getElementById("compactGoalRows");
+  if (!container) return;
+  const order = goalsData.map((goal, idx) => ({ ...goal, originalIdx: idx }));
+  if (value === "priority") order.sort(compareGoalPriorityOrder);
+  order.forEach(goal => {
+    const row = document.getElementById(`compactGoal_${goal.originalIdx}`);
+    if (row) container.appendChild(row);
+  });
+}
 let compactSavedPlan = null;
 let compactSaving = false;
 
@@ -94,6 +108,7 @@ function renderCompactGoalsPage() {
     <div class="cg-workspace">
       <section class="cg-controls">
         <div class="cg-heading"><h2>Assign money</h2><button class="btn-primary" onclick="compactSmartAssign()" ${goalsData.length ? "" : "disabled"}>Smart Assign</button></div>
+        <label class="cg-sort" for="compactGoalSort">Sort by <select id="compactGoalSort" onchange="sortCompactGoalRows(this.value)"><option value="original" ${compactGoalSort === "original" ? "selected" : ""}>Original order</option><option value="priority" ${compactGoalSort === "priority" ? "selected" : ""}>Priority (highest first)</option></select></label>
         <p class="cg-note">Try allocations freely. Sliders and Smart Assign only preview your plan; choose Save plan when ready.</p>
         <div id="compactGoalRows">${goalsData.map((goal, idx) => compactGoalRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal to start planning.</p>'}</div>
         <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save plan</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
@@ -112,6 +127,7 @@ function renderCompactGoalsPage() {
     </div></details>`;
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
+  sortCompactGoalRows(compactGoalSort);
   refreshCompactGoalForecast();
   updateCompactSaveStatus();
 }

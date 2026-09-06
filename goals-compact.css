@@ -7,6 +7,8 @@
 .cg-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .cg-heading h2 { margin: 0; font-size: 15px; }
 .cg-heading > strong { overflow-wrap: anywhere; }
+.cg-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.cg-sort select { min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .cg-add-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; padding: 0 16px 12px; }
 .cg-add-form label, .cg-dates label, .cg-allocation label, .cg-options label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
 .cg-add-form input, .cg-add-form select, .cg-goal input:not([type=range]):not([type=checkbox]), .cg-goal select { min-width: 0; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
