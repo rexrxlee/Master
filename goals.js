@@ -297,17 +297,20 @@ function getCreditCardAccountsInData(txData) {
 
 function computeHistoricalStats(txData) {
   const monthlyIncome = {}, monthlyExpenses = {};
-  // Only look at the last 12 complete months (exclude current partial month)
+  const referenceMonths = getLastCompleteMonthKeys(12);
+  const referenceMonthSet = new Set(referenceMonths);
+  const [cutoffYear, cutoffMonth] = referenceMonths[0].split("-").map(Number);
+  const cutoff = new Date(cutoffYear, cutoffMonth - 1, 1);
   const today = new Date();
-  const cutoff = new Date(today.getFullYear(), today.getMonth() - 12, 1); // 12 months ago (start of that month)
   const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   txData.forEach(row => {
     const date = parseExcelDate(row["Date"]);
     if (!date) return;
-    if (date < cutoff) return; // older than 12 months ago
+    if (date < cutoff) return;
     if (date >= currentMonthStart) return; // current/future months are not complete
     const key = date.getFullYear() + "-" + String(date.getMonth()+1).padStart(2,"0");
+    if (!referenceMonthSet.has(key)) return;
     const cat = clean(row["Main Category"]).toLowerCase();
     if (cat === "transfer") return;
     const amt = getAmount(row["Amount"]);
@@ -322,11 +325,10 @@ function computeHistoricalStats(txData) {
     if (expenseAmount === 0) return;
     monthlyExpenses[key] = (monthlyExpenses[key]||0) + expenseAmount;
   });
-  const allMonths = [...new Set([...Object.keys(monthlyIncome),...Object.keys(monthlyExpenses)])].sort();
-  const months = allMonths.length || 1;
-  const salaryStats = computeRecurringSalaryStats(monthlyIncome);
+  const months = referenceMonths.length || 1;
+  const salaryStats = computeRecurringSalaryStats(monthlyIncome, referenceMonths);
   const avgIncome   = salaryStats.recurringMonthly;
-  const avgExpenses = Object.values(monthlyExpenses).reduce((s,v)=>s+v,0) / months;
+  const avgExpenses = referenceMonths.reduce((s, key)=>s + (monthlyExpenses[key] || 0), 0) / months;
   return {
     avgMonthlyIncome:avgIncome,
     avgMonthlyExpenses:avgExpenses,
@@ -337,8 +339,17 @@ function computeHistoricalStats(txData) {
   };
 }
 
-function computeRecurringSalaryStats(monthlyIncome) {
-  const entries = Object.entries(monthlyIncome)
+function getLastCompleteMonthKeys(count) {
+  const today = new Date();
+  return Array.from({ length: count }, (_, idx) => {
+    const date = new Date(today.getFullYear(), today.getMonth() - count + idx, 1);
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0");
+  });
+}
+
+function computeRecurringSalaryStats(monthlyIncome, referenceMonths = Object.keys(monthlyIncome).sort()) {
+  const entries = referenceMonths
+    .map(key => [key, monthlyIncome[key] || 0])
     .filter(([, amount]) => amount > 0)
     .sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) {
