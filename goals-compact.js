@@ -45,6 +45,7 @@ function updateCompactSaveStatus() {
 
 async function saveCompactPlan() {
   if (compactSaving || !compactPlanChanged()) return;
+  compactNormaliseManualAssignments();
   compactSaving = true;
   updateCompactSaveStatus();
   try {
@@ -122,6 +123,7 @@ function compactPriorityOptions(value) {
 }
 
 function renderCompactGoalsPage() {
+  compactNormaliseManualAssignments();
   if (!compactSavedPlan) captureCompactSavedPlan();
   const container = document.getElementById("goalsContainer");
   const adjustmentsOpen = document.getElementById("boostsPanel")?.open || incomeBoostsDirty;
@@ -171,12 +173,24 @@ function renderCompactGoalsPage() {
 }
 
 function compactGoalRow(goal, idx) {
+  const recorded = Math.max(0, getSavedViaTransactions(goal.name));
+  const targetWithBuffer = goal.target * (1 + (goal.goalBuffer || 0) / 100);
+  const recordedCovered = recorded >= targetWithBuffer;
+  const assigned = Math.round(goal.manualSaved || 0);
   return `<article class="cg-goal" id="compactGoal_${idx}">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><span id="cgPill_${idx}" class="cg-pill">Preview</span></div>
     <div class="cg-mini-bar" aria-hidden="true"><span id="cgBar_${idx}"></span></div>
-    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="0" max="${compactSliderLimit(idx)}" step="1" value="${Math.round(goal.manualSaved || 0)}" aria-label="Money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="0" step="1" value="${Math.round(goal.manualSaved || 0)}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
+    <div class="cg-goal-metrics"><span>Manual <strong>${formatCurrency(assigned)}</strong></span><span>Recorded <strong>${formatCurrency(recorded)}</strong></span></div>
+    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="0" max="${compactSliderLimit(idx)}" step="1" value="${assigned}" aria-label="Money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)" ${recordedCovered ? "disabled" : ""}><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="0" step="1" value="${assigned}" oninput="assignCompactGoal(${idx}, this.value)" ${recordedCovered ? "disabled" : ""}></label></div>
+    ${recordedCovered ? '<p class="cg-note">Recorded progress already covers this goal.</p>' : ""}
     <p class="cg-result" id="cgStatus_${idx}"></p>
   </article>`;
+}
+
+function compactNormaliseManualAssignments() {
+  goalsData.forEach(goal => {
+    goal.manualSaved = Math.max(0, Math.round(Number(goal.manualSaved || 0)));
+  });
 }
 
 function compactGoalSetupRow(goal, idx) {
@@ -231,6 +245,7 @@ function assignCompactGoal(idx, value) {
   if (value === "") return;
   const amount = Number(value);
   if (!Number.isFinite(amount)) return;
+  if (getSavedViaTransactions(goalsData[idx].name) >= compactGoalTargetWithBuffer(idx)) return;
   goalsData[idx].manualSaved = Math.round(Math.max(0, Math.min(amount, compactSliderLimit(idx))));
   document.getElementById(`cgAmount_${idx}`).value = goalsData[idx].manualSaved;
   document.getElementById(`cgSlider_${idx}`).value = goalsData[idx].manualSaved;
@@ -247,17 +262,23 @@ function assignCompactGoal(idx, value) {
 function updateCompactGoalInstantPreview(idx) {
   const goal = goalsData[idx];
   if (!goal) return;
-  const targetWithBuffer = Math.max(1, goal.target * (1 + (goal.goalBuffer || 0) / 100));
+  const targetWithBuffer = Math.max(1, compactGoalTargetWithBuffer(idx));
   const assigned = Number(goal.manualSaved || 0);
-  const pct = Math.min(100, (assigned / targetWithBuffer) * 100);
+  const recorded = Math.max(0, getSavedViaTransactions(goal.name));
+  const pct = Math.min(100, ((assigned + recorded) / targetWithBuffer) * 100);
   const bar = document.getElementById(`cgBar_${idx}`);
   if (bar) bar.style.width = pct + "%";
   const pill = document.getElementById(`cgPill_${idx}`);
   if (pill) {
-    const short = Math.max(0, targetWithBuffer - assigned);
-    pill.textContent = short < 0.01 ? "Assigned" : `${formatCurrency(short)} left`;
+    const short = Math.max(0, targetWithBuffer - assigned - recorded);
+    pill.textContent = short < 0.01 ? "On track" : `${formatCurrency(short)} left`;
     pill.classList.toggle("red", short >= 0.01);
   }
+}
+
+function compactGoalTargetWithBuffer(idx) {
+  const goal = goalsData[idx];
+  return goal ? goal.target * (1 + (goal.goalBuffer || 0) / 100) : 0;
 }
 
 function updateCompactAllocationSummary() {
@@ -319,7 +340,7 @@ function compactSmartAssign() {
   urgencyWindow.forEach(idx => {
     if (available <= 0) return;
     const amount = Math.min(available, goalNeed(idx));
-    goalsData[idx].manualSaved += amount;
+    goalsData[idx].manualSaved += Math.round(amount);
     available = Math.max(0, available - amount);
   });
 
@@ -334,7 +355,7 @@ function compactSmartAssign() {
       if (available <= 0) return;
       const share = available * (item.weight / totalWeight);
       const amount = Math.min(item.need, Math.max(1, Math.round(share)));
-      goalsData[item.idx].manualSaved += amount;
+      goalsData[item.idx].manualSaved += Math.round(amount);
       available = Math.max(0, available - amount);
       usedThisRound += amount;
     });
@@ -345,10 +366,11 @@ function compactSmartAssign() {
   forced.forEach(idx => {
     if (available <= 0) return;
     const amount = Math.min(available, goalNeed(idx));
-    goalsData[idx].manualSaved += amount;
+    goalsData[idx].manualSaved += Math.round(amount);
     available = Math.max(0, available - amount);
   });
 
+  compactNormaliseManualAssignments();
   renderCompactGoalsPage();
   scheduleGoalsAutoSave(150);
 }
@@ -395,7 +417,7 @@ function refreshCompactGoalForecast() {
     const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
     const sum = values => values.slice(0, month + 1).reduce((total, value) => total + value, 0);
     const tx = Math.min(state.effectiveTarget, Math.max(0, getSavedViaTransactions(state.name)));
-    const now = Math.min(Math.max(0, state.effectiveTarget - tx), goalsData[idx].manualSaved);
+    const now = Math.round(Math.min(Math.max(0, state.effectiveTarget - tx), goalsData[idx].manualSaved));
     const base = sum(model.allocationBaseData[idx]);
     const adjustments = sum(model.allocationCashflowData[idx]);
     const projected = model.progressDollars[idx][month];
