@@ -60,12 +60,7 @@ async function loadGoalsPage(forceRefresh = false) {
     goalSavingsAccts = acctRaw ? acctRaw.split("|").map(s=>s.trim()).filter(name => allAccounts.some(a => accountKey(a.name) === accountKey(name) && a.type === "Savings")) : [];
 
     // Budget totals
-    const billsRows   = readBudgetSection(budgetSheet, "A2:B13");
-    const monthlyRows = readBudgetSection(budgetSheet, "F2:G13");
-    budgetSummary.billsTotal   = billsRows.reduce((s,r)=>s+r.allocated,0);
-    budgetSummary.monthlyTotal = monthlyRows.reduce((s,r)=>s+r.allocated,0);
-    budgetSummary.billsRows    = billsRows;
-    budgetSummary.monthlyRows  = monthlyRows;
+    refreshGoalBudgetSummaryFromSheet(budgetSheet);
 
     // Transactions
     allTxForGoals   = readAllTx(txSheet);
@@ -171,6 +166,15 @@ function readBudgetSection(sheet, range) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header:1, range, blankrows:false });
   return rows.map(row => ({ category:String(row[0]??"").trim(), allocated:Number(row[1]??0)||0 }))
              .filter(r => r.category !== "");
+}
+
+function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
+  const billsRows = readBudgetSection(budgetSheet, "A2:B13");
+  const monthlyRows = readBudgetSection(budgetSheet, "F2:G13");
+  budgetSummary.billsTotal = billsRows.reduce((s,r)=>s+r.allocated,0);
+  budgetSummary.monthlyTotal = monthlyRows.reduce((s,r)=>s+r.allocated,0);
+  budgetSummary.billsRows = billsRows;
+  budgetSummary.monthlyRows = monthlyRows;
 }
 
 function readGoalsFromSheet(sheet) {
@@ -674,6 +678,25 @@ function setHoldFutureSalaryBudget(enabled) {
   localStorage.setItem("holdFutureSalaryBudget", holdFutureSalaryBudget ? "true" : "false");
   if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
   else if (typeof renderGoalsPage === "function") renderGoalsPage();
+}
+
+async function pullGoalBudgetFromExcel() {
+  const status = document.getElementById("compactBudgetPullStatus");
+  if (status) status.textContent = "Pulling Budget page...";
+  try {
+    const arrayBuffer = await downloadExcelFile(true);
+    const workbook = XLSX.read(arrayBuffer, { type:"array" });
+    const budgetSheet = workbook.Sheets["Budget Setup"];
+    if (!budgetSheet) throw new Error("Sheet not found: Budget Setup");
+    refreshGoalBudgetSummaryFromSheet(budgetSheet);
+    if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
+    else if (typeof renderGoalsPage === "function") renderGoalsPage();
+    const nextStatus = document.getElementById("compactBudgetPullStatus");
+    if (nextStatus) nextStatus.textContent = "Budget pulled from Excel";
+  } catch (err) {
+    if (status) status.textContent = "Pull failed";
+    alert("Failed to pull Budget page: " + err.message);
+  }
 }
 
 function monthKeyFromDate(date) {

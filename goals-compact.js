@@ -101,8 +101,9 @@ function compactGoalUsableBreakdown(dep) {
       <p class="cg-note">Use this amount for goal assignment. Future salary is not removed in full; only the budget needed from that salary is held back.</p>
       <div class="cg-budget-copy">
         <label><input type="checkbox" ${holdFutureSalaryBudget ? "checked" : ""} onchange="setHoldFutureSalaryBudget(this.checked)"> Copy same Budget page total for future salary</label>
-        <button type="button" class="btn-secondary btn-sm" onclick="refreshCompactGoalForecast()">Pull Budget</button>
+        <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Pull Budget</button>
         <span class="cg-note">Budget page total: ${formatCurrency(budgetPageTotal)}</span>
+        <span class="cg-note" id="compactBudgetPullStatus"></span>
         <div class="cg-budget-copy-list">${futureDetails || '<span>No future salary budget hold right now.</span>'}</div>
       </div>
     </section>`;
