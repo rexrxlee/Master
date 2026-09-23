@@ -461,7 +461,7 @@ function compactOverallStatus(rows, free, removable) {
     tone: "good",
     title: "All goals on track",
     detail: removable.amount > 0.005
-      ? `You can move about ${formatCurrency(removable.amount)} from today's slider assignments and still stay on track. Start with ${removable.goalName}.`
+      ? `You can move about ${formatCurrency(removable.amount)} from flexible slider assignments and still stay on track. Near-term deadlines stay locked. Start with ${removable.goalName}.`
       : `${formatCurrency(Math.max(0, free))} unassigned cash is available; current slider assignments are already tight against the forecast.`
   };
 }
@@ -470,8 +470,41 @@ function compactModelHasShortfall() {
   const model = buildGoalProjectionModel(18, 60);
   return model.goalState.some((state, idx) => {
     const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
-    return Math.max(0, state.effectiveTarget - model.progressDollars[idx][month]) >= 0.01;
+    const forecastGap = Math.max(0, state.effectiveTarget - model.progressDollars[idx][month]);
+    return forecastGap >= 0.01 || compactNearTermCashGap(idx) >= 0.01;
   });
+}
+
+function compactGoalDaysUntilDeadline(idx) {
+  const goal = goalsData[idx];
+  const deadline = _parseGoalDateValue(goal?.endDate);
+  if (!deadline) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  deadline.setHours(0, 0, 0, 0);
+  return Math.ceil((deadline - today) / 86400000);
+}
+
+function compactGoalNeedsCashNow(idx) {
+  const days = compactGoalDaysUntilDeadline(idx);
+  return days !== null && days <= 31;
+}
+
+function compactRequiredAssignedToday(idx) {
+  if (!compactGoalNeedsCashNow(idx)) return 0;
+  return compactMoney(Math.max(0, compactGoalTargetWithBuffer(idx)));
+}
+
+function compactNearTermCashGap(idx) {
+  const required = compactRequiredAssignedToday(idx);
+  if (required <= 0) return 0;
+  return compactMoney(Math.max(0, required - compactTotalAssignedForGoal(idx)));
+}
+
+function compactLockedSliderCash(idx) {
+  const required = compactRequiredAssignedToday(idx);
+  if (required <= 0) return 0;
+  return compactMoney(Math.max(0, required - compactRecordedForGoal(idx)));
 }
 
 function compactMaxRemovableToday() {
@@ -484,10 +517,12 @@ function compactMaxRemovableToday() {
   try {
     order.forEach(idx => {
       const current = compactMoney(goalsData[idx]?.manualSaved || 0);
-      if (current <= 0.005) return;
+      const locked = compactLockedSliderCash(idx);
+      const flexible = compactMoney(Math.max(0, current - locked));
+      if (flexible <= 0.005) return;
 
       let lo = 0;
-      let hi = current;
+      let hi = flexible;
       for (let i = 0; i < 18; i++) {
         const mid = compactMoney((lo + hi) / 2);
         goalsData[idx].manualSaved = compactMoney(current - mid);
@@ -513,12 +548,19 @@ function compactMaxRemovableToday() {
 }
 
 function compactCashNeededToday() {
-  if (!compactModelHasShortfall()) return 0;
+  const nearTermNeed = compactMoney(goalsData.reduce((sum, _goal, idx) => sum + compactNearTermCashGap(idx), 0));
+  if (!compactModelHasShortfall()) return nearTermNeed;
   const original = goalsData.map(goal => compactMoney(goal.manualSaved || 0));
   const order = getCompactFundingOrder();
-  let needed = 0;
+  let needed = nearTermNeed;
 
   try {
+    order.forEach(idx => {
+      const gap = compactNearTermCashGap(idx);
+      if (gap <= 0.005) return;
+      goalsData[idx].manualSaved = compactMoney(goalsData[idx].manualSaved + gap);
+    });
+
     for (let pass = 0; pass < 2 && compactModelHasShortfall(); pass++) {
       order.forEach(idx => {
         if (!compactModelHasShortfall()) return;
