@@ -66,7 +66,24 @@
 .cg-method { font-size: 12px; line-height: 1.5; margin-top: 10px; }
 .cg-method summary { cursor: pointer; font-weight: 600; }
 .cg-chart-wrap { position: relative; min-width: 0; }
-.cg-chart-scroll { max-height: 420px; overflow-y: auto; }
+.cg-chart-scroll { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.cg-timeline-grid { display: grid; min-width: max-content; }
+.cg-timeline-corner, .cg-timeline-head, .cg-timeline-goal, .cg-timeline-cell { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px; }
+.cg-timeline-corner, .cg-timeline-head { position: sticky; top: 0; z-index: 2; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.cg-timeline-corner, .cg-timeline-goal { position: sticky; left: 0; z-index: 3; background: var(--surface); }
+.cg-timeline-goal { font-weight: 700; font-size: 12px; }
+.cg-timeline-goal small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.cg-timeline-cell { min-height: 58px; display: grid; gap: 4px; align-content: start; background: var(--bg); }
+.cg-timeline-block { display: block; min-width: 76px; max-width: 100%; padding: 4px 6px; border-radius: 6px; color: #fff; font-size: 10px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cg-timeline-block.assigned { background: #2563eb; }
+.cg-timeline-block.forecast { background: #60a5fa; color: #0f172a; }
+.cg-timeline-block.adjustments { background: #8b5cf6; }
+.cg-timeline-legend { display: flex; gap: 12px; align-items: center; padding: 8px; font-size: 12px; color: var(--muted); background: var(--surface); position: sticky; left: 0; }
+.cg-timeline-legend span { display: inline-flex; gap: 5px; align-items: center; }
+.cg-timeline-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.cg-timeline-legend .assigned { background: #2563eb; }
+.cg-timeline-legend .forecast { background: #60a5fa; }
+.cg-timeline-legend .adjustments { background: #8b5cf6; }
 .cg-table-wrap { overflow: auto; max-height: 230px; }
 .cg-breakdown { width: 100%; border-collapse: collapse; font-size: 11px; }
 .cg-breakdown th, .cg-breakdown td { padding: 8px 5px; text-align: right; border-bottom: 1px solid var(--border); }

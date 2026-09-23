@@ -166,7 +166,7 @@ function renderCompactGoalsPage() {
         <div class="cg-assign-total" id="compactAssignTotal"></div>
         <label class="cg-sort" for="compactGoalSort">Sort by <select id="compactGoalSort" onchange="sortCompactGoalRows(this.value)"><option value="original" ${compactGoalSort === "original" ? "selected" : ""}>Original order</option><option value="priority" ${compactGoalSort === "priority" ? "selected" : ""}>Priority (highest first)</option></select></label>
         <p class="cg-note">Try allocations freely. Sliders and Smart Assign only preview your plan; choose Save plan when ready.</p>
-        <div class="cg-chart-scroll"><div class="cg-chart-wrap"><canvas id="compactGoalChart" role="img" aria-label="Goal allocation forecast"></canvas></div></div>
+        <div class="cg-chart-scroll"><div class="cg-chart-wrap" id="compactGoalTimeline" role="img" aria-label="Goal allocation timeline"></div></div>
         <div id="compactGoalRows">${goalsData.map((goal, idx) => compactGoalRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal to start planning.</p>'}</div>
         <div id="compactForecastResults" aria-live="polite"></div>
         <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
@@ -461,7 +461,7 @@ function compactOverallStatus(rows, free, removable) {
     tone: "good",
     title: "All goals on track",
     detail: removable.amount > 0.005
-      ? `You can leave about ${formatCurrency(removable.amount)} of today's slider cash unassigned and still hit target dates based on forecast and adjustments. Locked near-term goals stay assigned.`
+      ? `${formatCurrency(Math.max(0, free))} is actually unassigned today. Forecast may replace up to ${formatCurrency(removable.amount)} of later flexible slider cash if you add a new goal, but assigned goal cash stays assigned until you change it.`
       : `${formatCurrency(Math.max(0, free))} unassigned cash is available; current slider assignments are already needed by the forecast.`
   };
 }
@@ -591,19 +591,67 @@ function compactCashNeededToday() {
   return needed;
 }
 
-function compactGoalChartRows(rows) {
-  return rows.map(row => {
-    const allocated = compactMoney(row.now + row.base + row.adjustments);
-    return {
-      ...row,
-      stillNeeded: compactMoney(Math.max(0, row.target - allocated)),
-    };
-  });
+function compactTimelineMonthLabel(offset) {
+  return new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1)
+    .toLocaleDateString("en-SG", { month: "short", year: "2-digit" })
+    .replace(" ", "-");
+}
+
+function compactTimelineRows(rows, model) {
+  const lastUsedMonth = Math.max(0, ...rows.map((row, idx) => {
+    const series = [model.allocationBaseData[idx] || [], model.allocationCashflowData[idx] || []];
+    const last = series.reduce((max, values) => Math.max(max, values.reduce((m, value, month) => Number(value || 0) > 0.005 ? month : m, -1)), -1);
+    return Math.max(last, Math.min(model.MONTHS - 1, Math.max(0, model.goalState[idx]?.deadlineMo ?? 0)));
+  }));
+  const monthCount = Math.min(model.MONTHS, Math.max(6, Math.min(24, lastUsedMonth + 2)));
+  const months = Array.from({ length: monthCount }, (_, idx) => ({ idx, label: compactTimelineMonthLabel(idx) }));
+
+  return { months, rows: rows.map((row, idx) => ({
+    ...row,
+    months: months.map(month => ({
+      month: month.idx,
+      assigned: month.idx === 0 ? row.now : 0,
+      forecast: compactMoney(model.allocationBaseData[idx]?.[month.idx] || 0),
+      adjustments: compactMoney(model.allocationCashflowData[idx]?.[month.idx] || 0),
+    }))
+  })) };
+}
+
+function compactTimelineBlock(goalName, monthLabel, label, amount, cls, maxAmount) {
+  if (amount <= 0.005) return "";
+  const title = `${goalName} · ${monthLabel} · ${label}: ${formatCurrency(amount)}`;
+  const width = Math.max(36, Math.min(100, (amount / Math.max(1, maxAmount)) * 100));
+  return `<span class="cg-timeline-block ${cls}" style="width:${width}%" title="${escapeHtml(title)}"><b>${formatCurrency(amount)}</b></span>`;
+}
+
+function renderCompactTimeline(rows, model) {
+  const target = document.getElementById("compactGoalTimeline");
+  if (!target) return;
+  const timeline = compactTimelineRows(rows, model);
+  const template = `minmax(130px, 180px) repeat(${timeline.months.length}, minmax(92px, 1fr))`;
+  const maxBlock = Math.max(1, ...timeline.rows.flatMap(row => row.months.flatMap(month => [month.assigned, month.forecast, month.adjustments])));
+  target.innerHTML = `
+    <div class="cg-timeline-grid" style="grid-template-columns:${template}">
+      <div class="cg-timeline-corner">Goal</div>
+      ${timeline.months.map(month => `<div class="cg-timeline-head">${escapeHtml(month.label)}</div>`).join("")}
+      ${timeline.rows.map(row => `
+        <div class="cg-timeline-goal">${escapeHtml(row.name)}<small>${escapeHtml(row.date)}</small></div>
+        ${row.months.map(month => {
+          const label = timeline.months[month.month]?.label || compactTimelineMonthLabel(month.month);
+          return `<div class="cg-timeline-cell">
+            ${compactTimelineBlock(row.name, label, "Assigned", month.assigned, "assigned", maxBlock)}
+            ${compactTimelineBlock(row.name, label, "Forecast", month.forecast, "forecast", maxBlock)}
+            ${compactTimelineBlock(row.name, label, "Adjustments", month.adjustments, "adjustments", maxBlock)}
+          </div>`;
+        }).join("")}
+      `).join("")}
+    </div>
+    <div class="cg-timeline-legend"><span><i class="assigned"></i>Assigned</span><span><i class="forecast"></i>Forecast</span><span><i class="adjustments"></i>Adjustments</span></div>`;
 }
 
 function refreshCompactGoalForecast() {
-  const canvas = document.getElementById("compactGoalChart");
-  if (!canvas) return;
+  const timeline = document.getElementById("compactGoalTimeline");
+  if (!timeline) return;
   updateCompactSaveStatus();
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
@@ -650,32 +698,13 @@ function refreshCompactGoalForecast() {
   });
   const removable = compactMaxRemovableToday();
   const unassignedCash = compactMoney(Math.max(0, free));
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Can leave unassigned today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : removable.amount)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Can leave unassigned today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : removable.amount)}</strong>${free >= -0.005 ? `<small>Actual unassigned cash: ${formatCurrency(unassignedCash)}</small>` : ""}`;
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>Forecast-replaceable slider cash: ${formatCurrency(removable.amount)}</small>` : ""}`;
   const overall = compactOverallStatus(rows, free, removable);
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
   document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Cash from sliders</th><th>Forecast</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
   document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Money available today:</strong> ${formatCurrency(dep.rawSavings)} selected savings − ${formatCurrency(ccOwed)} personal card debt + ${formatCurrency(dep.claimReceivableForGoals)} pending reimbursements − ${formatCurrency(dep.remainingBudget)} remaining budget − ${formatCurrency(dep.futureSalaryHold)} future salary budget hold = ${formatCurrency(dep.deployable)}.</p><p><strong>Forecast monthly savings:</strong> ${formatCurrency(historicalStats.avgMonthlyIncome)} recurring income − ${formatCurrency(historicalStats.avgMonthlyExpenses)} average expenses = ${formatCurrency(historicalStats.avgMonthlySavings)}; the forecast uses at least $0. Based on the last ${historicalStats.months} completed months, with salary spikes such as bonus income excluded.</p><p><strong>Forecast = assigned now + forecast allocated + positive adjustments allocated.</strong> Assigned now includes progress already recorded to the goal plus any extra amount you add with the slider. Reductions lower the monthly pool before allocation. The same pool is shared across all goals, never counted in full for each one. Contributions begin next month or the goal’s start month, whichever is later. Forced goals go first; other goals follow priority and deadline, with base targets before buffers. No interest or investment return is assumed.</p><p>Pending reimbursements are not cash yet. ${free < 0 ? "Current extra assignments exceed the available pool; reduce a slider or use Smart Assign before relying on this forecast." : "Forecast figures are estimates, not guaranteed savings."}</p>`;
-  const chartRows = compactGoalChartRows(rows);
-  const datasets = [
-    { label: "Assigned now", data: chartRows.map(row => row.now), backgroundColor: "#2563eb", stack: "goal" },
-    { label: "Forecast", data: chartRows.map(row => row.base), backgroundColor: "#93c5fd", stack: "goal" },
-    { label: "Adjustments", data: chartRows.map(row => row.adjustments), backgroundColor: "#a78bfa", stack: "goal" },
-    { label: "Still needed", data: chartRows.map(row => row.stillNeeded), backgroundColor: "#e2e8f0", borderColor: "#64748b", borderWidth: 1, stack: "goal" }
-  ];
-  canvas.parentElement.style.height = Math.max(260, chartRows.length * 48 + 90) + "px";
-  if (compactGoalChart) {
-    compactGoalChart.data.labels = chartRows.map(row => row.name);
-    compactGoalChart.data.datasets = datasets;
-    compactGoalChart.update("none");
-  } else if (typeof Chart !== "undefined") {
-    compactGoalChart = new Chart(canvas, { type: "bar", data: { labels: chartRows.map(row => row.name), datasets }, options: {
-      indexAxis: "y",
-      responsive: true, maintainAspectRatio: false, animation: false,
-      scales: { x: { stacked: true, beginAtZero: true, ticks: { callback: value => formatCurrencyShort(value) } }, y: { stacked: true } },
-      plugins: { datalabels: { display: false }, legend: { position: "bottom" }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.raw || 0)}` } } }
-    } });
-  }
+  renderCompactTimeline(rows, model);
 }
 
 // Keep existing persistence, account selection, and adjustment handlers on one renderer.
