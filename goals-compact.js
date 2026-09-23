@@ -75,6 +75,28 @@ function resetCompactPlan() {
   renderCompactGoalsPage();
 }
 
+function compactGoalUsableBreakdown(dep) {
+  return `
+    <section class="cg-usable-now" aria-label="Money available for goals">
+      <div class="cg-usable-main">
+        <span>Can be used for goals next</span>
+        <strong class="${dep.deployable < 0 ? "red" : ""}">${formatCurrency(dep.deployable)}</strong>
+      </div>
+      <div class="cg-usable-formula">
+        <span><b>${formatCurrency(dep.rawSavings)}</b><small>selected goal accounts</small></span>
+        <i>−</i>
+        <span><b>${formatCurrency(ccOwed)}</b><small>all credit card debt</small></span>
+        <i>−</i>
+        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>goal-account budget left</small></span>
+        <i>−</i>
+        <span><b>${formatCurrency(dep.futureSalaryHold)}</b><small>next-month salary received</small></span>
+        <i>+</i>
+        <span><b>${formatCurrency(dep.claimReceivableForGoals)}</b><small>pending claims</small></span>
+      </div>
+      <p class="cg-note">Use this amount for goal assignment. Budget normally paid from accounts outside the goal pool is not held back; unknown budget categories stay reserved until there is account history.</p>
+    </section>`;
+}
+
 function deleteCompactGoal(idx) {
   goalsData.splice(idx, 1);
   renderCompactGoalsPage();
@@ -92,7 +114,11 @@ function renderCompactGoalsPage() {
   if (compactGoalChart) { compactGoalChart.destroy(); compactGoalChart = null; }
   const today = toDateInputValue(new Date());
   container.innerHTML = `
+    <details class="simple-details cg-account-source" open><summary>Which accounts fund my goals?</summary><div class="simple-details-body cg-accounts">
+      ${allAccounts.filter(account => account.type === "Savings").map(account => `<label><input type="checkbox" value="${escapeHtml(account.name)}" ${goalSavingsAccts.includes(account.name) ? "checked" : ""} onchange="toggleGoalAccount(this)">${escapeHtml(account.name)} <strong>${formatCurrency(savingsBalances[account.name] || 0)}</strong></label>`).join("") || '<p>Add a savings account in Accounts & Setup first.</p>'}
+    </div></details>
     <section class="cg-summary" id="compactGoalSummary" aria-live="polite"></section>
+    <div id="compactUsableBreakdown"></div>
     <details class="simple-details cg-add" ${goalsData.length ? "" : "open"}>
       <summary>＋ Add a goal</summary>
       <form class="cg-add-form" onsubmit="event.preventDefault(); addCompactGoal(this)">
@@ -105,6 +131,11 @@ function renderCompactGoalsPage() {
         <p class="cg-form-message" role="status"></p>
       </form>
     </details>
+    <section class="cg-setup-panel">
+      <div class="cg-heading"><h2>Goal setup</h2></div>
+      <div class="cg-setup-grid">${goalsData.map((goal, idx) => compactGoalSetupRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal above, then use the allocation chart below.</p>'}</div>
+    </section>
+    <div id="compactAdjustments"></div>
     <div class="cg-workspace">
       <section class="cg-controls">
         <div class="cg-heading"><h2>Assign money</h2><button class="btn-primary" onclick="compactSmartAssign()" ${goalsData.length ? "" : "disabled"}>Smart Assign</button></div>
@@ -120,11 +151,7 @@ function renderCompactGoalsPage() {
         <div id="compactForecastResults" aria-live="polite"></div>
         <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
       </section>
-    </div>
-    <div id="compactAdjustments"></div>
-    <details class="simple-details"><summary>Which accounts fund my goals?</summary><div class="simple-details-body cg-accounts">
-      ${allAccounts.filter(account => account.type === "Savings").map(account => `<label><input type="checkbox" value="${escapeHtml(account.name)}" ${goalSavingsAccts.includes(account.name) ? "checked" : ""} onchange="toggleGoalAccount(this)">${escapeHtml(account.name)} <strong>${formatCurrency(savingsBalances[account.name] || 0)}</strong></label>`).join("") || '<p>Add a savings account in Accounts & Setup first.</p>'}
-    </div></details>`;
+    </div>`;
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
   sortCompactGoalRows(compactGoalSort);
@@ -134,20 +161,28 @@ function renderCompactGoalsPage() {
 
 function compactGoalRow(goal, idx) {
   return `<article class="cg-goal" id="compactGoal_${idx}">
-    <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><select aria-label="Priority for ${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'urgency', this.value)">${compactPriorityOptions(goal.urgency)}</select></div>
-    <div class="cg-dates"><label>Start<input type="date" value="${escapeHtml(goal.startDate || "")}" onchange="updateCompactGoal(${idx}, 'startDate', this.value)"></label><label>Deadline<input type="date" value="${escapeHtml(goal.endDate || "")}" onchange="updateCompactGoal(${idx}, 'endDate', this.value)"></label></div>
-    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="0" max="1" step="1" value="${goal.manualSaved}" aria-label="Money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="0" step="0.01" value="${goal.manualSaved}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
+    <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><span id="cgPill_${idx}" class="cg-pill">Preview</span></div>
+    <div class="cg-mini-bar" aria-hidden="true"><span id="cgBar_${idx}"></span></div>
+    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="0" max="${compactSliderLimit(idx)}" step="0.01" value="${goal.manualSaved}" aria-label="Money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="0" step="0.01" value="${goal.manualSaved}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
     <p class="cg-result" id="cgStatus_${idx}"></p>
-    <details class="cg-method"><summary>Edit target & options</summary><div class="cg-options">
+  </article>`;
+}
+
+function compactGoalSetupRow(goal, idx) {
+  return `<article class="cg-setup-goal">
+    <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><select aria-label="Priority for ${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'urgency', this.value)">${compactPriorityOptions(goal.urgency)}</select></div>
+    <div class="cg-options">
       <label>Name<input value="${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'name', this.value)"></label>
       <label>Target ($)<input type="number" min="0.01" step="0.01" value="${goal.target}" onchange="updateCompactGoal(${idx}, 'target', this.value)"></label>
       <label>Monthly plan ($)<input type="number" min="0" step="0.01" value="${goal.monthlyAlloc}" onchange="updateCompactGoal(${idx}, 'monthlyAlloc', this.value)"></label>
+      <label>Start<input type="date" value="${escapeHtml(goal.startDate || "")}" onchange="updateCompactGoal(${idx}, 'startDate', this.value)"></label>
+      <label>Deadline<input type="date" value="${escapeHtml(goal.endDate || "")}" onchange="updateCompactGoal(${idx}, 'endDate', this.value)"></label>
       <label>Buffer (%)<input type="number" min="0" max="100" value="${goal.goalBuffer || 0}" onchange="updateCompactGoal(${idx}, 'goalBuffer', this.value)"></label>
       <label><input type="checkbox" ${goal.priority ? "checked" : ""} onchange="updateCompactGoal(${idx}, 'priority', this.checked ? 1 : 0)">Fund before other priorities</label>
       <label>Notes<input value="${escapeHtml(goal.notes || "")}" onchange="updateCompactGoal(${idx}, 'notes', this.value)"></label>
       <a href="add-transaction.html?goal=${encodeURIComponent(goal.name)}">Record goal expense</a>
       <button class="btn-secondary" onclick="deleteCompactGoal(${idx})">Delete goal</button>
-    </div></details>
+    </div>
   </article>`;
 }
 
@@ -170,18 +205,21 @@ function addCompactGoal(form) {
   scheduleGoalsAutoSave();
 }
 
-function compactAssignableLimit(idx) {
-  const others = goalsData.reduce((sum, goal, i) => sum + (i === idx ? 0 : Number(goal.manualSaved || 0)), 0);
+function compactGoalNeed(idx) {
   const goal = goalsData[idx];
-  const need = Math.max(0, goal.target * (1 + (goal.goalBuffer || 0) / 100) - getSavedViaTransactions(goal.name));
-  return Math.max(0, Math.min(need, computeDeployableBalance().deployable - others));
+  return Math.max(0, goal.target * (1 + (goal.goalBuffer || 0) / 100) - getSavedViaTransactions(goal.name));
+}
+
+function compactSliderLimit(idx) {
+  const deployable = Math.max(0, computeDeployableBalance().deployable);
+  return Math.max(1, compactGoalNeed(idx), deployable, Number(goalsData[idx]?.manualSaved || 0));
 }
 
 function assignCompactGoal(idx, value) {
   if (value === "") return;
   const amount = Number(value);
   if (!Number.isFinite(amount)) return;
-  goalsData[idx].manualSaved = Math.round(Math.max(0, Math.min(amount, compactAssignableLimit(idx))) * 100) / 100;
+  goalsData[idx].manualSaved = Math.round(Math.max(0, Math.min(amount, compactSliderLimit(idx))) * 100) / 100;
   document.getElementById(`cgAmount_${idx}`).value = goalsData[idx].manualSaved;
   document.getElementById(`cgSlider_${idx}`).value = goalsData[idx].manualSaved;
   cancelAnimationFrame(compactForecastFrame);
@@ -241,6 +279,8 @@ function refreshCompactGoalForecast() {
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
   document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Assigned now</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>Forecast savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  const usableBreakdown = document.getElementById("compactUsableBreakdown");
+  if (usableBreakdown) usableBreakdown.innerHTML = compactGoalUsableBreakdown(dep);
   const model = buildGoalProjectionModel(18, 240);
   const rows = model.goalState.map((state, idx) => {
     const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
@@ -259,9 +299,18 @@ function refreshCompactGoalForecast() {
     const date = state.deadlineMo === null ? model.fullLabels[month] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
     document.getElementById(`cgStatus_${idx}`).textContent = `${status} · ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${date}`;
     document.getElementById(`cgStatus_${idx}`).classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
+    const pill = document.getElementById(`cgPill_${idx}`);
+    if (pill) {
+      pill.textContent = gap < 0.01 && free >= -0.005 && !capped ? "On track" : gap > 0 ? `${formatCurrency(gap)} short` : "Review";
+      pill.classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
+    }
+    const bar = document.getElementById(`cgBar_${idx}`);
+    if (bar) bar.style.width = Math.min(100, (projected / Math.max(1, state.effectiveTarget)) * 100) + "%";
     const slider = document.getElementById(`cgSlider_${idx}`);
-    slider.max = Math.max(compactAssignableLimit(idx), goalsData[idx].manualSaved, 1);
+    slider.max = compactSliderLimit(idx);
     slider.value = goalsData[idx].manualSaved;
+    const amount = document.getElementById(`cgAmount_${idx}`);
+    if (amount && document.activeElement !== amount) amount.value = goalsData[idx].manualSaved;
     return { name: state.name, date, tx, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
   });
   document.getElementById("compactForecastResults").innerHTML = `<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Recorded progress</th><th>Future savings</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.tx)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
@@ -273,15 +322,15 @@ function refreshCompactGoalForecast() {
     { label: "Adjustments", data: rows.map(row => row.adjustments), backgroundColor: "#a78bfa", stack: "forecast" },
     { label: "Target", data: rows.map(row => row.target), backgroundColor: "#e2e8f0", borderColor: "#64748b", borderWidth: 1, stack: "target" }
   ];
-  canvas.parentElement.style.height = Math.max(200, rows.length * 75) + "px";
+  canvas.parentElement.style.height = "320px";
   if (compactGoalChart) {
     compactGoalChart.data.labels = rows.map(row => row.name);
     compactGoalChart.data.datasets = datasets;
     compactGoalChart.update("none");
   } else if (typeof Chart !== "undefined") {
     compactGoalChart = new Chart(canvas, { type: "bar", data: { labels: rows.map(row => row.name), datasets }, options: {
-      indexAxis: "y", responsive: true, maintainAspectRatio: false, animation: false,
-      scales: { x: { stacked: true, beginAtZero: true, ticks: { callback: value => formatCurrencyShort(value) } }, y: { stacked: true } },
+      responsive: true, maintainAspectRatio: false, animation: false,
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { callback: value => formatCurrencyShort(value) } } },
       plugins: { datalabels: { display: false }, legend: { position: "bottom" }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.raw)}` } } }
     } });
   }

@@ -450,11 +450,11 @@ function computeDeployableBalance() {
   const ccOwedForGoals = Math.max(0, ccOwed - ccClaimReceivable);
   const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
 
-  // Step 3: reserve positive unspent budget for the rest of the month.
-  // Budget-page visuals handle category-level overspend reserves; Goals keeps this panel clean.
+  // Step 3: reserve positive unspent budget for the rest of the month,
+  // but only where that budget is expected to come from goal-funding accounts.
   const budgetPosition         = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance   = budgetPosition.total.balance;
-  const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
+  const remainingBudgetReserve = Math.max(0, budgetPosition.total.goalReserve || 0);
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
@@ -517,7 +517,7 @@ function computeBudgetPositionForMonth(monthDate) {
     );
   });
 
-  const buildSection = (budgetRows, spentMap) => {
+  const buildSection = (type, budgetRows, spentMap) => {
     const allocatedByCategory = new Map();
     budgetRows.forEach(row => {
       allocatedByCategory.set(row.category, (allocatedByCategory.get(row.category) || 0) + row.allocated);
@@ -528,11 +528,15 @@ function computeBudgetPositionForMonth(monthDate) {
       const allocated = allocatedByCategory.get(category) || 0;
       const spent = spentMap.get(category) || 0;
       const balance = allocated - spent;
+      const accountScope = getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
+      const goalReserve = accountScope.reserve ? Math.max(0, balance) : 0;
       return {
         category,
         allocated,
         spent,
         balance,
+        goalReserve,
+        accountScope,
         over: Math.max(0, spent - allocated),
         isUnbudgeted: allocated <= 0 && spent > 0
       };
@@ -540,20 +544,65 @@ function computeBudgetPositionForMonth(monthDate) {
 
     const allocated = rows.reduce((sum, row) => sum + row.allocated, 0);
     const spent = rows.reduce((sum, row) => sum + row.spent, 0);
+    const goalReserve = rows.reduce((sum, row) => sum + row.goalReserve, 0);
     const balance = allocated - spent;
-    return { rows, allocated, spent, balance, over: Math.max(0, spent - allocated) };
+    return { rows, allocated, spent, balance, goalReserve, over: Math.max(0, spent - allocated) };
   };
 
-  const bills = buildSection(budgetSummary.billsRows || [], spentByType.bills);
-  const monthly = buildSection(budgetSummary.monthlyRows || [], spentByType.monthly);
+  const bills = buildSection("bills", budgetSummary.billsRows || [], spentByType.bills);
+  const monthly = buildSection("monthly", budgetSummary.monthlyRows || [], spentByType.monthly);
   const total = {
     allocated: bills.allocated + monthly.allocated,
     spent: bills.spent + monthly.spent,
-    balance: bills.balance + monthly.balance
+    balance: bills.balance + monthly.balance,
+    goalReserve: bills.goalReserve + monthly.goalReserve
   };
   total.over = Math.max(0, total.spent - total.allocated);
 
   return { bills, monthly, total };
+}
+
+function getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth) {
+  const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+  if (!eligibleAccountKeys.size) {
+    return { reserve: true, source: "no-goal-accounts" };
+  }
+
+  const mainCategory = type === "bills" ? "bills" : "monthly expenses";
+  const categoryKey = clean(category).toLowerCase();
+  const matchingRows = allTxForGoals
+    .map(row => ({ row, date: parseExcelDate(row["Date"]) }))
+    .filter(item => item.date)
+    .filter(item => clean(item.row["Main Category"]).toLowerCase() === mainCategory)
+    .filter(item => clean(item.row["Sub Category"]).toLowerCase() === categoryKey)
+    .filter(item => getClaimAdjustedExpenseAmount(item.row) > 0);
+
+  const currentMonthRows = matchingRows.filter(item =>
+    item.date.getFullYear() === targetYear && item.date.getMonth() === targetMonth
+  );
+  if (currentMonthRows.length) {
+    const hasGoalAccountSpend = currentMonthRows.some(item => eligibleAccountKeys.has(accountKey(item.row["Account"])));
+    return {
+      reserve: hasGoalAccountSpend,
+      source: hasGoalAccountSpend ? "current-goal-account" : "current-other-account"
+    };
+  }
+
+  const monthEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
+  const mostRecent = matchingRows
+    .filter(item => item.date <= monthEnd)
+    .sort((a, b) => b.date - a.date)[0];
+
+  if (!mostRecent) {
+    return { reserve: true, source: "unknown-account" };
+  }
+
+  const isGoalAccount = eligibleAccountKeys.has(accountKey(mostRecent.row["Account"]));
+  return {
+    reserve: isGoalAccount,
+    source: isGoalAccount ? "historical-goal-account" : "historical-other-account",
+    account: clean(mostRecent.row["Account"])
+  };
 }
 
 function computeFutureSalaryHold() {
@@ -1112,9 +1161,9 @@ function renderGoalsPage() {
     .filter(Boolean).forEach(panel => fundingBody.appendChild(panel));
   const grid = document.getElementById("goalCardsGrid");
   const addPanel = document.getElementById("addGoalPanel");
-  container.prepend(addPanel);
+  container.prepend(funding);
+  funding.after(addPanel);
   if (grid) addPanel.after(grid);
-  (grid || addPanel).after(funding);
 
   if (document.getElementById("goalInsightsPanel")?.open) refreshGoalInsightPanels();
 }
