@@ -14,6 +14,8 @@
 .cg-usable-formula i { color: var(--muted); font-style: normal; font-weight: 700; }
 .cg-budget-copy { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
 .cg-budget-copy label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.cg-budget-copy .cg-budget-manual { align-items: flex-start; flex-direction: column; }
+.cg-budget-manual input { max-width: 180px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .cg-budget-copy .btn-sm { justify-self: start; }
 .cg-budget-copy-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 .cg-budget-copy-list > div, .cg-budget-copy-list > span { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font-size: 12px; }
@@ -28,6 +30,10 @@
 .cg-heading > strong { overflow-wrap: anywhere; }
 .cg-sort { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .cg-sort select { min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.cg-assign-total { display: inline-flex; align-items: baseline; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.cg-assign-total span { color: var(--muted); font-size: 12px; }
+.cg-assign-total strong { font-family: 'DM Mono', monospace; }
+.cg-assign-total strong.red { color: #b91c1c; }
 .cg-add-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; padding: 0 16px 12px; }
 .cg-add-form label, .cg-dates label, .cg-allocation label, .cg-options label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
 .cg-add-form input, .cg-add-form select, .cg-goal input:not([type=range]):not([type=checkbox]), .cg-goal select, .cg-setup-goal input:not([type=checkbox]), .cg-setup-goal select { min-width: 0; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }

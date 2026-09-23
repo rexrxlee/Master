@@ -32,6 +32,14 @@ let goalsAutoSaveTimer = null;
 let goalsAutoSaveInFlight = false;
 let incomeBoostsDirty = false;
 let holdFutureSalaryBudget = localStorage.getItem("holdFutureSalaryBudget") !== "false";
+let futureSalaryBudgetOverride = null;
+const futureSalaryBudgetOverrideRaw = localStorage.getItem("futureSalaryBudgetOverride");
+if (futureSalaryBudgetOverrideRaw !== null && futureSalaryBudgetOverrideRaw !== "") {
+  const parsedFutureSalaryBudgetOverride = Number(futureSalaryBudgetOverrideRaw);
+  if (Number.isFinite(parsedFutureSalaryBudgetOverride) && parsedFutureSalaryBudgetOverride >= 0) {
+    futureSalaryBudgetOverride = parsedFutureSalaryBudgetOverride;
+  }
+}
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
@@ -670,12 +678,25 @@ function computeFutureSalaryHold() {
 }
 
 function computeFutureMonthBudgetReserve(monthDate) {
+  if (futureSalaryBudgetOverride !== null) return futureSalaryBudgetOverride;
   return Math.max(0, (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0));
 }
 
 function setHoldFutureSalaryBudget(enabled) {
   holdFutureSalaryBudget = !!enabled;
   localStorage.setItem("holdFutureSalaryBudget", holdFutureSalaryBudget ? "true" : "false");
+  if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
+  else if (typeof renderGoalsPage === "function") renderGoalsPage();
+}
+
+function setFutureSalaryBudgetOverride(value) {
+  const amount = Number(value);
+  futureSalaryBudgetOverride = Number.isFinite(amount) && amount >= 0 ? amount : null;
+  if (futureSalaryBudgetOverride === null) {
+    localStorage.removeItem("futureSalaryBudgetOverride");
+  } else {
+    localStorage.setItem("futureSalaryBudgetOverride", String(futureSalaryBudgetOverride));
+  }
   if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
   else if (typeof renderGoalsPage === "function") renderGoalsPage();
 }
@@ -689,6 +710,7 @@ async function pullGoalBudgetFromExcel() {
     const budgetSheet = workbook.Sheets["Budget Setup"];
     if (!budgetSheet) throw new Error("Sheet not found: Budget Setup");
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
+    setFutureSalaryBudgetOverride("");
     if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
     else if (typeof renderGoalsPage === "function") renderGoalsPage();
     const nextStatus = document.getElementById("compactBudgetPullStatus");
