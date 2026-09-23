@@ -219,7 +219,9 @@ function compactGoalNeed(idx) {
 }
 
 function compactSliderLimit(idx) {
-  return Math.max(1, compactGoalNeed(idx), Number(goalsData[idx]?.manualSaved || 0));
+  const goal = goalsData[idx];
+  const targetWithBuffer = goal ? goal.target * (1 + (goal.goalBuffer || 0) / 100) : 0;
+  return Math.max(1, targetWithBuffer, Number(goal?.manualSaved || 0));
 }
 
 function assignCompactGoal(idx, value) {
@@ -229,6 +231,7 @@ function assignCompactGoal(idx, value) {
   goalsData[idx].manualSaved = Math.round(Math.max(0, Math.min(amount, compactSliderLimit(idx))) * 100) / 100;
   document.getElementById(`cgAmount_${idx}`).value = goalsData[idx].manualSaved;
   document.getElementById(`cgSlider_${idx}`).value = goalsData[idx].manualSaved;
+  updateCompactGoalInstantPreview(idx);
   updateCompactAllocationSummary();
   cancelAnimationFrame(compactForecastFrame);
   clearTimeout(compactForecastTimer);
@@ -236,6 +239,22 @@ function assignCompactGoal(idx, value) {
     compactForecastFrame = requestAnimationFrame(refreshCompactGoalForecast);
   }, 140);
   scheduleGoalsAutoSave();
+}
+
+function updateCompactGoalInstantPreview(idx) {
+  const goal = goalsData[idx];
+  if (!goal) return;
+  const targetWithBuffer = Math.max(1, goal.target * (1 + (goal.goalBuffer || 0) / 100));
+  const assigned = Number(goal.manualSaved || 0);
+  const pct = Math.min(100, (assigned / targetWithBuffer) * 100);
+  const bar = document.getElementById(`cgBar_${idx}`);
+  if (bar) bar.style.width = pct + "%";
+  const pill = document.getElementById(`cgPill_${idx}`);
+  if (pill) {
+    const short = Math.max(0, targetWithBuffer - assigned);
+    pill.textContent = short < 0.01 ? "Assigned" : `${formatCurrency(short)} left`;
+    pill.classList.toggle("red", short >= 0.01);
+  }
 }
 
 function updateCompactAllocationSummary() {
