@@ -297,15 +297,12 @@ function getCreditCardAccountsInData(txData) {
 
 function computeHistoricalStats(txData) {
   const monthlyIncome = {}, monthlyExpenses = {};
-  const scopedAccountKeys = getHistoricalStatsAccountKeys(txData);
   // Only look at the last 12 complete months (exclude current partial month)
   const today = new Date();
   const cutoff = new Date(today.getFullYear(), today.getMonth() - 12, 1); // 12 months ago (start of that month)
   const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   txData.forEach(row => {
-    if (!scopedAccountKeys.has(accountKey(row["Account"]))) return;
-
     const date = parseExcelDate(row["Date"]);
     if (!date) return;
     if (date < cutoff) return; // older than 12 months ago
@@ -319,6 +316,7 @@ function computeHistoricalStats(txData) {
       monthlyIncome[key] = (monthlyIncome[key]||0) + amt;
       return;
     }
+    if (cat === "saving goals") return;
 
     const expenseAmount = getClaimAdjustedExpenseAmount(row);
     if (expenseAmount === 0) return;
@@ -630,11 +628,16 @@ function computeFutureSalaryHold() {
   const details = [...salaryByMonth.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([monthKey, futureSalary]) => {
+      const [year, month] = monthKey.split("-").map(Number);
+      const budgetForMonth = Number.isFinite(year) && Number.isFinite(month)
+        ? computeFutureMonthBudgetReserve(new Date(year, month - 1, 1))
+        : budgetSummary.billsTotal + budgetSummary.monthlyTotal;
       return {
         monthKey,
         label: formatMonthKeyLabel(monthKey),
         futureSalary,
-        reserve: futureSalary
+        budgetForMonth,
+        reserve: Math.min(futureSalary, Math.max(0, budgetForMonth))
       };
     })
     .filter(item => item.reserve > 0);
@@ -644,6 +647,12 @@ function computeFutureSalaryHold() {
     futureSalary: [...salaryByMonth.values()].reduce((sum, amount) => sum + amount, 0),
     details
   };
+}
+
+function computeFutureMonthBudgetReserve(monthDate) {
+  const allocated = (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0);
+  const position = computeBudgetPositionForMonth(monthDate);
+  return Math.max(0, position?.total?.goalReserve || allocated);
 }
 
 function monthKeyFromDate(date) {
@@ -719,9 +728,6 @@ function compareGoalPriorityOrder(a, b) {
   const forcedDiff = (isForcePriorityGoal(b) ? 1 : 0) - (isForcePriorityGoal(a) ? 1 : 0);
   if (forcedDiff !== 0) return forcedDiff;
 
-  const uDiff = goalPriorityValue(a) - goalPriorityValue(b);
-  if (uDiff !== 0) return uDiff;
-
   const aDeadline = goalDeadlineSortValue(a);
   const bDeadline = goalDeadlineSortValue(b);
   if (aDeadline !== null && bDeadline !== null) {
@@ -730,6 +736,9 @@ function compareGoalPriorityOrder(a, b) {
   }
   if (aDeadline !== null) return -1;
   if (bDeadline !== null) return 1;
+
+  const uDiff = goalPriorityValue(a) - goalPriorityValue(b);
+  if (uDiff !== 0) return uDiff;
 
   return goalOriginalIndex(a) - goalOriginalIndex(b);
 }
