@@ -3,6 +3,10 @@ let compactForecastFrame = null;
 let compactForecastTimer = null;
 let compactGoalSort = "original";
 
+function compactMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
 function sortCompactGoalRows(value) {
   if (!["original", "priority"].includes(value)) return;
   compactGoalSort = value;
@@ -175,21 +179,21 @@ function renderCompactGoalsPage() {
 function compactGoalRow(goal, idx) {
   const targetWithBuffer = compactGoalTargetWithBuffer(idx);
   const recorded = compactRecordedForGoal(idx);
-  const additional = Math.round(goal.manualSaved || 0);
-  const assigned = Math.min(targetWithBuffer, recorded + additional);
+  const cashAssigned = compactMoney(goal.manualSaved || 0);
+  const assigned = Math.min(targetWithBuffer, recorded + cashAssigned);
   return `<article class="cg-goal" id="compactGoal_${idx}">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><span id="cgPill_${idx}" class="cg-pill">Preview</span></div>
     <div class="cg-mini-bar" aria-hidden="true"><span id="cgBar_${idx}"></span></div>
-    <div class="cg-goal-metrics"><span>Assigned <strong>${formatCurrency(assigned)}</strong></span><span>Additional <strong>${formatCurrency(additional)}</strong></span></div>
-    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="${recorded}" max="${compactSliderLimit(idx)}" step="1" value="${assigned}" aria-label="Total money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="${recorded}" step="1" value="${assigned}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
-    ${recorded > 0 ? `<p class="cg-note">${formatCurrency(recorded)} is already recorded for this goal. Slider changes only the extra amount above that.</p>` : ""}
+    <div class="cg-goal-metrics"><span>Assigned <strong>${formatCurrency(assigned)}</strong></span></div>
+    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="${recorded}" max="${compactSliderLimit(idx)}" step="0.01" value="${assigned}" aria-label="Total money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="${recorded}" step="0.01" value="${assigned.toFixed(2)}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
+    ${recorded > 0 ? `<p class="cg-note">Includes ${formatCurrency(recorded)} already recorded for this goal.</p>` : ""}
     <p class="cg-result" id="cgStatus_${idx}"></p>
   </article>`;
 }
 
 function compactNormaliseManualAssignments() {
   goalsData.forEach(goal => {
-    goal.manualSaved = Math.max(0, Math.round(Number(goal.manualSaved || 0)));
+    goal.manualSaved = Math.max(0, compactMoney(goal.manualSaved || 0));
   });
 }
 
@@ -246,9 +250,9 @@ function assignCompactGoal(idx, value) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return;
   const recorded = compactRecordedForGoal(idx);
-  const totalAssigned = Math.round(Math.max(recorded, Math.min(amount, compactSliderLimit(idx))));
-  goalsData[idx].manualSaved = Math.max(0, totalAssigned - recorded);
-  document.getElementById(`cgAmount_${idx}`).value = totalAssigned;
+  const totalAssigned = compactMoney(Math.max(recorded, Math.min(amount, compactSliderLimit(idx))));
+  goalsData[idx].manualSaved = compactMoney(Math.max(0, totalAssigned - recorded));
+  document.getElementById(`cgAmount_${idx}`).value = totalAssigned.toFixed(2);
   document.getElementById(`cgSlider_${idx}`).value = totalAssigned;
   updateCompactGoalInstantPreview(idx);
   updateCompactAllocationSummary();
@@ -284,11 +288,11 @@ function compactGoalTargetWithBuffer(idx) {
 function compactRecordedForGoal(idx) {
   const goal = goalsData[idx];
   if (!goal) return 0;
-  return Math.round(Math.min(compactGoalTargetWithBuffer(idx), Math.max(0, getSavedViaTransactions(goal.name))));
+  return compactMoney(Math.min(compactGoalTargetWithBuffer(idx), Math.max(0, getSavedViaTransactions(goal.name))));
 }
 
 function compactTotalAssignedForGoal(idx) {
-  return Math.round(compactRecordedForGoal(idx) + Number(goalsData[idx]?.manualSaved || 0));
+  return compactMoney(compactRecordedForGoal(idx) + Number(goalsData[idx]?.manualSaved || 0));
 }
 
 function updateCompactAllocationSummary() {
@@ -297,9 +301,9 @@ function updateCompactAllocationSummary() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Additional assigned</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>Additional available after adjustments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>Cash left after slider assignments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
   updateCompactSaveStatus();
 }
 
@@ -350,33 +354,35 @@ function compactSmartAssign() {
   urgencyWindow.forEach(idx => {
     if (available <= 0) return;
     const amount = Math.min(available, goalNeed(idx));
-    goalsData[idx].manualSaved += Math.round(amount);
+    if (amount <= 0.005) return;
+    goalsData[idx].manualSaved = compactMoney(goalsData[idx].manualSaved + amount);
     available = Math.max(0, available - amount);
   });
 
-  while (available > 0.49) {
+  while (available > 0.005) {
     const candidates = order
       .map(idx => ({ idx, need: goalNeed(idx), weight: compactSmartAssignWeight(goalsData[idx], today) }))
-      .filter(item => item.need > 0.49 && item.weight > 0);
+      .filter(item => item.need > 0.005 && item.weight > 0);
     if (!candidates.length) break;
     const totalWeight = candidates.reduce((sum, item) => sum + item.weight, 0);
     let usedThisRound = 0;
     candidates.forEach(item => {
       if (available <= 0) return;
       const share = available * (item.weight / totalWeight);
-      const amount = Math.min(item.need, Math.max(1, Math.round(share)));
-      goalsData[item.idx].manualSaved += Math.round(amount);
+      const amount = compactMoney(Math.min(item.need, Math.max(0.01, share)));
+      goalsData[item.idx].manualSaved = compactMoney(goalsData[item.idx].manualSaved + amount);
       available = Math.max(0, available - amount);
       usedThisRound += amount;
     });
-    if (usedThisRound <= 0) break;
+    if (usedThisRound <= 0.005) break;
   }
 
   const forced = order.filter(idx => isForcePriorityGoal(goalsData[idx]));
   forced.forEach(idx => {
     if (available <= 0) return;
     const amount = Math.min(available, goalNeed(idx));
-    goalsData[idx].manualSaved += Math.round(amount);
+    if (amount <= 0.005) return;
+    goalsData[idx].manualSaved = compactMoney(goalsData[idx].manualSaved + amount);
     available = Math.max(0, available - amount);
   });
 
@@ -410,6 +416,30 @@ function getCompactFundingOrder() {
     .map(item => item.idx);
 }
 
+function compactOverallStatus(rows, free) {
+  const shortGoals = rows.filter(row => row.gap >= 0.01);
+  if (free < -0.005) {
+    return {
+      tone: "bad",
+      title: "Over-assigned",
+      detail: `Reduce slider cash by ${formatCurrency(Math.abs(free))} or lower one goal before relying on this plan.`
+    };
+  }
+  if (shortGoals.length) {
+    const worst = shortGoals.reduce((max, row) => row.gap > max.gap ? row : max, shortGoals[0]);
+    return {
+      tone: "bad",
+      title: `${shortGoals.length} goal${shortGoals.length === 1 ? "" : "s"} need review`,
+      detail: `${worst.name} is shortest by ${formatCurrency(worst.gap)}. Use Smart Assign, reduce another goal, or lower budget spending.`
+    };
+  }
+  return {
+    tone: "good",
+    title: "All goals on track",
+    detail: `${formatCurrency(free)} cash is still available for new goals, lower monthly budget, or keeping as buffer.`
+  };
+}
+
 function refreshCompactGoalForecast() {
   const canvas = document.getElementById("compactGoalChart");
   if (!canvas) return;
@@ -417,9 +447,9 @@ function refreshCompactGoalForecast() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Additional assigned</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>Additional available after adjustments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>Cash left after slider assignments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
   const usableBreakdown = document.getElementById("compactUsableBreakdown");
   if (usableBreakdown) usableBreakdown.innerHTML = compactGoalUsableBreakdown(dep);
   const model = buildGoalProjectionModel(18, 60);
@@ -427,8 +457,8 @@ function refreshCompactGoalForecast() {
     const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
     const sum = values => values.slice(0, month + 1).reduce((total, value) => total + value, 0);
     const tx = compactRecordedForGoal(idx);
-    const extra = Math.round(Math.max(0, goalsData[idx].manualSaved || 0));
-    const now = Math.round(Math.min(state.effectiveTarget, tx + extra));
+    const extra = compactMoney(Math.max(0, goalsData[idx].manualSaved || 0));
+    const now = compactMoney(Math.min(state.effectiveTarget, tx + extra));
     const base = sum(model.allocationBaseData[idx]);
     const adjustments = sum(model.allocationCashflowData[idx]);
     const projected = model.progressDollars[idx][month];
@@ -454,10 +484,12 @@ function refreshCompactGoalForecast() {
     slider.value = now;
     const amount = document.getElementById(`cgAmount_${idx}`);
     if (amount) amount.min = tx;
-    if (amount && document.activeElement !== amount) amount.value = now;
-    return { name: state.name, date, extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
+    if (amount && document.activeElement !== amount) amount.value = now.toFixed(2);
+    return { name: state.name, date, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
   });
-  document.getElementById("compactForecastResults").innerHTML = `<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Additional now</th><th>Future savings</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.extra)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
+  const overall = compactOverallStatus(rows, free);
+  const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
+  document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Cash from sliders</th><th>Future savings</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
   document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Money available today:</strong> ${formatCurrency(dep.rawSavings)} selected savings − ${formatCurrency(ccOwed)} personal card debt + ${formatCurrency(dep.claimReceivableForGoals)} pending reimbursements − ${formatCurrency(dep.remainingBudget)} remaining budget − ${formatCurrency(dep.futureSalaryHold)} future salary budget hold = ${formatCurrency(dep.deployable)}.</p><p><strong>Future monthly savings:</strong> ${formatCurrency(historicalStats.avgMonthlyIncome)} recurring income − ${formatCurrency(historicalStats.avgMonthlyExpenses)} average expenses = ${formatCurrency(historicalStats.avgMonthlySavings)}; the forecast uses at least $0. Based on the last ${historicalStats.months} completed months, with salary spikes such as bonus income excluded.</p><p><strong>Forecast = assigned now + future savings allocated + positive adjustments allocated.</strong> Assigned now includes progress already recorded to the goal plus any extra amount you add with the slider. Reductions lower the monthly pool before allocation. The same pool is shared across all goals, never counted in full for each one. Contributions begin next month or the goal’s start month, whichever is later. Forced goals go first; other goals follow priority and deadline, with base targets before buffers. No interest or investment return is assumed.</p><p>Pending reimbursements are not cash yet. ${free < 0 ? "Current extra assignments exceed the available pool; reduce a slider or use Smart Assign before relying on this forecast." : "Future figures are estimates, not guaranteed savings."}</p>`;
   const datasets = [
     { label: "Assigned now", data: rows.map(row => row.now), backgroundColor: "#2563eb", stack: "forecast" },

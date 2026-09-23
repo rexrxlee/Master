@@ -190,7 +190,7 @@ function readGoalsFromSheet(sheet) {
   return rows.map(row => ({
     name:        String(row[0] ?? "").trim(),
     target:      Number(row[1] ?? 0)  || 0,
-    manualSaved: Math.round(Number(row[2] ?? 0) || 0),
+    manualSaved: Math.round((Number(row[2] ?? 0) || 0) * 100) / 100,
     monthlyAlloc:Number(row[3] ?? 0)  || 0,
     startDate:   _goalDateToInputValue(row[4]),  // normalize to YYYY-MM-DD
     endDate:     _goalDateToInputValue(row[5]),   // normalize to YYYY-MM-DD
@@ -4535,7 +4535,7 @@ async function toggleGoalAccount(checkbox) {
 
 function buildGoalsSaveValues() {
   const values = goalsData.map(g => [
-    g.name, g.target, Math.round(Number(g.manualSaved || 0)), g.monthlyAlloc,
+    g.name, g.target, Math.round((Number(g.manualSaved || 0)) * 100) / 100, g.monthlyAlloc,
     g.startDate, g.endDate, g.urgency, g.notes, g.color,
     g.goalBuffer || 0, g.priority
   ]);

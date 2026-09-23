@@ -34,6 +34,9 @@
 .cg-assign-total span { color: var(--muted); font-size: 12px; }
 .cg-assign-total strong { font-family: 'DM Mono', monospace; }
 .cg-assign-total strong.red { color: #b91c1c; }
+.cg-overall { display: grid; gap: 4px; margin: 10px 0; padding: 10px 12px; border: 1px solid #bbf7d0; border-radius: 8px; background: #f0fdf4; color: #166534; }
+.cg-overall.bad { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.cg-overall span { font-size: 12px; line-height: 1.45; }
 .cg-add-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; padding: 0 16px 12px; }
 .cg-add-form label, .cg-dates label, .cg-allocation label, .cg-options label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
 .cg-add-form input, .cg-add-form select, .cg-goal input:not([type=range]):not([type=checkbox]), .cg-goal select, .cg-setup-goal input:not([type=checkbox]), .cg-setup-goal select { min-width: 0; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px; font: inherit; color: var(--text); background: var(--surface); }
