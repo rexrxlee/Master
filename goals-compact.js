@@ -1,5 +1,6 @@
 let compactGoalChart = null;
 let compactForecastFrame = null;
+let compactForecastTimer = null;
 let compactGoalSort = "original";
 
 function sortCompactGoalRows(value) {
@@ -157,13 +158,6 @@ function renderCompactGoalsPage() {
         <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
         <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save plan</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
       </section>
-      <section class="cg-forecast" hidden>
-        <div class="cg-heading"><h2>Can I reach my goals?</h2></div>
-        <p class="cg-note">Forecast versus target at each goal’s deadline, including its buffer. Month-end estimates; future savings start next month.</p>
-        <div class="cg-chart-scroll"><div class="cg-chart-wrap"><canvas id="compactGoalChart" role="img" aria-label="Goal forecasts compared with targets"></canvas></div></div>
-        <div id="compactForecastResults" aria-live="polite"></div>
-        <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
-      </section>
     </div>`;
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
@@ -224,8 +218,7 @@ function compactGoalNeed(idx) {
 }
 
 function compactSliderLimit(idx) {
-  const deployable = Math.max(0, computeDeployableBalance().deployable);
-  return Math.max(1, compactGoalNeed(idx), deployable, Number(goalsData[idx]?.manualSaved || 0));
+  return Math.max(1, compactGoalNeed(idx), Number(goalsData[idx]?.manualSaved || 0));
 }
 
 function assignCompactGoal(idx, value) {
@@ -235,9 +228,23 @@ function assignCompactGoal(idx, value) {
   goalsData[idx].manualSaved = Math.round(Math.max(0, Math.min(amount, compactSliderLimit(idx))) * 100) / 100;
   document.getElementById(`cgAmount_${idx}`).value = goalsData[idx].manualSaved;
   document.getElementById(`cgSlider_${idx}`).value = goalsData[idx].manualSaved;
+  updateCompactAllocationSummary();
   cancelAnimationFrame(compactForecastFrame);
-  compactForecastFrame = requestAnimationFrame(refreshCompactGoalForecast);
+  clearTimeout(compactForecastTimer);
+  compactForecastTimer = setTimeout(() => {
+    compactForecastFrame = requestAnimationFrame(refreshCompactGoalForecast);
+  }, 140);
   scheduleGoalsAutoSave();
+}
+
+function updateCompactAllocationSummary() {
+  const summary = document.getElementById("compactGoalSummary");
+  if (!summary) return;
+  const dep = computeDeployableBalance();
+  const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
+  const free = dep.deployable - assigned;
+  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Assigned now</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  updateCompactSaveStatus();
 }
 
 function updateCompactGoal(idx, field, raw) {
@@ -267,7 +274,7 @@ function updateCompactGoal(idx, field, raw) {
 
 function compactSmartAssign() {
   let available = Math.max(0, computeDeployableBalance().deployable);
-  const order = getPrioritizedGoalIndexes();
+  const order = getCompactFundingOrder();
   goalsData.forEach(goal => { goal.manualSaved = 0; });
   const assign = (indexes, buffer) => indexes.forEach(idx => {
     const goal = goalsData[idx];
@@ -282,6 +289,22 @@ function compactSmartAssign() {
   assign(forced, false); assign(forced, true); assign(regular, false); assign(regular, true);
   renderCompactGoalsPage();
   scheduleGoalsAutoSave(150);
+}
+
+function getCompactFundingOrder() {
+  return goalsData
+    .map((goal, idx) => ({ goal, idx }))
+    .sort((a, b) => {
+      const forced = (isForcePriorityGoal(b.goal) ? 1 : 0) - (isForcePriorityGoal(a.goal) ? 1 : 0);
+      if (forced !== 0) return forced;
+      const aDate = _parseGoalDateValue(a.goal.endDate);
+      const bDate = _parseGoalDateValue(b.goal.endDate);
+      if (aDate && bDate && aDate.getTime() !== bDate.getTime()) return aDate - bDate;
+      if (aDate) return -1;
+      if (bDate) return 1;
+      return goalPriorityValue(a.goal) - goalPriorityValue(b.goal) || a.idx - b.idx;
+    })
+    .map(item => item.idx);
 }
 
 function refreshCompactGoalForecast() {
