@@ -31,6 +31,7 @@ let savingsBalances = {};          // { accountName: balance } from transactions
 let goalsAutoSaveTimer = null;
 let goalsAutoSaveInFlight = false;
 let incomeBoostsDirty = false;
+let holdFutureSalaryBudget = localStorage.getItem("holdFutureSalaryBudget") !== "false";
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
@@ -615,6 +616,10 @@ function getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMon
 }
 
 function computeFutureSalaryHold() {
+  if (!holdFutureSalaryBudget) {
+    return { total: 0, futureSalary: 0, details: [] };
+  }
+
   const today = new Date();
   const currentMonthIndex = today.getFullYear() * 12 + today.getMonth();
   const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
@@ -661,9 +666,14 @@ function computeFutureSalaryHold() {
 }
 
 function computeFutureMonthBudgetReserve(monthDate) {
-  const allocated = (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0);
-  const position = computeBudgetPositionForMonth(monthDate);
-  return Math.max(0, position?.total?.goalReserve || allocated);
+  return Math.max(0, (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0));
+}
+
+function setHoldFutureSalaryBudget(enabled) {
+  holdFutureSalaryBudget = !!enabled;
+  localStorage.setItem("holdFutureSalaryBudget", holdFutureSalaryBudget ? "true" : "false");
+  if (typeof refreshCompactGoalForecast === "function") refreshCompactGoalForecast();
+  else if (typeof renderGoalsPage === "function") renderGoalsPage();
 }
 
 function monthKeyFromDate(date) {

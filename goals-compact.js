@@ -76,6 +76,7 @@ function resetCompactPlan() {
 }
 
 function compactGoalUsableBreakdown(dep) {
+  const budgetPageTotal = (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0);
   const futureDetails = (dep.futureSalaryHoldDetails || []).map(item =>
     `<div><span>${escapeHtml(item.label)}</span><strong>${formatCurrency(item.reserve)}</strong><small>${formatCurrency(item.futureSalary)} salary, ${formatCurrency(item.budgetForMonth || item.reserve)} budget pulled</small></div>`
   ).join("");
@@ -98,8 +99,9 @@ function compactGoalUsableBreakdown(dep) {
       </div>
       <p class="cg-note">Use this amount for goal assignment. Future salary is not removed in full; only the budget needed from that salary is held back.</p>
       <div class="cg-budget-copy">
-        <label><input type="checkbox" checked onchange="this.checked = true"> Copy same budget for next month</label>
+        <label><input type="checkbox" ${holdFutureSalaryBudget ? "checked" : ""} onchange="setHoldFutureSalaryBudget(this.checked)"> Copy same Budget page total for future salary</label>
         <button type="button" class="btn-secondary btn-sm" onclick="refreshCompactGoalForecast()">Pull Budget</button>
+        <span class="cg-note">Budget page total: ${formatCurrency(budgetPageTotal)}</span>
         <div class="cg-budget-copy-list">${futureDetails || '<span>No future salary budget hold right now.</span>'}</div>
       </div>
     </section>`;
