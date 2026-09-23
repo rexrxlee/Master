@@ -305,9 +305,9 @@ function updateCompactAllocationSummary() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>Cash left after slider assignments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : free)}</strong>`;
   updateCompactSaveStatus();
 }
 
@@ -439,6 +439,7 @@ function getCompactFundingOrder() {
 
 function compactOverallStatus(rows, free, removable) {
   const shortGoals = rows.filter(row => row.gap >= 0.01);
+  const unassigned = compactMoney(Math.max(0, free));
   if (free < -0.005) {
     return {
       tone: "bad",
@@ -459,11 +460,27 @@ function compactOverallStatus(rows, free, removable) {
   }
   return {
     tone: "good",
-    title: "All goals on track",
-    detail: removable.amount > 0.005
-      ? `${formatCurrency(Math.max(0, free))} is actually unassigned today. Forecast may replace up to ${formatCurrency(removable.amount)} of later flexible slider cash if you add a new goal, but assigned goal cash stays assigned until you change it.`
-      : `${formatCurrency(Math.max(0, free))} unassigned cash is available; current slider assignments are already needed by the forecast.`
+    title: unassigned > 0.005 ? "Can add a goal today" : "No spare cash today",
+    detail: unassigned > 0.005
+      ? `${formatCurrency(unassigned)} is unassigned now and can go to a new goal without changing existing goal sliders.`
+      : removable.amount > 0.005
+        ? `All current cash is assigned. You can only fund a new goal today by reducing later flexible sliders; up to ${formatCurrency(removable.amount)} may be replaced by forecast/adjustments without missing current dates.`
+        : "All current cash is assigned and needed for the current plan. Add a goal only if you lower another goal, increase forecast savings, or add an adjustment."
   };
+}
+
+function compactTimingStatus(state, model, gap, capped) {
+  if (capped) return "Beyond forecast range";
+  if (state.deadlineMo < 0) return gap < 0.01 ? "Target covered" : `Overdue · ${formatCurrency(gap)} short`;
+  if (gap >= 0.01) return `${formatCurrency(gap)} short`;
+  if (state.deadlineMo === null) return "On track";
+  if (state.completedAt === 0) return "Funded now";
+  if (state.completedAt !== null) {
+    const timing = model.relativeDeadlineText(state.completedAt, state.deadlineMo);
+    if (timing === "on deadline") return "On time";
+    return timing.includes("early") ? `Early · ${timing}` : `Late · ${timing}`;
+  }
+  return "On track";
 }
 
 function compactModelHasShortfall() {
@@ -656,9 +673,9 @@ function refreshCompactGoalForecast() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Available for new goals"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>Cash left after slider assignments</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : free)}</strong>`;
   const usableBreakdown = document.getElementById("compactUsableBreakdown");
   if (usableBreakdown) usableBreakdown.innerHTML = compactGoalUsableBreakdown(dep);
   const model = buildGoalProjectionModel(18, 60);
@@ -673,16 +690,13 @@ function refreshCompactGoalForecast() {
     const projected = model.progressDollars[idx][month];
     const gap = Math.max(0, state.effectiveTarget - projected);
     const capped = state.deadlineMo !== null && state.deadlineMo >= model.MONTHS;
-    const status = free < -0.005 ? "Over-assigned — rebalance"
-      : capped ? "Beyond forecast range"
-      : state.deadlineMo < 0 ? (gap < 0.01 ? "Target covered" : `Overdue · ${formatCurrency(gap)} short`)
-      : gap < 0.01 ? "On track" : `${formatCurrency(gap)} short`;
+    const status = free < -0.005 ? "Over-assigned - rebalance" : compactTimingStatus(state, model, gap, capped);
     const date = state.deadlineMo === null ? model.fullLabels[month] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
-    document.getElementById(`cgStatus_${idx}`).textContent = `${status} · ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${date}`;
+    document.getElementById(`cgStatus_${idx}`).textContent = `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${date}`;
     document.getElementById(`cgStatus_${idx}`).classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
     const pill = document.getElementById(`cgPill_${idx}`);
     if (pill) {
-      pill.textContent = gap < 0.01 && free >= -0.005 && !capped ? "On track" : gap > 0 ? `${formatCurrency(gap)} short` : "Review";
+      pill.textContent = gap < 0.01 && free >= -0.005 && !capped ? (status.startsWith("Early") ? "Early" : status === "Funded now" ? "Funded" : status === "On time" ? "On time" : "On track") : gap > 0 ? `${formatCurrency(gap)} short` : "Review";
       pill.classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
     }
     const bar = document.getElementById(`cgBar_${idx}`);
