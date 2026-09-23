@@ -188,8 +188,8 @@ function compactGoalRow(goal, idx) {
   return `<article class="cg-goal" id="compactGoal_${idx}">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><span id="cgPill_${idx}" class="cg-pill">Preview</span></div>
     <div class="cg-mini-bar" aria-hidden="true"><span id="cgBar_${idx}"></span></div>
-    <div class="cg-goal-metrics"><span>Assigned <strong>${formatCurrency(assigned)}</strong></span></div>
-    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="${recorded}" max="${compactSliderLimit(idx)}" step="0.01" value="${assigned}" aria-label="Total money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="${recorded}" step="0.01" value="${assigned.toFixed(2)}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
+    <div class="cg-goal-metrics"><span>Assigned <strong id="cgAssignedMetric_${idx}">${formatCurrency(assigned)}</strong></span></div>
+    <div class="cg-allocation"><input id="cgSlider_${idx}" type="range" min="${recorded}" max="${compactSliderLimit(idx)}" step="0.01" value="${assigned}" aria-label="Money assigned to ${escapeHtml(goal.name)}" oninput="assignCompactGoal(${idx}, this.value)"><label>Assigned ($)<input id="cgAmount_${idx}" type="number" min="${recorded}" step="0.01" value="${assigned.toFixed(2)}" oninput="assignCompactGoal(${idx}, this.value)"></label></div>
     ${recorded > 0 ? `<p class="cg-note">Includes ${formatCurrency(recorded)} already recorded for this goal.</p>` : ""}
     <p class="cg-result" id="cgStatus_${idx}"></p>
   </article>`;
@@ -258,6 +258,8 @@ function assignCompactGoal(idx, value) {
   goalsData[idx].manualSaved = compactMoney(Math.max(0, totalAssigned - recorded));
   document.getElementById(`cgAmount_${idx}`).value = totalAssigned.toFixed(2);
   document.getElementById(`cgSlider_${idx}`).value = totalAssigned;
+  const metric = document.getElementById(`cgAssignedMetric_${idx}`);
+  if (metric) metric.textContent = formatCurrency(totalAssigned);
   updateCompactGoalInstantPreview(idx);
   updateCompactAllocationSummary();
   cancelAnimationFrame(compactForecastFrame);
@@ -307,7 +309,7 @@ function updateCompactAllocationSummary() {
   const free = dep.deployable - assigned;
   summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Checking redirect room"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : Math.max(0, free))}</strong>`;
   updateCompactSaveStatus();
 }
 
@@ -440,6 +442,7 @@ function getCompactFundingOrder() {
 function compactOverallStatus(rows, free, removable) {
   const shortGoals = rows.filter(row => row.gap >= 0.01);
   const unassigned = compactMoney(Math.max(0, free));
+  const redirectable = compactMoney(unassigned + Math.max(0, removable.amount || 0));
   if (free < -0.005) {
     return {
       tone: "bad",
@@ -460,12 +463,10 @@ function compactOverallStatus(rows, free, removable) {
   }
   return {
     tone: "good",
-    title: unassigned > 0.005 ? "Can add a goal today" : "No spare cash today",
-    detail: unassigned > 0.005
-      ? `${formatCurrency(unassigned)} is unassigned now and can go to a new goal without changing existing goal sliders.`
-      : removable.amount > 0.005
-        ? `All current cash is assigned. You can only fund a new goal today by reducing later flexible sliders; up to ${formatCurrency(removable.amount)} may be replaced by forecast/adjustments without missing current dates.`
-        : "All current cash is assigned and needed for the current plan. Add a goal only if you lower another goal, increase forecast savings, or add an adjustment."
+    title: redirectable > 0.005 ? "Can redirect today" : "No safe reassignment today",
+    detail: redirectable > 0.005
+      ? `${formatCurrency(redirectable)} can go to a new goal today while existing goals stay on track. ${unassigned > 0.005 ? `${formatCurrency(unassigned)} is unassigned cash. ` : ""}${removable.amount > 0.005 ? `About ${formatCurrency(removable.amount)} can come from lowering current sliders, starting with ${removable.goalName}; the forecast check keeps goals funded before their dates.` : "No current goal sliders need to change."}`
+      : "Existing goals need today's assigned cash to stay on target. To add a new goal, reduce a target, reduce budget, add an adjustment, or move a deadline."
   };
 }
 
@@ -519,9 +520,7 @@ function compactNearTermCashGap(idx) {
 }
 
 function compactLockedSliderCash(idx) {
-  const required = compactRequiredAssignedToday(idx);
-  if (required <= 0) return 0;
-  return compactMoney(Math.max(0, required - compactRecordedForGoal(idx)));
+  return 0;
 }
 
 function compactMaxRemovableToday() {
@@ -673,9 +672,9 @@ function refreshCompactGoalForecast() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Checking redirect room"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : free)}</strong>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Checking redirect room"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : Math.max(0, free))}</strong>`;
   const usableBreakdown = document.getElementById("compactUsableBreakdown");
   if (usableBreakdown) usableBreakdown.innerHTML = compactGoalUsableBreakdown(dep);
   const model = buildGoalProjectionModel(18, 60);
@@ -712,8 +711,9 @@ function refreshCompactGoalForecast() {
   });
   const removable = compactMaxRemovableToday();
   const unassignedCash = compactMoney(Math.max(0, free));
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>Forecast-replaceable slider cash: ${formatCurrency(removable.amount)}</small>` : ""}`;
+  const redirectToday = compactMoney(unassignedCash + (free >= -0.005 ? removable.amount : 0));
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Can redirect today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Can redirect today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>${formatCurrency(removable.amount)} can come from current sliders after checking target dates and forecast.</small>` : ""}`;
   const overall = compactOverallStatus(rows, free, removable);
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
   document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Cash from sliders</th><th>Forecast</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
