@@ -461,7 +461,7 @@ function compactOverallStatus(rows, free, removable) {
     tone: "good",
     title: "All goals on track",
     detail: removable.amount > 0.005
-      ? `You can move about ${formatCurrency(removable.amount)} from flexible slider assignments and still stay on track. Near-term deadlines stay locked. Start with ${removable.goalName}.`
+      ? `${formatCurrency(Math.max(0, free))} is unassigned. You could reassign about ${formatCurrency(removable.amount)} from later flexible goals if you add another goal, without touching locked near-term goals like Renovation. Start with ${removable.goalName}.`
       : `${formatCurrency(Math.max(0, free))} unassigned cash is available; current slider assignments are already tight against the forecast.`
   };
 }
@@ -661,9 +661,9 @@ function refreshCompactGoalForecast() {
     return { name: state.name, date, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status, chartParts };
   });
   const removable = compactMaxRemovableToday();
-  const planningRoom = compactMoney(Math.max(0, free) + removable.amount);
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Room for new goals"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : planningRoom)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Room for new/changed goals today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : planningRoom)}</strong>`;
+  const unassignedCash = compactMoney(Math.max(0, free));
+  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Unassigned cash"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong></div><div><small>12-mo normal savings / month</small><strong>${formatCurrency(Math.max(0, historicalStats.avgMonthlySavings))}</strong></div>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Unassigned cash today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : unassignedCash)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>Reassignable from later goals: ${formatCurrency(removable.amount)}</small>` : ""}`;
   const overall = compactOverallStatus(rows, free, removable);
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
   document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Cash from sliders</th><th>Forecast</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
