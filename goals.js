@@ -170,10 +170,27 @@ function readAllTx(sheet) {
   });
 }
 
-function readBudgetSection(sheet, range) {
+function readBudgetFundingMap(sheet) {
+  try { return JSON.parse(String(sheet["AE2"]?.v || "{}")); } catch (_) { return {}; }
+}
+
+function budgetFundingKey(type, category) {
+  return clean(type).toLowerCase() + "|" + clean(category).toLowerCase();
+}
+
+function readBudgetSection(sheet, range, type) {
+  const fundingMap = readBudgetFundingMap(sheet);
   const rows = XLSX.utils.sheet_to_json(sheet, { header:1, range, blankrows:false });
-  return rows.map(row => ({ category:String(row[0]??"").trim(), allocated:Number(row[1]??0)||0 }))
-             .filter(r => r.category !== "");
+  return rows.map(row => {
+    const category = String(row[0] ?? "").trim();
+    const saved = fundingMap[budgetFundingKey(type, category)];
+    return {
+      category,
+      allocated: Number(row[1] ?? 0) || 0,
+      fundingAccount: clean(saved && typeof saved === "object" ? saved.fundingAccount || "" : saved || ""),
+      endDate: clean(saved && typeof saved === "object" ? saved.endDate || "" : "")
+    };
+  }).filter(r => r.category !== "");
 }
 
 function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
@@ -739,7 +756,8 @@ function setHoldFutureSalaryBudget(enabled) {
 }
 
 function setFutureSalaryBudgetOverride(value) {
-  const amount = Number(value);
+  const raw = String(value ?? "").trim();
+  const amount = raw === "" ? NaN : Number(raw);
   futureSalaryBudgetOverride = Number.isFinite(amount) && amount >= 0 ? amount : null;
   if (futureSalaryBudgetOverride === null) {
     localStorage.removeItem("futureSalaryBudgetOverride");
