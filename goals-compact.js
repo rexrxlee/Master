@@ -102,13 +102,13 @@ function compactGoalUsableBreakdown(dep) {
         <i>−</i>
         <span><b>${formatCurrency(ccOwed)}</b><small>all credit card debt</small></span>
         <i>−</i>
-        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>current month budget left</small></span>
+        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>current month cash hold</small></span>
         <i>−</i>
         <span><b>${formatCurrency(dep.futureSalaryHold)}</b><small>future salary budget hold</small></span>
         <i>+</i>
         <span><b>${formatCurrency(dep.claimReceivableForGoals)}</b><small>pending claims</small></span>
       </div>
-      <p class="cg-note">Use this amount for goal assignment. Future salary is not removed in full; only the budget needed from that salary is held back.</p>
+      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid Goal-funded bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget. Spending already in account balances or card debt is not deducted twice. Future salary is not removed in full; only the budget needed from that salary is held back.</p>
       <div class="cg-budget-copy">
         <label><input type="checkbox" ${holdFutureSalaryBudget ? "checked" : ""} onchange="setHoldFutureSalaryBudget(this.checked)"> Copy same Budget page total for future salary</label>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Pull Budget</button>
