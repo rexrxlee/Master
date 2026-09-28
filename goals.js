@@ -2070,9 +2070,20 @@ function _boostDurationLabel(itemOrFrom, maybeToMonth) {
   return months + " months";
 }
 
+function getPlannedSavingsForMonth(monthDate) {
+  const salary = Math.max(0, Number(historicalStats.avgMonthlyIncome) || 0);
+  const budget = computeFutureMonthBudgetReserve(monthDate);
+  return Math.max(0, salary - budget);
+}
+
+function getNextMonthPlannedSavings() {
+  const today = new Date();
+  return getPlannedSavingsForMonth(new Date(today.getFullYear(), today.getMonth() + 1, 1));
+}
+
 function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const today = new Date();
-  const forecastBaseMonthly = Math.max(0, historicalStats.avgMonthlySavings);
+  const forecastBaseMonthly = getNextMonthPlannedSavings();
   const urgOrder = { Critical:0, High:1, Medium:2, Low:3 };
 
   function monthOffsetFromToday(dateValue) {
@@ -2244,7 +2255,9 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
 
   for (let m = 0; m < MONTHS; m++) {
     const isForecastMonth = m >= forecastStartMonth;
-    let basePool = isForecastMonth ? Math.max(0, forecastBaseMonthly + Math.min(0, poolBoost[m])) : 0;
+    const forecastMonthDate = new Date(today.getFullYear(), today.getMonth() + m, 1);
+    const plannedBaseForMonth = getPlannedSavingsForMonth(forecastMonthDate);
+    let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
     const monthPoolAvailable = basePool + cashflowPool;
     const monthPoolUsed = Array(goalState.length).fill(0);
