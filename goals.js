@@ -193,6 +193,28 @@ function readBudgetSection(sheet, range, type) {
   }).filter(r => r.category !== "");
 }
 
+async function refreshGoalBudgetMetadataFromExcel() {
+  // Goal writes and Budget writes share the same worksheet. Always re-read the
+  // dedicated Budget metadata cell after a Goal save so the in-memory forecast
+  // cannot keep stale funding-account / ending-date information.
+  const result = await readBudgetSetupRange("AE2:AE2");
+  const value = result?.values?.[0]?.[0] ?? "";
+  const metadataSheet = { AE2: { v: value } };
+  const fundingMap = readBudgetFundingMap(metadataSheet);
+
+  const apply = (rows, type) => (rows || []).map(row => {
+    const saved = fundingMap[budgetFundingKey(type, row.category)];
+    return {
+      ...row,
+      fundingAccount: clean(saved && typeof saved === "object" ? saved.fundingAccount || "" : saved || ""),
+      endDate: clean(saved && typeof saved === "object" ? saved.endDate || "" : "")
+    };
+  });
+
+  budgetSummary.billsRows = apply(budgetSummary.billsRows, "Bills");
+  budgetSummary.monthlyRows = apply(budgetSummary.monthlyRows, "Monthly Expenses");
+}
+
 function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
   const billsRows = readBudgetSection(budgetSheet, "A2:B13", "Bills");
   const monthlyRows = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
@@ -4606,6 +4628,7 @@ async function toggleGoalAccount(checkbox) {
   // Auto-save silently — no alert, just log
   try {
     await writeBudgetSetupRange("AD2:AD2", [[goalSavingsAccts.join("|")]]);
+    await refreshGoalBudgetMetadataFromExcel();
     log("Account selection auto-saved.");
   } catch(err) {
     log("Auto-save failed: " + err.message);
@@ -4675,6 +4698,7 @@ async function persistGoalsToExcel(options = {}) {
     setGoalsAutoSaveStatus("Saving...");
     await writeBudgetSetupRange(GOALS_RANGE, buildGoalsSaveValues());
     if (includeBoosts) await saveIncomeBoosts();
+    await refreshGoalBudgetMetadataFromExcel();
     setGoalsAutoSaveStatus("Saved to Excel", "ok");
     log("Goals saved.");
     return true;
