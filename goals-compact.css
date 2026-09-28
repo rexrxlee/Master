@@ -156,3 +156,12 @@
 .cg-plan-month b { font-family:'DM Mono',monospace; font-size:12px; }
 .cg-plan-month small { font-size:10px; line-height:1.35; color:var(--muted); }
 @media (max-width:600px) { .cg-summary .cg-planned-card { grid-column:1/-1; } .cg-plan-list { grid-template-columns:1fr; } .cg-plan-month b { font-size:13px; } .cg-plan-month small { font-size:11px; } }
+
+.goals-nav-toggle { display:none; position:fixed; z-index:50; left:64px; top:10px; width:38px; height:38px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); font-size:22px; line-height:1; box-shadow:0 2px 8px rgba(15,23,42,.12); }
+@media (max-width:600px) {
+  .goals-nav-toggle { display:grid; place-items:center; }
+  body.goals-nav-hidden .sidebar { display:none !important; }
+  body.goals-nav-hidden .main { margin-left:0 !important; width:100vw !important; max-width:100vw !important; }
+  body.goals-nav-hidden .goals-nav-toggle { left:10px; }
+  body.goals-nav-hidden .topbar { padding-left:56px; }
+}
