@@ -472,11 +472,18 @@ function computeDeployableBalance() {
   const ccOwedForGoals = Math.max(0, ccOwed - ccClaimReceivable);
   const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
 
-  // Step 3: block the NET remaining current-month budget that is funded by
-  // selected Goal accounts. Overspending in that same funding pool reduces the hold.
-  const budgetPosition         = computeCurrentMonthBudgetPosition();
-  const monthlyBudgetBalance   = budgetPosition.total.balance;
-  const remainingBudgetReserve = Math.max(0, budgetPosition.total.goalReserve || 0);
+  // Step 3: protect cash still needed this month.
+  // - Bills: hold the unpaid balance only when the configured funding account is a Goal account.
+  // - Monthly expenses: hold any positive remaining shared budget.
+  // Actual overspend is already reflected in savings balances / credit-card debt, so adding it
+  // again here would double-count the same spending.
+  const budgetPosition       = computeCurrentMonthBudgetPosition();
+  const monthlyBudgetBalance = budgetPosition.total.balance;
+  const unpaidGoalBills = (budgetPosition.bills.rows || [])
+    .filter(row => row.accountScope?.reserve)
+    .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
+  const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
+  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
@@ -492,6 +499,8 @@ function computeDeployableBalance() {
     pendingClaimRows: pendingClaimSummary.count,
     claimReceivableForGoals,
     remainingBudget: remainingBudgetReserve,
+    unpaidGoalBills,
+    remainingMonthlyExpenseBudget,
     monthlyBudgetBalance,
     futureSalaryHold: futureSalaryHold.total,
     futureSalaryHoldDetails: futureSalaryHold.details,
