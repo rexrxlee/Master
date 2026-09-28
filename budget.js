@@ -128,8 +128,22 @@ function applyBudgetFundingMap(sheet) {
   let map = {};
   try { map = JSON.parse(String(sheet["AE2"]?.v || "{}")); } catch (_) {}
   [...billsBudget, ...monthlyBudget].forEach(item => {
-    item.fundingAccount = clean(map[budgetFundingKey(item.type, item.category)] || "");
+    const saved = map[budgetFundingKey(item.type, item.category)];
+    if (saved && typeof saved === "object") {
+      item.fundingAccount = clean(saved.fundingAccount || "");
+      item.endDate = clean(saved.endDate || "");
+    } else {
+      // Backwards compatibility with the original account-only string format.
+      item.fundingAccount = clean(saved || "");
+      item.endDate = "";
+    }
   });
+}
+
+function updateBudgetEndDate(type, index, value) {
+  (type === "Bills" ? billsBudget : monthlyBudget)[index].endDate = clean(value);
+  renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function updateBudgetFundingAccount(type, index, value) {
@@ -157,7 +171,7 @@ function addBudgetItem() {
   const list = type === "Bills" ? billsBudget : monthlyBudget;
   if (list.length >= 12) { alert("Maximum 12 rows allowed for this section."); return; }
 
-  list.push({ type, category, allocated, fundingAccount: "" });
+  list.push({ type, category, allocated, fundingAccount: "", endDate: "" });
   document.getElementById("subCategoryInput").value = "";
   document.getElementById("allocatedInput").value   = "";
   renderBudget();
@@ -256,6 +270,7 @@ function renderBudgetTable(tableId, type, rows) {
       <th>${type}</th>
       <th>Allocated</th>
       <th>Paid from / funding account</th>
+      <th>Ending date</th>
       <th>Spent</th>
       <th>Balance</th>
       <th></th>
@@ -273,6 +288,7 @@ function renderBudgetTable(tableId, type, rows) {
       <td><input value="${escapeHtml(row.category)}" onchange="updateBudgetCategory('${type}', ${index}, this.value)"></td>
       <td><input type="number" step="0.01" value="${row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
       <td><select onchange="updateBudgetFundingAccount('${type}', ${index}, this.value)">${renderBudgetFundingOptions(row.fundingAccount)}</select></td>
+      <td><input type="date" value="${escapeHtml(row.endDate || "")}" onchange="updateBudgetEndDate('${type}', ${index}, this.value)" aria-label="Ending date for ${escapeHtml(row.category)}"></td>
       <td>${formatCurrency(row.spent)}</td>
       <td style="color:${row.balance < 0 ? '#c0392b' : 'inherit'}">${formatCurrency(row.balance)}</td>
       <td><button onclick="deleteBudgetItem('${type}', ${index})">Delete</button></td>`;
@@ -284,6 +300,7 @@ function renderBudgetTable(tableId, type, rows) {
   totalRow.innerHTML = `
     <td><strong>Total</strong></td>
     <td><strong>${formatCurrency(totalAllocated)}</strong></td>
+    <td></td>
     <td></td>
     <td><strong>${formatCurrency(totalSpent)}</strong></td>
     <td style="color:${totalBalance < 0 ? '#c0392b' : 'inherit'}"><strong>${formatCurrency(totalBalance)}</strong></td>
@@ -725,8 +742,11 @@ async function saveBudgetSetupToExcel(options = {}) {
 function buildBudgetFundingMap() {
   const map = {};
   [...billsBudget, ...monthlyBudget].forEach(item => {
-    if (clean(item.category) && clean(item.fundingAccount)) {
-      map[budgetFundingKey(item.type, item.category)] = clean(item.fundingAccount);
+    if (clean(item.category) && (clean(item.fundingAccount) || clean(item.endDate))) {
+      map[budgetFundingKey(item.type, item.category)] = {
+        fundingAccount: clean(item.fundingAccount),
+        endDate: clean(item.endDate || "")
+      };
     }
   });
   return map;
