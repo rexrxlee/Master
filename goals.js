@@ -1625,14 +1625,14 @@ function scheduleGoalInsightRefresh() {
 }
 
 // ── Future Cashflow Changes ───────────────────────────────────────
-// Stored in goalsData as a separate list; also saved to Excel in col AE2
+// Stored separately from Budget metadata; saved to Excel in AF2
 // Each item: { label, kind ("boost"|"reduce"), frequency ("monthly"|"once"|"yearly"), amount, fromMonth (YYYY-MM), toMonth (YYYY-MM or ""), toGoal (name or "any") }
 // Monthly + blank toMonth means permanent. Once uses fromMonth only. Yearly repeats in the fromMonth calendar month.
 let incomeBoosts = [];
-const BOOSTS_RANGE = "AE2:AE2"; // single cell, JSON-stringified
+const BOOSTS_RANGE = "AF2:AF2"; // single cell, JSON-stringified; AE2 is reserved for Budget metadata
 
 function loadIncomeBoosts(budgetSheet) {
-  const cell = budgetSheet["AE2"];
+  const cell = budgetSheet["AF2"];
   try {
     const raw = cell ? String(cell.v ?? "").trim() : "";
     incomeBoosts = raw ? JSON.parse(raw) : [];
