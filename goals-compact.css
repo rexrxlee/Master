@@ -106,3 +106,46 @@
 @media (min-width: 1100px) { .cg-chart-wrap { min-height: 320px; } }
 @media (max-width: 1050px) { .cg-add-form { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cg-workspace { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .cg-summary, .cg-add-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cg-summary strong { font-size: 16px; } }
+
+
+/* Mobile Goals editor: prioritize readable, touch-friendly editing over desktop density. */
+@media (max-width: 600px) {
+  .cg-controls, .cg-forecast, .cg-setup-panel { padding: 12px; }
+  .cg-heading { align-items: flex-start; flex-wrap: wrap; }
+  .cg-heading h2 { font-size: 20px; }
+  .cg-sort { flex-wrap: wrap; font-size: 14px; }
+  .cg-sort select { min-height: 44px; font-size: 16px; padding: 9px 10px; }
+
+  #compactGoalRows {
+    display: flex;
+    flex-direction: column;
+    overflow-x: visible;
+    gap: 14px;
+    padding: 8px 0 14px;
+  }
+  .cg-goal {
+    width: 100%;
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .cg-goal .cg-heading h2 { font-size: 20px; }
+  .cg-pill { font-size: 13px; padding: 5px 10px; }
+  .cg-allocation {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .cg-allocation input[type=range] { min-height: 34px; }
+  .cg-allocation input:not([type=range]) { min-height: 48px; font-size: 17px; padding: 10px 12px; }
+  .cg-dates, .cg-options { grid-template-columns: 1fr; gap: 10px; }
+  .cg-goal-metrics { font-size: 13px; gap: 7px; }
+  .cg-result { font-size: 14px; line-height: 1.55; }
+  .cg-mini-bar { height: 12px; }
+
+  .cg-chart-scroll { max-height: 390px; }
+  .cg-timeline-corner, .cg-timeline-goal { min-width: 150px; }
+  .cg-timeline-cell { min-height: 64px; }
+  .cg-timeline-block { min-width: 90px; font-size: 11px; padding: 5px 7px; }
+
+  .cg-save-actions button, .cg-heading button { min-height: 44px; font-size: 15px; }
+}
