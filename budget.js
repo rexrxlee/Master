@@ -32,6 +32,7 @@ async function loadBudgetPage(forceRefresh = false) {
     budgetTransactions = readTransactionSheet(transactionSheet);
     billsBudget        = readBudgetSection(budgetSheet, "A2:B13", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
+    applyBudgetFundingMap(budgetSheet);
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
     budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
 
@@ -119,6 +120,33 @@ function readBudgetSection(sheet, range, type) {
     .filter(item => item.category !== "");
 }
 
+function budgetFundingKey(type, category) {
+  return clean(type).toLowerCase() + "|" + clean(category).toLowerCase();
+}
+
+function applyBudgetFundingMap(sheet) {
+  let map = {};
+  try { map = JSON.parse(String(sheet["AE2"]?.v || "{}")); } catch (_) {}
+  [...billsBudget, ...monthlyBudget].forEach(item => {
+    item.fundingAccount = clean(map[budgetFundingKey(item.type, item.category)] || "");
+  });
+}
+
+function updateBudgetFundingAccount(type, index, value) {
+  (type === "Bills" ? billsBudget : monthlyBudget)[index].fundingAccount = clean(value);
+  renderBudget();
+  scheduleBudgetAutoSave();
+}
+
+function renderBudgetFundingOptions(selected) {
+  const names = (budgetAccountTypes || []).map(a => clean(a.name)).filter(Boolean);
+  return ['<option value="">Select account…</option>']
+    .concat(names.map(name => `<option value="${escapeHtml(name)}" ${accountKey(name) === accountKey(selected) ? "selected" : ""}>${escapeHtml(name)}</option>`))
+    .join("");
+}
+
+function accountKey(name) { return clean(name).toLowerCase(); }
+
 function addBudgetItem() {
   const type      = document.getElementById("budgetType").value;
   const category  = clean(document.getElementById("subCategoryInput").value);
@@ -129,7 +157,7 @@ function addBudgetItem() {
   const list = type === "Bills" ? billsBudget : monthlyBudget;
   if (list.length >= 12) { alert("Maximum 12 rows allowed for this section."); return; }
 
-  list.push({ type, category, allocated });
+  list.push({ type, category, allocated, fundingAccount: "" });
   document.getElementById("subCategoryInput").value = "";
   document.getElementById("allocatedInput").value   = "";
   renderBudget();
@@ -227,6 +255,7 @@ function renderBudgetTable(tableId, type, rows) {
     <tr>
       <th>${type}</th>
       <th>Allocated</th>
+      <th>Paid from / funding account</th>
       <th>Spent</th>
       <th>Balance</th>
       <th></th>
@@ -243,6 +272,7 @@ function renderBudgetTable(tableId, type, rows) {
     tr.innerHTML = `
       <td><input value="${escapeHtml(row.category)}" onchange="updateBudgetCategory('${type}', ${index}, this.value)"></td>
       <td><input type="number" step="0.01" value="${row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
+      <td><select onchange="updateBudgetFundingAccount('${type}', ${index}, this.value)">${renderBudgetFundingOptions(row.fundingAccount)}</select></td>
       <td>${formatCurrency(row.spent)}</td>
       <td style="color:${row.balance < 0 ? '#c0392b' : 'inherit'}">${formatCurrency(row.balance)}</td>
       <td><button onclick="deleteBudgetItem('${type}', ${index})">Delete</button></td>`;
@@ -254,6 +284,7 @@ function renderBudgetTable(tableId, type, rows) {
   totalRow.innerHTML = `
     <td><strong>Total</strong></td>
     <td><strong>${formatCurrency(totalAllocated)}</strong></td>
+    <td></td>
     <td><strong>${formatCurrency(totalSpent)}</strong></td>
     <td style="color:${totalBalance < 0 ? '#c0392b' : 'inherit'}"><strong>${formatCurrency(totalBalance)}</strong></td>
     <td></td>`;
@@ -677,6 +708,7 @@ async function saveBudgetSetupToExcel(options = {}) {
     log("Saving Budget Setup to Excel...");
     await writeBudgetSetupRange("A2:B13", buildSaveValues(billsBudget));
     await writeBudgetSetupRange("F2:G13", buildSaveValues(monthlyBudget));
+    await writeBudgetSetupRange("AE2:AE2", [[JSON.stringify(buildBudgetFundingMap())]]);
     setBudgetAutoSaveStatus("Saved to Excel", "ok");
     if (!silent) alert("Budget saved to Excel.");
     log("Budget saved.");
@@ -688,6 +720,16 @@ async function saveBudgetSetupToExcel(options = {}) {
   } finally {
     budgetAutoSaveInFlight = false;
   }
+}
+
+function buildBudgetFundingMap() {
+  const map = {};
+  [...billsBudget, ...monthlyBudget].forEach(item => {
+    if (clean(item.category) && clean(item.fundingAccount)) {
+      map[budgetFundingKey(item.type, item.category)] = clean(item.fundingAccount);
+    }
+  });
+  return map;
 }
 
 function buildSaveValues(list) {
