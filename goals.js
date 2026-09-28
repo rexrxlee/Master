@@ -561,15 +561,19 @@ function computeBudgetPositionForMonth(monthDate) {
       const spent = spentMap.get(category) || 0;
       const balance = allocated - spent;
       const configuredFundingAccount = fundingByCategory.get(category) || "";
-      const accountScope = configuredFundingAccount
-        ? {
-            reserve: new Set(goalSavingsAccts.map(accountKey)).has(accountKey(configuredFundingAccount)),
-            source: "budget-setting",
-            account: configuredFundingAccount
-          }
-        : getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
-      // Keep negative balances here so overspending in Goal-funded categories
-      // offsets remaining Goal-funded budget elsewhere.
+      const isMonthlyExpense = type === "monthly";
+      const accountScope = isMonthlyExpense
+        ? { reserve: true, source: "monthly-shared-reserve", account: "" }
+        : configuredFundingAccount
+          ? {
+              reserve: new Set(goalSavingsAccts.map(accountKey)).has(accountKey(configuredFundingAccount)),
+              source: "budget-setting",
+              account: configuredFundingAccount
+            }
+          : getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
+      // Monthly expenses are a shared reserve because their payment account varies.
+      // Negative balances stay in the pool, so overspending reduces other remaining
+      // monthly-expense budget before anything is considered available for Goals.
       const goalReserve = accountScope.reserve ? balance : 0;
       return {
         category,
