@@ -2081,6 +2081,32 @@ function getNextMonthPlannedSavings() {
   return getPlannedSavingsForMonth(new Date(today.getFullYear(), today.getMonth() + 1, 1));
 }
 
+function getPlannedSavingsSchedule(monthCount = 12) {
+  const today = new Date();
+  const salary = Math.max(0, Number(historicalStats.avgMonthlyIncome) || 0);
+  return Array.from({ length: monthCount }, (_, i) => {
+    const date = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+    const budget = computeFutureMonthBudgetReserve(date);
+    let adjustment = 0;
+    (incomeBoosts || []).forEach(item => {
+      if (_isBoostActiveInMonth(item, i + 1, monthCount + 2, d => {
+        const p = String(d || "").split("-");
+        if (p.length < 2) return null;
+        return (Number(p[0]) - today.getFullYear()) * 12 + (Number(p[1]) - 1 - today.getMonth());
+      })) adjustment += _boostSignedAmount(item);
+    });
+    return { date, salary, budget, adjustment, planned: Math.max(0, salary - budget + adjustment) };
+  });
+}
+
+function renderPlannedSavingsSchedule(monthCount = 12) {
+  return getPlannedSavingsSchedule(monthCount).map(item => {
+    const label = item.date.toLocaleDateString("en-SG", { month:"short", year:"numeric" });
+    const adj = item.adjustment === 0 ? "" : ` ${item.adjustment > 0 ? "+" : "−"} adjustment ${formatCurrency(Math.abs(item.adjustment))}`;
+    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)}</b><small>Salary ${formatCurrency(item.salary)} − budget ${formatCurrency(item.budget)}${adj}</small></span>`;
+  }).join("");
+}
+
 function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const today = new Date();
   const forecastBaseMonthly = getNextMonthPlannedSavings();
