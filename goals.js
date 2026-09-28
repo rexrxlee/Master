@@ -497,9 +497,7 @@ function computeDeployableBalance() {
   const budgetPosition       = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance = budgetPosition.total.balance;
   const creditCardKeys = new Set(
-    allAccounts
-      .filter(account => clean(account.type).toLowerCase() === "credit card")
-      .map(account => accountKey(account.name))
+    getCreditCardAccountsInData(allTxForGoals).map(accountKey)
   );
   const unpaidGoalBills = (budgetPosition.bills.rows || [])
     .filter(row => {
@@ -742,9 +740,7 @@ function computeFutureMonthBudgetReserve(monthDate) {
   // Future Bills are held only when their configured funding account is a
   // selected Goal account. Ending dates are respected for the target month.
   const creditCardKeys = new Set(
-    allAccounts
-      .filter(account => clean(account.type).toLowerCase() === "credit card")
-      .map(account => accountKey(account.name))
+    getCreditCardAccountsInData(allTxForGoals).map(accountKey)
   );
   const activeGoalBills = (budgetSummary.billsRows || [])
     .filter(row => isBudgetItemActiveForMonth(row, monthDate))
