@@ -67,8 +67,11 @@ async function loadGoalsPage(forceRefresh = false) {
     const acctRaw  = acctCell ? String(acctCell.v ?? "").trim() : "";
     goalSavingsAccts = acctRaw ? acctRaw.split("|").map(s=>s.trim()).filter(name => allAccounts.some(a => accountKey(a.name) === accountKey(name) && a.type === "Savings")) : [];
 
-    // Budget totals
+    // Budget totals from the freshly downloaded workbook.
+    // Goals must always use the latest funding accounts / ending dates without
+    // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
+    await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
     allTxForGoals   = readAllTx(txSheet);
