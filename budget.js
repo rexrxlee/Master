@@ -269,7 +269,7 @@ function renderBudgetTable(tableId, type, rows) {
     <tr>
       <th>${type}</th>
       <th>Allocated</th>
-      <th>Paid from / funding account</th>
+      <th>${type === "Bills" ? "Paid from / funding account" : "Funding"}</th>
       <th>Ending date</th>
       <th>Spent</th>
       <th>Balance</th>
@@ -287,7 +287,7 @@ function renderBudgetTable(tableId, type, rows) {
     tr.innerHTML = `
       <td><input value="${escapeHtml(row.category)}" onchange="updateBudgetCategory('${type}', ${index}, this.value)"></td>
       <td><input type="number" step="0.01" value="${row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
-      <td><select onchange="updateBudgetFundingAccount('${type}', ${index}, this.value)">${renderBudgetFundingOptions(row.fundingAccount)}</select></td>
+      <td>${type === "Bills" ? `<select onchange="updateBudgetFundingAccount('${type}', ${index}, this.value)">${renderBudgetFundingOptions(row.fundingAccount)}</select>` : `<span class="budget-auto-funding" title="Actual transactions determine spending; the unspent monthly-expense balance remains reserved from Goals.">Automatic</span>`}</td>
       <td><input type="date" value="${escapeHtml(row.endDate || "")}" onchange="updateBudgetEndDate('${type}', ${index}, this.value)" aria-label="Ending date for ${escapeHtml(row.category)}"></td>
       <td>${formatCurrency(row.spent)}</td>
       <td style="color:${row.balance < 0 ? '#c0392b' : 'inherit'}">${formatCurrency(row.balance)}</td>
