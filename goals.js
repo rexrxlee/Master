@@ -496,8 +496,16 @@ function computeDeployableBalance() {
   // again here would double-count the same spending.
   const budgetPosition       = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance = budgetPosition.total.balance;
+  const creditCardKeys = new Set(
+    allAccounts
+      .filter(account => clean(account.type).toLowerCase() === "credit card")
+      .map(account => accountKey(account.name))
+  );
   const unpaidGoalBills = (budgetPosition.bills.rows || [])
-    .filter(row => row.accountScope?.reserve)
+    .filter(row => {
+      const fundingKey = accountKey(row.accountScope?.account || "");
+      return creditCardKeys.has(fundingKey) || row.accountScope?.reserve;
+    })
     .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
   const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
   const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
@@ -733,9 +741,17 @@ function computeFutureMonthBudgetReserve(monthDate) {
 
   // Future Bills are held only when their configured funding account is a
   // selected Goal account. Ending dates are respected for the target month.
+  const creditCardKeys = new Set(
+    allAccounts
+      .filter(account => clean(account.type).toLowerCase() === "credit card")
+      .map(account => accountKey(account.name))
+  );
   const activeGoalBills = (budgetSummary.billsRows || [])
     .filter(row => isBudgetItemActiveForMonth(row, monthDate))
-    .filter(row => row.fundingAccount && goalAccountKeys.has(accountKey(row.fundingAccount)));
+    .filter(row => {
+      const fundingKey = accountKey(row.fundingAccount);
+      return fundingKey && (creditCardKeys.has(fundingKey) || goalAccountKeys.has(fundingKey));
+    });
 
   // Monthly Expenses remain a shared reserve because their actual payment
   // account varies transaction by transaction. Ending dates still apply.
