@@ -472,11 +472,12 @@ function computeDeployableBalance() {
   const ccOwedForGoals = Math.max(0, ccOwed - ccClaimReceivable);
   const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
 
-  // Step 3: reserve positive unspent budget for the rest of the month,
-  // but only where that budget is expected to come from goal-funding accounts.
+  // Step 3: block the NET remaining budget for the rest of the current month.
+  // Use the overall budget balance so overspending in any category reduces the
+  // amount still reserved before cash can be assigned to goals.
   const budgetPosition         = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance   = budgetPosition.total.balance;
-  const remainingBudgetReserve = Math.max(0, budgetPosition.total.goalReserve || 0);
+  const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
