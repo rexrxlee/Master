@@ -711,9 +711,24 @@ function computeFutureSalaryHold() {
 
 function computeFutureMonthBudgetReserve(monthDate) {
   if (futureSalaryBudgetOverride !== null) return futureSalaryBudgetOverride;
-  const activeRows = [...(budgetSummary.billsRows || []), ...(budgetSummary.monthlyRows || [])]
+
+  const goalAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+
+  // Future Bills are held only when their configured funding account is a
+  // selected Goal account. Ending dates are respected for the target month.
+  const activeGoalBills = (budgetSummary.billsRows || [])
+    .filter(row => isBudgetItemActiveForMonth(row, monthDate))
+    .filter(row => row.fundingAccount && goalAccountKeys.has(accountKey(row.fundingAccount)));
+
+  // Monthly Expenses remain a shared reserve because their actual payment
+  // account varies transaction by transaction. Ending dates still apply.
+  const activeMonthlyExpenses = (budgetSummary.monthlyRows || [])
     .filter(row => isBudgetItemActiveForMonth(row, monthDate));
-  return Math.max(0, activeRows.reduce((sum, row) => sum + (Number(row.allocated) || 0), 0));
+
+  const total = [...activeGoalBills, ...activeMonthlyExpenses]
+    .reduce((sum, row) => sum + (Number(row.allocated) || 0), 0);
+
+  return Math.max(0, total);
 }
 
 function setHoldFutureSalaryBudget(enabled) {
