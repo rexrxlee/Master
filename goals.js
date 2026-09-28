@@ -505,6 +505,14 @@ function computeCurrentMonthBudgetPosition() {
   return computeBudgetPositionForMonth(new Date());
 }
 
+function isBudgetItemActiveForMonth(row, monthDate) {
+  if (!row?.endDate) return true;
+  const end = new Date(row.endDate + "T23:59:59");
+  if (Number.isNaN(end.getTime())) return true;
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  return end >= monthStart;
+}
+
 function computeBudgetPositionForMonth(monthDate) {
   const targetYear = monthDate.getFullYear();
   const targetMonth = monthDate.getMonth();
@@ -582,8 +590,8 @@ function computeBudgetPositionForMonth(monthDate) {
     return { rows, allocated, spent, balance, goalReserve: Math.max(0, goalReserveRaw), goalReserveRaw, over: Math.max(0, spent - allocated) };
   };
 
-  const bills = buildSection("bills", budgetSummary.billsRows || [], spentByType.bills);
-  const monthly = buildSection("monthly", budgetSummary.monthlyRows || [], spentByType.monthly);
+  const bills = buildSection("bills", (budgetSummary.billsRows || []).filter(row => isBudgetItemActiveForMonth(row, monthDate)), spentByType.bills);
+  const monthly = buildSection("monthly", (budgetSummary.monthlyRows || []).filter(row => isBudgetItemActiveForMonth(row, monthDate)), spentByType.monthly);
   const total = {
     allocated: bills.allocated + monthly.allocated,
     spent: bills.spent + monthly.spent,
@@ -690,7 +698,9 @@ function computeFutureSalaryHold() {
 
 function computeFutureMonthBudgetReserve(monthDate) {
   if (futureSalaryBudgetOverride !== null) return futureSalaryBudgetOverride;
-  return Math.max(0, (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0));
+  const activeRows = [...(budgetSummary.billsRows || []), ...(budgetSummary.monthlyRows || [])]
+    .filter(row => isBudgetItemActiveForMonth(row, monthDate));
+  return Math.max(0, activeRows.reduce((sum, row) => sum + (Number(row.allocated) || 0), 0));
 }
 
 function setHoldFutureSalaryBudget(enabled) {
