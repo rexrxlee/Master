@@ -102,7 +102,7 @@ function compactGoalUsableBreakdown(dep) {
         <i>−</i>
         <span><b>${formatCurrency(ccOwed)}</b><small>all credit card debt</small></span>
         <i>−</i>
-        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>goal-account budget left</small></span>
+        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>current month budget left</small></span>
         <i>−</i>
         <span><b>${formatCurrency(dep.futureSalaryHold)}</b><small>future salary budget hold</small></span>
         <i>+</i>
