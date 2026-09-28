@@ -177,8 +177,8 @@ function readBudgetSection(sheet, range) {
 }
 
 function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
-  const billsRows = readBudgetSection(budgetSheet, "A2:B13");
-  const monthlyRows = readBudgetSection(budgetSheet, "F2:G13");
+  const billsRows = readBudgetSection(budgetSheet, "A2:B13", "Bills");
+  const monthlyRows = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
   budgetSummary.billsTotal = billsRows.reduce((s,r)=>s+r.allocated,0);
   budgetSummary.monthlyTotal = monthlyRows.reduce((s,r)=>s+r.allocated,0);
   budgetSummary.billsRows = billsRows;
@@ -472,12 +472,11 @@ function computeDeployableBalance() {
   const ccOwedForGoals = Math.max(0, ccOwed - ccClaimReceivable);
   const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
 
-  // Step 3: block the NET remaining budget for the rest of the current month.
-  // Use the overall budget balance so overspending in any category reduces the
-  // amount still reserved before cash can be assigned to goals.
+  // Step 3: block the NET remaining current-month budget that is funded by
+  // selected Goal accounts. Overspending in that same funding pool reduces the hold.
   const budgetPosition         = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance   = budgetPosition.total.balance;
-  const remainingBudgetReserve = Math.max(0, monthlyBudgetBalance);
+  const remainingBudgetReserve = Math.max(0, budgetPosition.total.goalReserve || 0);
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
@@ -542,8 +541,10 @@ function computeBudgetPositionForMonth(monthDate) {
 
   const buildSection = (type, budgetRows, spentMap) => {
     const allocatedByCategory = new Map();
+    const fundingByCategory = new Map();
     budgetRows.forEach(row => {
       allocatedByCategory.set(row.category, (allocatedByCategory.get(row.category) || 0) + row.allocated);
+      if (row.fundingAccount) fundingByCategory.set(row.category, row.fundingAccount);
     });
 
     const categoryNames = [...new Set([...allocatedByCategory.keys(), ...spentMap.keys()])];
@@ -551,8 +552,17 @@ function computeBudgetPositionForMonth(monthDate) {
       const allocated = allocatedByCategory.get(category) || 0;
       const spent = spentMap.get(category) || 0;
       const balance = allocated - spent;
-      const accountScope = getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
-      const goalReserve = accountScope.reserve ? Math.max(0, balance) : 0;
+      const configuredFundingAccount = fundingByCategory.get(category) || "";
+      const accountScope = configuredFundingAccount
+        ? {
+            reserve: new Set(goalSavingsAccts.map(accountKey)).has(accountKey(configuredFundingAccount)),
+            source: "budget-setting",
+            account: configuredFundingAccount
+          }
+        : getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
+      // Keep negative balances here so overspending in Goal-funded categories
+      // offsets remaining Goal-funded budget elsewhere.
+      const goalReserve = accountScope.reserve ? balance : 0;
       return {
         category,
         allocated,
@@ -567,9 +577,9 @@ function computeBudgetPositionForMonth(monthDate) {
 
     const allocated = rows.reduce((sum, row) => sum + row.allocated, 0);
     const spent = rows.reduce((sum, row) => sum + row.spent, 0);
-    const goalReserve = rows.reduce((sum, row) => sum + row.goalReserve, 0);
     const balance = allocated - spent;
-    return { rows, allocated, spent, balance, goalReserve, over: Math.max(0, spent - allocated) };
+    const goalReserveRaw = rows.reduce((sum, row) => sum + row.goalReserve, 0);
+    return { rows, allocated, spent, balance, goalReserve: Math.max(0, goalReserveRaw), goalReserveRaw, over: Math.max(0, spent - allocated) };
   };
 
   const bills = buildSection("bills", budgetSummary.billsRows || [], spentByType.bills);
@@ -578,7 +588,7 @@ function computeBudgetPositionForMonth(monthDate) {
     allocated: bills.allocated + monthly.allocated,
     spent: bills.spent + monthly.spent,
     balance: bills.balance + monthly.balance,
-    goalReserve: bills.goalReserve + monthly.goalReserve
+    goalReserve: Math.max(0, (bills.goalReserveRaw || 0) + (monthly.goalReserveRaw || 0))
   };
   total.over = Math.max(0, total.spent - total.allocated);
 
