@@ -215,3 +215,37 @@
 .cg-recorded-note{font-size:12px!important}
 @media(max-width:1100px){.cg-planned-savings-list{grid-template-columns:repeat(2,minmax(260px,1fr))!important}}
 @media(max-width:650px){.cg-planned-savings-list{grid-template-columns:1fr!important}.cg-salary-math{grid-template-columns:1fr auto 1fr!important}}
+
+
+/* 2026-09-29: denser Step 2 forecast layout */
+.cg-summary .cg-planned-card{grid-column:1/-1!important}
+.cg-summary .cg-plan-list{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:8px!important;
+  margin-top:8px!important
+}
+.cg-summary .cg-plan-month{
+  padding:10px 12px!important;
+  gap:6px!important;
+  border-radius:10px!important;
+  min-width:0!important
+}
+.cg-summary .cg-plan-month>strong{font-size:15px!important;line-height:1.25!important}
+.cg-summary .cg-salary-math{
+  display:flex!important;
+  align-items:center!important;
+  flex-wrap:wrap!important;
+  gap:4px!important
+}
+.cg-summary .cg-salary-math em{
+  padding:4px 6px!important;
+  font-size:12px!important;
+  border-radius:6px!important
+}
+.cg-summary .cg-salary-math em small{font-size:9px!important}
+.cg-summary .cg-salary-math i{font-size:11px!important}
+.cg-summary .cg-recorded-note{font-size:10px!important;line-height:1.3!important}
+@media(max-width:1200px){.cg-summary .cg-plan-list{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:850px){.cg-summary .cg-plan-list{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:560px){.cg-summary .cg-plan-list{grid-template-columns:1fr!important}}
