@@ -2152,7 +2152,7 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
     const afterShortfall = Math.max(0, afterBudget - (item.shortfallAbsorbed || 0));
     return `<span class="cg-plan-month">
       <b>${label}</b>
-      <strong>${item.recordedSalary > 0 ? `${formatCurrency(item.releasedToday)} already available today` : `${formatCurrency(item.planned)} for goals`}</strong>
+      <strong>${item.recordedSalary > 0 ? `${formatCurrency(item.releasedToday)} ${label.split(" ")[0]} bucket` : `${formatCurrency(item.planned)} for goals`}</strong>
       <span class="cg-salary-math">
         <em><small>Salary</small>${formatCurrency(item.salaryForDisplay)}</em>
         <i>−</i>
@@ -2160,9 +2160,9 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
         ${item.shortfallAbsorbed ? `<i>−</i><em><small>Current shortfall</small>${formatCurrency(item.shortfallAbsorbed)}</em>` : ""}
         ${signedAdj ? `<i>${signedAdj > 0 ? "+" : "−"}</i><em><small>Adjustment</small>${formatCurrency(Math.abs(signedAdj))}</em>` : ""}
         <i>=</i>
-        <em class="result"><small>${item.recordedSalary > 0 ? "Released today" : "Goal cash"}</small>${formatCurrency(item.recordedSalary > 0 ? item.releasedToday : item.planned)}</em>
+        <em class="result"><small>${item.recordedSalary > 0 ? "Month bucket" : "Goal cash"}</small>${formatCurrency(item.recordedSalary > 0 ? item.releasedToday : item.planned)}</em>
       </span>
-      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}; the remaining ${formatCurrency(item.releasedToday)} is already included in today’s available goal cash, so it is not forecast again.</small>` : ""}
+      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}; the remaining ${formatCurrency(item.releasedToday)} is part of today’s free cash, but stays shown under this month in the allocation timeline so the month does not disappear.</small>` : ""}
     </span>`;
   }).join("");
 }
@@ -2279,6 +2279,12 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const depForTimeline = computeDeployableBalance();
   const manualAssignedNow = goalsData.reduce((sum, goal) => sum + Math.max(0, Number(goal.manualSaved || 0)), 0);
   const currentUnassignedGoalCash = Math.max(0, depForTimeline.deployable - manualAssignedNow);
+  const earlySalaryVisualByMonth = new Map(
+    (depForTimeline.futureSalaryDetails || []).map(item => [
+      item.monthKey,
+      Math.max(0, Number(item.futureSalary || 0) - Number(item.budgetForMonth || 0))
+    ])
+  );
 
   function allocateToGoal(gs, gi, m, amount, source="base", targetCap=gs.effectiveTarget) {
     const cappedTarget = Math.min(gs.effectiveTarget, Math.max(0, targetCap));
@@ -2351,13 +2357,12 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     // Keep the current month tied to cash available today. For a future month whose
     // salary was received early, still show that month's salary-after-budget in the
     // timeline for visual allocation. It is a placement view, not additional cash.
-    const recordedSalaryForMonth = m > 0 ? getRecordedFutureSalaryForMonth(forecastMonthDate) : 0;
-    const visualRecordedSurplus = recordedSalaryForMonth > 0
-      ? Math.max(0, recordedSalaryForMonth - computeFutureMonthBudgetReserve(forecastMonthDate))
+    const visualEarlySalarySurplus = m > 0
+      ? (earlySalaryVisualByMonth.get(monthKeyFromDate(forecastMonthDate)) || 0)
       : 0;
     const plannedBaseForMonth = m === 0
       ? currentUnassignedGoalCash
-      : (recordedSalaryForMonth > 0 ? visualRecordedSurplus : getPlannedSavingsForMonth(forecastMonthDate));
+      : (visualEarlySalarySurplus > 0 ? visualEarlySalarySurplus : getPlannedSavingsForMonth(forecastMonthDate));
     let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
     const monthPoolAvailable = basePool + cashflowPool;
