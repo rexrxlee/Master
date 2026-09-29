@@ -497,21 +497,20 @@ function isSalaryIncomeRow(row) {
 }
 
 // ─── Available Balance Calculation ────────────────────────────────
-let goalBudgetSelfLoan = { amount: 0, account: "" };
+let goalBudgetSelfLoan = { amount: 0 };
 
 function loadGoalBudgetSelfLoan(sheet) {
   try {
     const saved = JSON.parse(String(sheet["AG2"]?.v || "{}"));
-    goalBudgetSelfLoan = { amount: Math.max(0, Number(saved.amount)||0), account: clean(saved.account||"") };
-  } catch (_) { goalBudgetSelfLoan = { amount:0, account:"" }; }
+    goalBudgetSelfLoan = { amount: Math.max(0, Number(saved.amount)||0) };
+  } catch (_) { goalBudgetSelfLoan = { amount:0 }; }
 }
 
 function getGoalSelfLoanHold(budgetPosition) {
   const amount = Math.max(0, Number(goalBudgetSelfLoan.amount)||0);
   const monthlyOverspend = Math.max(0, -(Number(budgetPosition?.monthly?.balance)||0));
   const remaining = Math.max(0, amount - Math.min(amount, monthlyOverspend));
-  const isGoalAccount = new Set(goalSavingsAccts.map(accountKey)).has(accountKey(goalBudgetSelfLoan.account));
-  return isGoalAccount ? remaining : 0;
+  return remaining;
 }
 
 function computeDeployableBalance() {
