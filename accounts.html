@@ -164,7 +164,7 @@
     }
   </style>
 </head>
-<body onload="loadAccountsPage()">
+<body onload="initGlobalNav(); loadAccountsPage()">
 
   <aside class="sidebar">
     <div class="sidebar-brand">
@@ -182,6 +182,8 @@
       <p id="status"></p>
     </div>
   </aside>
+
+  <button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Hide navigation">‹</button>
 
   <main class="main">
     <header class="topbar">
@@ -236,6 +238,12 @@
       Saved.
     </div>
   </main>
+  <script>
+function applyGlobalNav(hidden){document.body.classList.toggle("nav-hidden",hidden);const b=document.getElementById("globalNavToggle");if(b){b.textContent=hidden?"☰":"‹";b.setAttribute("aria-label",hidden?"Show navigation":"Hide navigation");}}
+function toggleGlobalNav(){const hidden=!document.body.classList.contains("nav-hidden");localStorage.setItem("fintrackNavHidden",hidden?"true":"false");applyGlobalNav(hidden);}
+function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");applyGlobalNav(saved==="true"||(saved===null&&window.innerWidth<=768));}
+</script>
+
 
   <script src="config.js"></script>
   <script src="onedrive.js"></script>
