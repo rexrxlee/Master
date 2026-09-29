@@ -2444,6 +2444,23 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, monthly:false, spillover:true });
     allocatePhase(activeOpenBufferItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
 
+    // If this month's cash is still left after filling every currently-active
+    // goal, roll it immediately into the next unfinished goal(s), even when
+    // their configured start month is later. This keeps a windfall (e.g. AWS)
+    // visible in the month it arrives instead of making the surplus disappear
+    // until a later month.
+    if (basePool + cashflowPool > 0) {
+      const futureGoals = goalItems()
+        .filter(({ gs }) => gs.saved < gs.baseTarget)
+        .sort(compareProjection);
+      futureGoals.forEach(({ gs, gi }) => {
+        const availablePool = basePool + cashflowPool;
+        if (availablePool <= 0) return;
+        const used = allocateFromForecastPool(gs, gi, availablePool, gs.baseTarget);
+        monthPoolUsed[gi] += used;
+      });
+    }
+
     unallocatedBaseData[m] = Math.max(0, basePool);
     unallocatedCashflowData[m] = Math.max(0, cashflowPool);
     unallocatedData[m] = unallocatedBaseData[m] + unallocatedCashflowData[m];
