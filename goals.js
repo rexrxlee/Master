@@ -71,7 +71,6 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals must always use the latest funding accounts / ending dates without
     // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
-    loadGoalBudgetSelfLoan(budgetSheet);
     await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
@@ -497,22 +496,6 @@ function isSalaryIncomeRow(row) {
 }
 
 // ─── Available Balance Calculation ────────────────────────────────
-let goalBudgetSelfLoan = { amount: 0 };
-
-function loadGoalBudgetSelfLoan(sheet) {
-  try {
-    const saved = JSON.parse(String(sheet["AG2"]?.v || "{}"));
-    goalBudgetSelfLoan = { amount: Math.max(0, Number(saved.amount)||0) };
-  } catch (_) { goalBudgetSelfLoan = { amount:0 }; }
-}
-
-function getGoalSelfLoanHold(budgetPosition) {
-  const amount = Math.max(0, Number(goalBudgetSelfLoan.amount)||0);
-  const monthlyOverspend = Math.max(0, -(Number(budgetPosition?.monthly?.balance)||0));
-  const remaining = Math.max(0, amount - Math.min(amount, monthlyOverspend));
-  return remaining;
-}
-
 function computeDeployableBalance() {
   // Step 1: sum balances of goal-eligible savings accounts
   let rawSavings = 0;
@@ -547,9 +530,6 @@ function computeDeployableBalance() {
     })
     .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
   const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
-  // Self-loan is bookkeeping against overspend already reflected in account/card balances.
-  // It must never create a second Goals deduction.
-  const selfLoanHold = 0;
   const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
 
   // Step 4: future-dated salary is already in account balances, but should
@@ -568,7 +548,6 @@ function computeDeployableBalance() {
     remainingBudget: remainingBudgetReserve,
     unpaidGoalBills,
     remainingMonthlyExpenseBudget,
-    selfLoanHold,
     monthlyBudgetBalance,
     futureSalaryHold: futureSalaryHold.total,
     futureSalaryHoldDetails: futureSalaryHold.details,
