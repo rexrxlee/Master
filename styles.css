@@ -1421,3 +1421,8 @@ body.nav-hidden .topbar{padding-left:56px}
 .extra-allowance-stats{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding-top:12px;border-top:1px solid var(--border)}
 .extra-allowance-stats span{font-size:12px;color:var(--muted)}.extra-allowance-stats b{display:block;margin-top:3px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px}
 @media(max-width:768px){.extra-allowance-card{grid-template-columns:1fr}.extra-allowance-stats{grid-template-columns:1fr}.extra-allowance-card input{min-height:46px;font-size:16px}}
+
+
+/* Live build indicator */
+.deploy-version{position:fixed;z-index:99;right:12px;bottom:10px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.92);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;line-height:1;box-shadow:0 1px 4px rgba(15,23,42,.08);user-select:text}
+@media(max-width:600px){.deploy-version{right:8px;bottom:8px;font-size:9px;padding:4px 6px}}
