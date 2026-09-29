@@ -86,8 +86,6 @@ function resetCompactPlan() {
 }
 
 function compactGoalUsableBreakdown(dep) {
-  const budgetPageTotal = (budgetSummary.billsTotal || 0) + (budgetSummary.monthlyTotal || 0);
-  const budgetHoldAmount = futureSalaryBudgetOverride === null ? budgetPageTotal : futureSalaryBudgetOverride;
   const futureDetails = (dep.futureSalaryHoldDetails || []).map(item =>
     `<div><span>${escapeHtml(item.label)}</span><strong>${formatCurrency(item.reserve)}</strong><small>${formatCurrency(item.futureSalary)} salary, ${formatCurrency(item.budgetForMonth || item.reserve)} budget pulled</small></div>`
   ).join("");
@@ -108,12 +106,10 @@ function compactGoalUsableBreakdown(dep) {
         <i>+</i>
         <span><b>${formatCurrency(dep.claimReceivableForGoals)}</b><small>pending claims</small></span>
       </div>
-      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid Goal-funded bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget. Spending already in account balances or card debt is not deducted twice. Future salary is not removed in full; only the budget needed from that salary is held back.</p>
+      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid protected bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget${dep.selfLoanHold ? ` + ${formatCurrency(dep.selfLoanHold)} unused self-loan reserve` : ""}. Spending already in account balances or card debt is not deducted twice.</p>
       <div class="cg-budget-copy">
-        <label><input type="checkbox" ${holdFutureSalaryBudget ? "checked" : ""} onchange="setHoldFutureSalaryBudget(this.checked)"> Copy same Budget page total for future salary</label>
-        <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Pull Budget</button>
-        <span class="cg-note">Budget page total: ${formatCurrency(budgetPageTotal)}</span>
-        <label class="cg-budget-manual">Budget hold amount ($)<input type="number" min="0" step="1" value="${budgetHoldAmount}" oninput="setFutureSalaryBudgetOverride(this.value)"></label>
+        <div><strong>Future salary protection</strong><small class="cg-note">Calculated automatically month by month from active Budget rows. Ending dates are respected; there is no fixed Budget override.</small></div>
+        <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
         <span class="cg-note" id="compactBudgetPullStatus"></span>
         <div class="cg-budget-copy-list">${futureDetails || '<span>No future salary budget hold right now.</span>'}</div>
       </div>
