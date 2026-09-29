@@ -726,11 +726,7 @@ function getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMon
 }
 
 function computeFutureSalaryHold() {
-  if (!holdFutureSalaryBudget) {
-    return { total: 0, futureSalary: 0, details: [] };
-  }
-
-  const today = new Date();
+   const today = new Date();
   const currentMonthIndex = today.getFullYear() * 12 + today.getMonth();
   const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
   const salaryByMonth = new Map();
@@ -776,9 +772,7 @@ function computeFutureSalaryHold() {
 }
 
 function computeFutureMonthBudgetReserve(monthDate) {
-  if (futureSalaryBudgetOverride !== null) return futureSalaryBudgetOverride;
-
-  const goalAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+   const goalAccountKeys = new Set(goalSavingsAccts.map(accountKey));
 
   // Future Bills are held only when their configured funding account is a
   // selected Goal account. Ending dates are respected for the target month.
