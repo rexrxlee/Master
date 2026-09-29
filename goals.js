@@ -2271,45 +2271,14 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const unallocatedBaseData = Array(MONTHS).fill(0);
   const unallocatedCashflowData = Array(MONTHS).fill(0);
   const cashflowReductionData = Array(MONTHS).fill(0);
-  const forecastStartMonth = 1;
+  const forecastStartMonth = 0;
 
-  // Future salary can already be present in today's selected-account balance.
-  // For accounting it must not be added again, but the timeline should still
-  // visualise that cash in the month it belongs to. Move only the protected
-  // salary surplus out of today's display allocation and into its salary month.
+  // Current-month forecast uses the real goal cash already available today.
+  // Early future salary is already in the bank balance; only its future month's
+  // budget is protected, so the surplus belongs here rather than being forecast again later.
   const depForTimeline = computeDeployableBalance();
-  const recordedFutureSurplusByMonth = new Map(
-    (depForTimeline.futureSalaryHoldDetails || []).map(item => [
-      item.monthKey,
-      Math.max(0, (Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0))
-    ])
-  );
-  let actualCashShortfallCarry = Math.max(0, Number(depForTimeline.currentCashShortfall) || 0);
-  for (const [monthKey, amount] of recordedFutureSurplusByMonth) {
-    if (actualCashShortfallCarry <= 0) break;
-    const absorbed = Math.min(amount, actualCashShortfallCarry);
-    recordedFutureSurplusByMonth.set(monthKey, amount - absorbed);
-    actualCashShortfallCarry -= absorbed;
-  }
-  let timelineFutureCashToMove = [...recordedFutureSurplusByMonth.values()].reduce((sum, amount) => sum + amount, 0);
-  const timelineMovedByGoal = Array(goalState.length).fill(0);
-
-  // Remove the same amount from current manual allocations for DISPLAY only,
-  // starting from lower-priority/later goals. Saved slider values are untouched.
-  [...goalState.map((gs, gi) => ({ gs, gi }))]
-    .sort((a, b) => compareProjection(b, a))
-    .forEach(({ gs, gi }) => {
-      if (timelineFutureCashToMove <= 0) return;
-      const manual = Math.max(0, Number(goalsData[gi]?.manualSaved || 0));
-      const move = Math.min(manual, timelineFutureCashToMove);
-      if (move <= 0) return;
-      gs.initialSaved -= move;
-      gs.saved = Math.min(gs.initialSaved, gs.effectiveTarget);
-      gs.completedAt = gs.saved >= gs.effectiveTarget ? 0 : null;
-      gs.baseCompletedAt = gs.saved >= gs.baseTarget ? 0 : null;
-      timelineMovedByGoal[gi] = move;
-      timelineFutureCashToMove -= move;
-    });
+  const manualAssignedNow = goalsData.reduce((sum, goal) => sum + Math.max(0, Number(goal.manualSaved || 0)), 0);
+  const currentUnassignedGoalCash = Math.max(0, depForTimeline.deployable - manualAssignedNow);
 
   function allocateToGoal(gs, gi, m, amount, source="base", targetCap=gs.effectiveTarget) {
     const cappedTarget = Math.min(gs.effectiveTarget, Math.max(0, targetCap));
@@ -2379,9 +2348,8 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   for (let m = 0; m < MONTHS; m++) {
     const isForecastMonth = m >= forecastStartMonth;
     const forecastMonthDate = new Date(today.getFullYear(), today.getMonth() + m, 1);
-    const plannedBaseForMonth = getPlannedSavingsForMonth(forecastMonthDate);
-    const recordedFutureSurplus = recordedFutureSurplusByMonth.get(monthKeyFromDate(forecastMonthDate)) || 0;
-    let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + recordedFutureSurplus + Math.min(0, poolBoost[m])) : 0;
+    const plannedBaseForMonth = m === 0 ? currentUnassignedGoalCash : getPlannedSavingsForMonth(forecastMonthDate);
+    let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
     const monthPoolAvailable = basePool + cashflowPool;
     const monthPoolUsed = Array(goalState.length).fill(0);
