@@ -180,7 +180,7 @@ function getMonthlyExpenseOverspend() {
 function getSelfLoanPosition() {
   const amount = Math.max(0, Number(budgetSelfLoan.amount) || 0);
   const consumed = Math.min(amount, getMonthlyExpenseOverspend());
-  return { amount, consumed, remaining: Math.max(0, amount - consumed) };
+  return { amount, consumed, unassigned: Math.max(0, amount - consumed) };
 }
 
 function renderSelfLoanControl() {
@@ -188,9 +188,9 @@ function renderSelfLoanControl() {
   if (!el) return;
   const p = getSelfLoanPosition();
   el.innerHTML = `<div class="self-loan-card">
-    <div><strong>One-time self loan</strong><small>Extra cash ring-fenced across Monthly Expenses. It is a general reserve, not tied to any bank account.</small></div>
+    <div><strong>One-time self loan</strong><small>Bookkeeping pool assigned against Monthly Expense overspend already paid or owed. It does not block Goals a second time.</small></div>
     <label>Loan amount<input id="budgetSelfLoanAmount" type="number" min="0" step="0.01" value="${p.amount || ""}" placeholder="0.00" onchange="updateBudgetSelfLoan()"></label>
-    <div class="self-loan-position"><span>Used by overspend <b>${formatCurrency(p.consumed)}</b></span><span>Still blocked <b>${formatCurrency(p.remaining)}</b></span></div>
+    <div class="self-loan-position"><span>Used by overspend <b>${formatCurrency(p.consumed)}</b></span><span>Unused loan allocation <b>${formatCurrency(p.unassigned)}</b></span></div>
   </div>`;
 }
 
