@@ -303,7 +303,7 @@ function updateCompactAllocationSummary() {
   const dep = computeDeployableBalance();
   const assigned = goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0);
   const free = dep.deployable - assigned;
-  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div class="cg-planned-card"><small>Planned savings · next 12 months</small><div class="cg-plan-list">${renderPlannedSavingsSchedule(12)}</div></div>`;
+  summary.innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < 0 ? "Over-assigned" : "Unassigned cash today"}</small><strong class="${free < 0 ? "red" : ""}">${formatCurrency(Math.abs(free))}</strong></div><div class="cg-planned-card"><small>New goal cash forecast · next 12 months</small><div class="cg-plan-list">${renderPlannedSavingsSchedule(12)}</div></div>`;
   const assignTotal = document.getElementById("compactAssignTotal");
   if (assignTotal) assignTotal.innerHTML = `<span>${free < 0 ? "Reduce slider cash by" : "Checking redirect room"}</span><strong class="${free < 0 ? "red" : ""}">${formatCurrency(free < 0 ? Math.abs(free) : Math.max(0, free))}</strong>`;
   updateCompactSaveStatus();
