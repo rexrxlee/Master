@@ -2160,7 +2160,7 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
         ${item.shortfallAbsorbed ? `<i>−</i><em><small>Current shortfall</small>${formatCurrency(item.shortfallAbsorbed)}</em>` : ""}
         ${signedAdj ? `<i>${signedAdj > 0 ? "+" : "−"}</i><em><small>Adjustment</small>${formatCurrency(Math.abs(signedAdj))}</em>` : ""}
         <i>=</i>
-        <em class="result"><small>Goal cash</small>${formatCurrency(item.planned)}</em>
+        <em class="result"><small>${item.recordedSalary > 0 ? "Released today" : "Goal cash"}</small>${formatCurrency(item.recordedSalary > 0 ? item.releasedToday : item.planned)}</em>
       </span>
       ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}; the remaining ${formatCurrency(item.releasedToday)} is already included in today’s available goal cash, so it is not forecast again.</small>` : ""}
     </span>`;
@@ -2488,8 +2488,6 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     unallocatedBaseData,
     unallocatedCashflowData,
     cashflowReductionData,
-    recordedFutureSurplusByMonth,
-    timelineMovedByGoal,
     forecastStartMonth,
     monthOffsetFromToday,
     monthLabel,
