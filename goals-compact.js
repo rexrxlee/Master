@@ -100,11 +100,11 @@ function compactGoalUsableBreakdown(dep) {
     const usable = Math.max(0, (Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0));
     return `<div class="cg-flow-future">
       <span><b>${escapeHtml(item.label)}</b><small>Salary already received early</small></span>
-      <span><b>${formatCurrency(item.futureSalary)}</b><small>kept for ${escapeHtml(item.label)}</small></span>
+      <span><b>${formatCurrency(item.futureSalary)}</b><small>salary already received</small></span>
       <span class="cg-flow-arrow">→</span>
       <span><b>${formatCurrency(item.budgetReserve || 0)}</b><small>month's budget</small></span>
       <span class="cg-flow-arrow">→</span>
-      <span><b>${formatCurrency(usable)}</b><small>planned goal cash</small></span>
+      <span><b>${formatCurrency(usable)}</b><small>already released into today's goal cash</small></span>
     </div>`;
   }).join("");
 
@@ -122,7 +122,7 @@ function compactGoalUsableBreakdown(dep) {
         <span>−</span>
         <div><small>3 · Keep for this month</small><strong>${formatCurrency(dep.remainingBudget)}</strong></div>
         <span>−</span>
-        <div><small>4 · Salary that belongs to later</small><strong>${formatCurrency(dep.futureSalaryHold)}</strong></div>
+        <div><small>4 · Next-month budget protected</small><strong>${formatCurrency(dep.futureSalaryHold)}</strong></div>
         <span>+</span>
         <div><small>5 · Claims coming back</small><strong>${formatCurrency(dep.claimReceivableForGoals)}</strong></div>
         <span>=</span>
@@ -133,11 +133,11 @@ function compactGoalUsableBreakdown(dep) {
         <summary>What is being protected?</summary>
         <div class="cg-flow-explain-grid">
           <div><b>This month · ${formatCurrency(dep.remainingBudget)}</b><p>${currentDetail}.</p><p>Money you already spent is <b>not deducted again</b>; it is already reflected in your bank/card balances.</p></div>
-          <div><b>Future salary · ${formatCurrency(dep.futureSalaryHold)}</b><p>If a later month's salary arrives early, the whole salary is kept out of today's goal money. In its own month, only salary minus that month's budget becomes goal cash.</p></div>
+          <div><b>Next-month budget · ${formatCurrency(dep.futureSalaryHold)}</b><p>If next month's salary arrives early, only the amount needed for that month's budget is protected. The salary surplus is already real cash in your account and can be used for goals today.</p></div>
         </div>
       </details>
 
-      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Future salary is shown in the month it belongs to — not counted twice.</small></div>${futureDetails}</div>` : ""}
+      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Only the future budget stays protected; the salary surplus is usable today and is not counted again next month.</small></div>${futureDetails}</div>` : ""}
       <span class="cg-note" id="compactBudgetPullStatus"></span>
     </section>`;
 }
