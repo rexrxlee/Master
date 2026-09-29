@@ -2279,8 +2279,12 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const depForTimeline = computeDeployableBalance();
   const manualAssignedNow = goalsData.reduce((sum, goal) => sum + Math.max(0, Number(goal.manualSaved || 0)), 0);
   const currentUnassignedGoalCash = Math.max(0, depForTimeline.deployable - manualAssignedNow);
+  // Reuse the exact early-salary details already calculated in Step 1.
+  // computeDeployableBalance exposes these as futureSalaryHoldDetails.
+  // This keeps the salary surplus visible under its actual future month in Step 3
+  // without relying on a second transaction scan.
   const earlySalaryVisualByMonth = new Map(
-    (depForTimeline.futureSalaryDetails || []).map(item => [
+    (depForTimeline.futureSalaryHoldDetails || []).map(item => [
       item.monthKey,
       Math.max(0, Number(item.futureSalary || 0) - Number(item.budgetForMonth || 0))
     ])
