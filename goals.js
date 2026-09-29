@@ -2116,6 +2116,7 @@ function getNextMonthPlannedSavings() {
 function getPlannedSavingsSchedule(monthCount = 12) {
   const today = new Date();
   const salary = Math.max(0, Number(historicalStats.avgMonthlyIncome) || 0);
+  let actualCashShortfallCarry = Math.max(0, Number(computeDeployableBalance().currentCashShortfall) || 0);
   return Array.from({ length: monthCount }, (_, i) => {
     const date = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
     const budget = computeFutureMonthBudgetReserve(date);
@@ -2132,8 +2133,14 @@ function getPlannedSavingsSchedule(monthCount = 12) {
     // recorded in today's balances, still show the usable salary surplus in the
     // month it belongs to; accounting protection prevents it being spent today.
     const salaryForDisplay = recordedSalary > 0 ? recordedSalary : salary;
-    const basePlanned = Math.max(0, salaryForDisplay - budget);
-    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, planned: Math.max(0, basePlanned + adjustment) };
+    let basePlanned = Math.max(0, salaryForDisplay - budget);
+    let shortfallAbsorbed = 0;
+    if (recordedSalary > 0 && actualCashShortfallCarry > 0) {
+      shortfallAbsorbed = Math.min(basePlanned, actualCashShortfallCarry);
+      basePlanned -= shortfallAbsorbed;
+      actualCashShortfallCarry -= shortfallAbsorbed;
+    }
+    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, shortfallAbsorbed, planned: Math.max(0, basePlanned + adjustment) };
   });
 }
 
@@ -2266,6 +2273,13 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
       Math.max(0, (Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0))
     ])
   );
+  let actualCashShortfallCarry = Math.max(0, Number(depForTimeline.currentCashShortfall) || 0);
+  for (const [monthKey, amount] of recordedFutureSurplusByMonth) {
+    if (actualCashShortfallCarry <= 0) break;
+    const absorbed = Math.min(amount, actualCashShortfallCarry);
+    recordedFutureSurplusByMonth.set(monthKey, amount - absorbed);
+    actualCashShortfallCarry -= absorbed;
+  }
   let timelineFutureCashToMove = [...recordedFutureSurplusByMonth.values()].reduce((sum, amount) => sum + amount, 0);
   const timelineMovedByGoal = Array(goalState.length).fill(0);
 
