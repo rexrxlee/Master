@@ -1405,3 +1405,11 @@ textarea:focus,
     justify-content: center;
   }
 }
+
+/* Global collapsible sidebar */
+.global-nav-toggle{position:fixed;z-index:100;left:calc(var(--sidebar-w) + 8px);top:10px;width:38px;height:38px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font-size:22px;line-height:1;box-shadow:0 2px 8px rgba(15,23,42,.12);display:grid;place-items:center}
+body.nav-hidden .sidebar{display:none!important}
+body.nav-hidden .main{margin-left:0!important;width:100vw!important;max-width:100vw!important}
+body.nav-hidden .global-nav-toggle{left:10px}
+body.nav-hidden .topbar{padding-left:56px}
+@media(max-width:768px){.global-nav-toggle{left:68px}.global-nav-toggle{width:40px;height:40px}.main{min-width:0}body.nav-hidden .main{overflow-x:hidden}}
