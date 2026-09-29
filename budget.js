@@ -4,7 +4,6 @@ let billsBudget = [];
 let monthlyBudget = [];
 let budgetAutoSaveTimer = null;
 let budgetAutoSaveInFlight = false;
-let budgetSelfLoan = { amount: 0 };
 
 const BUDGET_SHEET = "Budget Setup";
 const BUDGET_PROJECTION_STORAGE_KEY = "fintrackBudgetProjectionAssumptions";
@@ -34,7 +33,6 @@ async function loadBudgetPage(forceRefresh = false) {
     billsBudget        = readBudgetSection(budgetSheet, "A2:B13", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
     applyBudgetFundingMap(budgetSheet);
-    loadBudgetSelfLoan(budgetSheet);
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
     budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
 
@@ -163,44 +161,6 @@ function renderBudgetFundingOptions(selected) {
 
 function accountKey(name) { return clean(name).toLowerCase(); }
 
-function loadBudgetSelfLoan(sheet) {
-  try {
-    const saved = JSON.parse(String(sheet["AG2"]?.v || "{}"));
-    budgetSelfLoan = { amount: Math.max(0, Number(saved.amount) || 0) };
-  } catch (_) { budgetSelfLoan = { amount: 0 }; }
-}
-
-function getMonthlyExpenseOverspend() {
-  const rows = monthlyBudget.map(item => computeBudgetRow(item));
-  const allocated = rows.reduce((s,r) => s + (Number(r.allocated)||0), 0);
-  const spent = rows.reduce((s,r) => s + (Number(r.spent)||0), 0);
-  return Math.max(0, spent - allocated);
-}
-
-function getSelfLoanPosition() {
-  const amount = Math.max(0, Number(budgetSelfLoan.amount) || 0);
-  const consumed = Math.min(amount, getMonthlyExpenseOverspend());
-  return { amount, consumed, unassigned: Math.max(0, amount - consumed) };
-}
-
-function renderSelfLoanControl() {
-  const el = document.getElementById("budgetSelfLoanPanel");
-  if (!el) return;
-  const p = getSelfLoanPosition();
-  el.innerHTML = `<div class="self-loan-card">
-    <div><strong>One-time self loan</strong><small>Bookkeeping pool assigned against Monthly Expense overspend already paid or owed. It does not block Goals a second time.</small></div>
-    <label>Loan amount<input id="budgetSelfLoanAmount" type="number" min="0" step="0.01" value="${p.amount || ""}" placeholder="0.00" onchange="updateBudgetSelfLoan()"></label>
-    <div class="self-loan-position"><span>Used by overspend <b>${formatCurrency(p.consumed)}</b></span><span>Unused loan allocation <b>${formatCurrency(p.unassigned)}</b></span></div>
-  </div>`;
-}
-
-function updateBudgetSelfLoan() {
-  budgetSelfLoan = {
-    amount: Math.max(0, Number(document.getElementById("budgetSelfLoanAmount")?.value) || 0)
-  };
-  renderBudget();
-  scheduleBudgetAutoSave();
-}
 
 function addBudgetItem() {
   const type      = document.getElementById("budgetType").value;
@@ -265,7 +225,6 @@ function renderBudget() {
   renderBudgetVisualPanel(computedBills, computedMonthly);
   renderBudgetProjectionPanel(computedMonthly);
   renderBudgetPressurePanel(computedBills, computedMonthly);
-  renderSelfLoanControl();
 }
 
 function computeBudgetRow(item) {
@@ -768,7 +727,6 @@ async function saveBudgetSetupToExcel(options = {}) {
     await writeBudgetSetupRange("A2:B13", buildSaveValues(billsBudget));
     await writeBudgetSetupRange("F2:G13", buildSaveValues(monthlyBudget));
     await writeBudgetSetupRange("AE2:AE2", [[JSON.stringify(buildBudgetFundingMap())]]);
-    await writeBudgetSetupRange("AG2:AG2", [[JSON.stringify(budgetSelfLoan)]]);
     setBudgetAutoSaveStatus("Saved to Excel", "ok");
     if (!silent) alert("Budget saved to Excel.");
     log("Budget saved.");
