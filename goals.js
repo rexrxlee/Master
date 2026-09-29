@@ -2348,7 +2348,16 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   for (let m = 0; m < MONTHS; m++) {
     const isForecastMonth = m >= forecastStartMonth;
     const forecastMonthDate = new Date(today.getFullYear(), today.getMonth() + m, 1);
-    const plannedBaseForMonth = m === 0 ? currentUnassignedGoalCash : getPlannedSavingsForMonth(forecastMonthDate);
+    // Keep the current month tied to cash available today. For a future month whose
+    // salary was received early, still show that month's salary-after-budget in the
+    // timeline for visual allocation. It is a placement view, not additional cash.
+    const recordedSalaryForMonth = m > 0 ? getRecordedFutureSalaryForMonth(forecastMonthDate) : 0;
+    const visualRecordedSurplus = recordedSalaryForMonth > 0
+      ? Math.max(0, recordedSalaryForMonth - computeFutureMonthBudgetReserve(forecastMonthDate))
+      : 0;
+    const plannedBaseForMonth = m === 0
+      ? currentUnassignedGoalCash
+      : (recordedSalaryForMonth > 0 ? visualRecordedSurplus : getPlannedSavingsForMonth(forecastMonthDate));
     let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
     const monthPoolAvailable = basePool + cashflowPool;
