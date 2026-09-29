@@ -547,8 +547,10 @@ function computeDeployableBalance() {
     })
     .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
   const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
-  const selfLoanHold = getGoalSelfLoanHold(budgetPosition);
-  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget + selfLoanHold;
+  // Self-loan is bookkeeping against overspend already reflected in account/card balances.
+  // It must never create a second Goals deduction.
+  const selfLoanHold = 0;
+  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
