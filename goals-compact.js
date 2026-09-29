@@ -657,7 +657,7 @@ function renderCompactTimeline(rows, model) {
           </div>`;
         }).join("")}
       `).join("")}
-    </div>
+      <div class="cg-timeline-total-label">Total</div>\n      ${timeline.months.map(month => { const total = compactMoney(timeline.rows.reduce((sum, row) => { const cell = row.months[month.idx]; return sum + (cell?.assigned || 0) + (cell?.forecast || 0) + (cell?.adjustments || 0); }, 0)); return `<div class="cg-timeline-total">${formatCurrency(total)}</div>`; }).join("")}\n    </div>
     <div class="cg-timeline-legend"><span><i class="assigned"></i>Assigned</span><span><i class="forecast"></i>Forecast</span><span><i class="adjustments"></i>Adjustments</span></div>`;
 }
 
