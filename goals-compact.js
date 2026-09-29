@@ -106,7 +106,7 @@ function compactGoalUsableBreakdown(dep) {
         <i>+</i>
         <span><b>${formatCurrency(dep.claimReceivableForGoals)}</b><small>pending claims</small></span>
       </div>
-      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid protected bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget${dep.selfLoanHold ? ` + ${formatCurrency(dep.selfLoanHold)} unused self-loan reserve` : ""}. Spending already in account balances or card debt is not deducted twice.</p>
+      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid protected bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget. Spending already in account balances or card debt is not deducted twice.</p>
       <div class="cg-budget-copy">
         <div><strong>Future salary protection</strong><small class="cg-note">Calculated automatically month by month from active Budget rows. Ending dates are respected; there is no fixed Budget override.</small></div>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
