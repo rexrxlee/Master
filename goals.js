@@ -72,7 +72,12 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals must always use the latest funding accounts / ending dates without
     // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
-    extraMonthlyAllowance = Math.max(0, Number(budgetSheet["AG2"]?.v || 0) || 0);
+    try {
+      const allowanceResult = await readBudgetSetupRange("AG2:AG2");
+      extraMonthlyAllowance = Math.max(0, Number(allowanceResult?.values?.[0]?.[0] || 0) || 0);
+    } catch (_) {
+      extraMonthlyAllowance = Math.max(0, Number(budgetSheet["AG2"]?.v || 0) || 0);
+    }
     await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
