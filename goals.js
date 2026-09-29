@@ -2147,14 +2147,25 @@ function getPlannedSavingsSchedule(monthCount = 12) {
 function renderPlannedSavingsSchedule(monthCount = 12) {
   return getPlannedSavingsSchedule(monthCount).map(item => {
     const label = item.date.toLocaleDateString("en-SG", { month:"short", year:"numeric" });
-    const adj = item.adjustment === 0 ? "" : ` ${item.adjustment > 0 ? "+" : "−"} adjustment ${formatCurrency(Math.abs(item.adjustment))}`;
-    const detail = item.recordedSalary > 0
-      ? `Recorded salary ${formatCurrency(item.recordedSalary)} − budget ${formatCurrency(item.budget)}${adj} · already protected in today's balance`
-      : `Salary ${formatCurrency(item.salary)} − budget ${formatCurrency(item.budget)}${adj}`;
-    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)} planned goal cash</b><small>${detail}</small></span>`;
+    const signedAdj = Number(item.adjustment || 0);
+    const afterBudget = Math.max(0, item.salaryForDisplay - item.budget);
+    const afterShortfall = Math.max(0, afterBudget - (item.shortfallAbsorbed || 0));
+    return `<span class="cg-plan-month">
+      <b>${label}</b>
+      <strong>${formatCurrency(item.planned)} for goals</strong>
+      <span class="cg-salary-math">
+        <em><small>Salary</small>${formatCurrency(item.salaryForDisplay)}</em>
+        <i>−</i>
+        <em><small>Budget</small>${formatCurrency(item.budget)}</em>
+        ${item.shortfallAbsorbed ? `<i>−</i><em><small>Current shortfall</small>${formatCurrency(item.shortfallAbsorbed)}</em>` : ""}
+        ${signedAdj ? `<i>${signedAdj > 0 ? "+" : "−"}</i><em><small>Adjustment</small>${formatCurrency(Math.abs(signedAdj))}</em>` : ""}
+        <i>=</i>
+        <em class="result"><small>Goal cash</small>${formatCurrency(item.planned)}</em>
+      </span>
+      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">Salary is already in today’s bank balance, so it is protected above until ${label}.</small>` : ""}
+    </span>`;
   }).join("");
 }
-
 function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const today = new Date();
   const forecastBaseMonthly = getNextMonthPlannedSavings();
