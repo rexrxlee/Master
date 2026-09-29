@@ -4,6 +4,7 @@ let billsBudget = [];
 let monthlyBudget = [];
 let budgetAutoSaveTimer = null;
 let budgetAutoSaveInFlight = false;
+let extraMonthlyAllowance = 0;
 
 const BUDGET_SHEET = "Budget Setup";
 const BUDGET_PROJECTION_STORAGE_KEY = "fintrackBudgetProjectionAssumptions";
@@ -33,6 +34,7 @@ async function loadBudgetPage(forceRefresh = false) {
     billsBudget        = readBudgetSection(budgetSheet, "A2:B13", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
     applyBudgetFundingMap(budgetSheet);
+    extraMonthlyAllowance = Math.max(0, toNumber(budgetSheet["AG2"]?.v));
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
     budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
 
@@ -225,6 +227,45 @@ function renderBudget() {
   renderBudgetVisualPanel(computedBills, computedMonthly);
   renderBudgetProjectionPanel(computedMonthly);
   renderBudgetPressurePanel(computedBills, computedMonthly);
+  renderExtraMonthlyAllowance(computedMonthly);
+}
+
+function getExtraMonthlyAllowancePosition(rows = monthlyBudget.map(item => computeBudgetRow(item))) {
+  const allocated = rows.reduce((sum, row) => sum + toNumber(row.allocated), 0);
+  const spent = rows.reduce((sum, row) => sum + toNumber(row.spent), 0);
+  const alreadyOverspent = Math.max(0, spent - allocated);
+  const allowance = Math.max(0, toNumber(extraMonthlyAllowance));
+  const alreadyUsed = Math.min(allowance, alreadyOverspent);
+  const stillReserved = Math.max(0, allowance - alreadyUsed);
+  return { allowance, alreadyOverspent, alreadyUsed, stillReserved };
+}
+
+function renderExtraMonthlyAllowance(rows) {
+  const el = document.getElementById("extraMonthlyAllowancePanel");
+  if (!el) return;
+  const p = getExtraMonthlyAllowancePosition(rows);
+  el.innerHTML = `
+    <div class="extra-allowance-card">
+      <div>
+        <strong>Extra monthly spending allowance</strong>
+        <p>Set the maximum extra amount you are allowing yourself to spend above the normal Monthly Expenses budget this month. Spending already made is not blocked twice.</p>
+      </div>
+      <label>Extra allowance
+        <input type="number" min="0" step="0.01" value="${p.allowance || ""}" placeholder="0.00"
+          onchange="updateExtraMonthlyAllowance(this.value)">
+      </label>
+      <div class="extra-allowance-stats">
+        <span>Already overspent <b>${formatCurrency(p.alreadyOverspent)}</b></span>
+        <span>Allowance already used <b>${formatCurrency(p.alreadyUsed)}</b></span>
+        <span>Still reserved for future spending <b>${formatCurrency(p.stillReserved)}</b></span>
+      </div>
+    </div>`;
+}
+
+function updateExtraMonthlyAllowance(value) {
+  extraMonthlyAllowance = Math.max(0, toNumber(value));
+  renderBudget();
+  scheduleBudgetAutoSave();
 }
 
 function computeBudgetRow(item) {
@@ -727,6 +768,7 @@ async function saveBudgetSetupToExcel(options = {}) {
     await writeBudgetSetupRange("A2:B13", buildSaveValues(billsBudget));
     await writeBudgetSetupRange("F2:G13", buildSaveValues(monthlyBudget));
     await writeBudgetSetupRange("AE2:AE2", [[JSON.stringify(buildBudgetFundingMap())]]);
+    await writeBudgetSetupRange("AG2:AG2", [[extraMonthlyAllowance || 0]]);
     setBudgetAutoSaveStatus("Saved to Excel", "ok");
     if (!silent) alert("Budget saved to Excel.");
     log("Budget saved.");
