@@ -162,8 +162,8 @@ function renderCompactGoalsPage() {
     <details class="simple-details cg-account-source" open><summary>Which accounts fund my goals?</summary><div class="simple-details-body cg-accounts">
       ${allAccounts.filter(account => account.type === "Savings").map(account => `<label><input type="checkbox" value="${escapeHtml(account.name)}" ${goalSavingsAccts.includes(account.name) ? "checked" : ""} onchange="toggleGoalAccount(this)">${escapeHtml(account.name)} <strong>${formatCurrency(savingsBalances[account.name] || 0)}</strong></label>`).join("") || '<p>Add a savings account in Accounts & Setup first.</p>'}
     </div></details>
-    <section class="cg-summary" id="compactGoalSummary" aria-live="polite"></section>
     <div id="compactUsableBreakdown"></div>
+    <section class="cg-summary" id="compactGoalSummary" aria-live="polite"></section>
     <details class="simple-details cg-add" ${goalsData.length ? "" : "open"}>
       <summary>＋ Add a goal</summary>
       <form class="cg-add-form" onsubmit="event.preventDefault(); addCompactGoal(this)">
@@ -183,7 +183,7 @@ function renderCompactGoalsPage() {
     <div id="compactAdjustments"></div>
     <div class="cg-workspace">
       <section class="cg-controls">
-        <div class="cg-heading"><h2>Assign money</h2><button class="btn-primary" onclick="compactSmartAssign()" ${goalsData.length ? "" : "disabled"}>Smart Assign</button></div>
+        <div class="cg-heading"><div><span class="cg-step-label">STEP 3</span><h2>Assign money to goals</h2><p class="cg-note">Use today’s free cash now. Future months below show where upcoming salary and adjustments are expected to go.</p></div><button class="btn-primary" onclick="compactSmartAssign()" ${goalsData.length ? "" : "disabled"}>Smart Assign</button></div>
         <div class="cg-assign-total" id="compactAssignTotal"></div>
         <label class="cg-sort" for="compactGoalSort">Sort by <select id="compactGoalSort" onchange="sortCompactGoalRows(this.value)"><option value="original" ${compactGoalSort === "original" ? "selected" : ""}>Original order</option><option value="priority" ${compactGoalSort === "priority" ? "selected" : ""}>Priority (highest first)</option></select></label>
         <p class="cg-note">Try allocations freely. Sliders and Smart Assign only preview your plan; choose Save plan when ready.</p>
@@ -669,7 +669,7 @@ function renderCompactTimeline(rows, model) {
   const maxBlock = Math.max(1, ...timeline.rows.flatMap(row => row.months.flatMap(month => [month.assigned, month.forecast, month.adjustments])));
   target.innerHTML = `
     <div class="cg-timeline-grid" style="grid-template-columns:${template}">
-      <div class="cg-timeline-corner">Goal</div>
+      <div class="cg-timeline-corner">Goal / month</div>
       ${timeline.months.map(month => `<div class="cg-timeline-head">${escapeHtml(month.label)}</div>`).join("")}
       ${timeline.rows.map(row => `
         <div class="cg-timeline-goal">${escapeHtml(row.name)}<small>${escapeHtml(row.date)}</small></div>
@@ -682,8 +682,8 @@ function renderCompactTimeline(rows, model) {
           </div>`;
         }).join("")}
       `).join("")}
-      <div class="cg-timeline-total-label">Total</div>\n      ${timeline.months.map(month => { const total = compactMoney(timeline.rows.reduce((sum, row) => { const cell = row.months[month.idx]; return sum + (cell?.assigned || 0) + (cell?.forecast || 0) + (cell?.adjustments || 0); }, 0)); return `<div class="cg-timeline-total">${formatCurrency(total)}</div>`; }).join("")}\n    </div>
-    <div class="cg-timeline-legend"><span><i class="assigned"></i>Assigned</span><span><i class="forecast"></i>Forecast</span><span><i class="adjustments"></i>Adjustments</span></div>`;
+      <div class="cg-timeline-total-label">Month total</div>\n      ${timeline.months.map(month => { const total = compactMoney(timeline.rows.reduce((sum, row) => { const cell = row.months[month.idx]; return sum + (cell?.assigned || 0) + (cell?.forecast || 0) + (cell?.adjustments || 0); }, 0)); return `<div class="cg-timeline-total">${formatCurrency(total)}</div>`; }).join("")}\n    </div>
+    <div class="cg-timeline-legend"><span><i class="assigned"></i>Assigned now</span><span><i class="forecast"></i>Salary after budget</span><span><i class="adjustments"></i>Cashflow adjustment</span></div>`;
 }
 
 function refreshCompactGoalForecast() {
@@ -733,11 +733,11 @@ function refreshCompactGoalForecast() {
   const removable = compactMaxRemovableToday();
   const unassignedCash = compactMoney(Math.max(0, free));
   const redirectToday = compactMoney(unassignedCash + (free >= -0.005 ? removable.amount : 0));
-  document.getElementById("compactGoalSummary").innerHTML = `<div><small>Available for goals</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Cash assigned with sliders</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Can redirect today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong></div><div class="cg-planned-card"><small>Planned goal cash · next 12 months</small><div class="cg-plan-list">${renderPlannedSavingsSchedule(12)}</div></div>`;
-  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce slider cash by" : "Can redirect today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>${formatCurrency(removable.amount)} can come from current sliders after checking target dates and forecast.</small>` : ""}`;
+  document.getElementById("compactGoalSummary").innerHTML = `<div class="cg-section-intro"><span class="cg-step-label">STEP 2</span><h2>Money coming for goals</h2><p>Each month shows exactly how salary becomes goal cash.</p></div><div><small>Free cash today</small><strong>${formatCurrency(dep.deployable)}</strong></div><div><small>Assigned now</small><strong>${formatCurrency(assigned)}</strong></div><div><small>${free < -0.005 ? "Over-assigned" : "Still free today"}</small><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : Math.max(0, free))}</strong></div><div class="cg-planned-card"><small>Monthly forecast · next 12 months</small><div class="cg-plan-list">${renderPlannedSavingsSchedule(12)}</div></div>`;
+  if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce assignments by" : "Free to assign today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>${formatCurrency(removable.amount)} is already assigned but can be redirected between goals if needed.</small>` : ""}`;
   const overall = compactOverallStatus(rows, free, removable);
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
-  document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Assigned</th><th>Cash from sliders</th><th>Forecast</th><th>Adjustments</th><th>Forecast / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
+  document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-section-intro"><span class="cg-step-label">STEP 4</span><h2>Will each goal be funded?</h2><p>This is the end result after today’s assignments plus future salary and adjustments.</p></div><div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Funded now</th><th>New cash assigned</th><th>Salary forecast</th><th>Adjustments</th><th>Expected by deadline / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
   document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Money available today:</strong> ${formatCurrency(dep.rawSavings)} selected savings − ${formatCurrency(ccOwed)} personal card debt + ${formatCurrency(dep.claimReceivableForGoals)} pending reimbursements − ${formatCurrency(dep.remainingBudget)} remaining budget − ${formatCurrency(dep.futureSalaryHold)} future salary budget hold = ${formatCurrency(dep.deployable)}.</p><p><strong>Forecast monthly savings:</strong> preset recurring salary minus that month's active Budget items, with Budget ending dates respected. Cashflow adjustments are then added or subtracted for their configured months. Next month starts at ${formatCurrency(getNextMonthPlannedSavings())} before adjustments.</p><p><strong>Forecast = assigned now + forecast allocated + positive adjustments allocated.</strong> Assigned now is the slider total, including progress already recorded to the goal. Moving the slider above recorded progress assigns extra cash. Reductions lower the monthly pool before allocation. The same pool is shared across all goals, never counted in full for each one. Contributions begin next month or the goal’s start month, whichever is later. Forced goals go first; other goals follow priority and deadline, with base targets before buffers. No interest or investment return is assumed.</p><p>Pending reimbursements are not cash yet. ${free < 0 ? "Current extra assignments exceed the available pool; reduce a slider or use Smart Assign before relying on this forecast." : "Forecast figures are estimates, not guaranteed savings."}</p>`;
   renderCompactTimeline(rows, model);
 }
