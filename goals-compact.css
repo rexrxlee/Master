@@ -191,3 +191,16 @@
 .cg-flow-future{display:grid;grid-template-columns:1.2fr 1fr auto 1fr auto 1fr;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
 .cg-flow-arrow{color:var(--muted);font-weight:800}
 @media(max-width:700px){.cg-flow-header{display:block}.cg-flow-header button{margin-top:10px}.cg-flow-explain-grid{grid-template-columns:1fr}.cg-flow-future{grid-template-columns:1fr 1fr}.cg-flow-arrow{display:none}.cg-flow-next-title{display:block}.cg-flow-next-title small{display:block;margin-top:4px}}
+
+.cg-step-label{display:block;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--muted);margin-bottom:4px}
+.cg-section-intro{grid-column:1/-1;margin-bottom:4px}
+.cg-section-intro h2{margin:0 0 4px;font-size:20px}
+.cg-section-intro p{margin:0;color:var(--muted)}
+.cg-plan-month{display:grid!important;gap:7px}
+.cg-plan-month>strong{font-size:18px}
+.cg-salary-math{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cg-salary-math em{font-style:normal;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface);font-weight:700}
+.cg-salary-math em small{display:block;font-weight:500;color:var(--muted);font-size:10px}
+.cg-salary-math i{font-style:normal;font-weight:800;color:var(--muted)}
+.cg-salary-math .result{border-width:2px}
+.cg-recorded-note{color:var(--muted);line-height:1.35}
