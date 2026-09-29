@@ -165,3 +165,5 @@
   body.goals-nav-hidden .goals-nav-toggle { left:10px; }
   body.goals-nav-hidden .topbar { padding-left:56px; }
 }
+
+.cg-timeline-total-label,.cg-timeline-total{border-top:2px solid var(--border);padding:10px 12px;background:var(--surface);font-weight:700}.cg-timeline-total-label{position:sticky;left:0;z-index:3}.cg-timeline-total{font-family:"DM Mono",monospace;text-align:center;white-space:nowrap}
