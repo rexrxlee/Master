@@ -2123,8 +2123,12 @@ function getPlannedSavingsSchedule(monthCount = 12) {
         return (Number(p[0]) - today.getFullYear()) * 12 + (Number(p[1]) - 1 - today.getMonth());
       })) adjustment += _boostSignedAmount(item);
     });
-    const basePlanned = recordedSalary > 0 ? 0 : Math.max(0, salary - budget);
-    return { date, salary, budget, recordedSalary, adjustment, planned: Math.max(0, basePlanned + adjustment) };
+    // This schedule is a month-by-month VISUAL cash plan. If salary is already
+    // recorded in today's balances, still show the usable salary surplus in the
+    // month it belongs to; accounting protection prevents it being spent today.
+    const salaryForDisplay = recordedSalary > 0 ? recordedSalary : salary;
+    const basePlanned = Math.max(0, salaryForDisplay - budget);
+    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, planned: Math.max(0, basePlanned + adjustment) };
   });
 }
 
@@ -2133,9 +2137,9 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
     const label = item.date.toLocaleDateString("en-SG", { month:"short", year:"numeric" });
     const adj = item.adjustment === 0 ? "" : ` ${item.adjustment > 0 ? "+" : "−"} adjustment ${formatCurrency(Math.abs(item.adjustment))}`;
     const detail = item.recordedSalary > 0
-      ? `${formatCurrency(item.recordedSalary)} future salary is already in selected account balances; its ${formatCurrency(item.budget)} budget is already protected above${adj}`
+      ? `Recorded salary ${formatCurrency(item.recordedSalary)} − budget ${formatCurrency(item.budget)}${adj} · already protected in today's balance`
       : `Salary ${formatCurrency(item.salary)} − budget ${formatCurrency(item.budget)}${adj}`;
-    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)} new forecast cash</b><small>${detail}</small></span>`;
+    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)} planned goal cash</b><small>${detail}</small></span>`;
   }).join("");
 }
 
