@@ -86,36 +86,61 @@ function resetCompactPlan() {
 }
 
 function compactGoalUsableBreakdown(dep) {
-  const futureDetails = (dep.futureSalaryHoldDetails || []).map(item =>
-    `<div><span>${escapeHtml(item.label)}</span><strong>${formatCurrency(item.reserve)}</strong><small>${formatCurrency(item.futureSalary)} salary, ${formatCurrency(item.budgetForMonth || item.reserve)} budget pulled</small></div>`
-  ).join("");
+  const currentParts = [
+    [dep.unpaidGoalBills || 0, "unpaid bills"],
+    [dep.remainingMonthlyExpenseBudget || 0, "monthly budget left"],
+    [dep.extraAllowanceReserve || 0, "extra spending allowance left"]
+  ].filter(([amount]) => amount > 0.005);
+
+  const currentDetail = currentParts.length
+    ? currentParts.map(([amount, label]) => `${formatCurrency(amount)} ${label}`).join(" + ")
+    : "Nothing else reserved for this month.";
+
+  const futureDetails = (dep.futureSalaryHoldDetails || []).map(item => {
+    const usable = Math.max(0, (Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0));
+    return `<div class="cg-flow-future">
+      <span><b>${escapeHtml(item.label)}</b><small>Salary already received early</small></span>
+      <span><b>${formatCurrency(item.futureSalary)}</b><small>kept for ${escapeHtml(item.label)}</small></span>
+      <span class="cg-flow-arrow">→</span>
+      <span><b>${formatCurrency(item.budgetReserve || 0)}</b><small>month's budget</small></span>
+      <span class="cg-flow-arrow">→</span>
+      <span><b>${formatCurrency(usable)}</b><small>planned goal cash</small></span>
+    </div>`;
+  }).join("");
+
   return `
-    <section class="cg-usable-now" aria-label="Money available for goals">
-      <div class="cg-usable-main">
-        <span>Can be used for goals next</span>
-        <strong class="${dep.deployable < 0 ? "red" : ""}">${formatCurrency(dep.deployable)}</strong>
-      </div>
-      <div class="cg-usable-formula">
-        <span><b>${formatCurrency(dep.rawSavings)}</b><small>selected goal accounts</small></span>
-        <i>−</i>
-        <span><b>${formatCurrency(ccOwed)}</b><small>all credit card debt</small></span>
-        <i>−</i>
-        <span><b>${formatCurrency(dep.remainingBudget)}</b><small>current month cash hold</small></span>
-        <i>−</i>
-        <span><b>${formatCurrency(dep.futureSalaryHold)}</b><small>future salary budget hold</small></span>
-        <i>+</i>
-        <span><b>${formatCurrency(dep.claimReceivableForGoals)}</b><small>pending claims</small></span>
-      </div>
-      <p class="cg-note">Current-month hold: ${formatCurrency(dep.unpaidGoalBills || 0)} unpaid protected bills + ${formatCurrency(dep.remainingMonthlyExpenseBudget || 0)} remaining monthly-expense budget + ${formatCurrency(dep.extraAllowanceReserve || 0)} unused extra allowance. Of your ${formatCurrency(dep.extraAllowance || 0)} extra allowance, ${formatCurrency(dep.extraAllowanceUsed || 0)} has already been spent and is not deducted twice.</p>
-      <div class="cg-budget-copy">
-        <div><strong>Future salary protection</strong><small class="cg-note">Calculated automatically month by month from active Budget rows. Ending dates are respected; there is no fixed Budget override.</small></div>
+    <section class="cg-usable-now cg-money-flow" aria-label="Goal money flow">
+      <div class="cg-flow-header">
+        <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for goals</h2><p>What is genuinely free to assign today after protecting bills, spending and future salary.</p></div>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
-        <span class="cg-note" id="compactBudgetPullStatus"></span>
-        <div class="cg-budget-copy-list">${futureDetails || '<span>No future salary budget hold right now.</span>'}</div>
       </div>
+
+      <div class="cg-flow-steps">
+        <div><small>1 · Savings selected</small><strong>${formatCurrency(dep.rawSavings)}</strong></div>
+        <span>−</span>
+        <div><small>2 · Credit cards owed</small><strong>${formatCurrency(ccOwed)}</strong></div>
+        <span>−</span>
+        <div><small>3 · Keep for this month</small><strong>${formatCurrency(dep.remainingBudget)}</strong></div>
+        <span>−</span>
+        <div><small>4 · Salary that belongs to later</small><strong>${formatCurrency(dep.futureSalaryHold)}</strong></div>
+        <span>+</span>
+        <div><small>5 · Claims coming back</small><strong>${formatCurrency(dep.claimReceivableForGoals)}</strong></div>
+        <span>=</span>
+        <div class="cg-flow-result"><small>Free for goals today</small><strong>${formatCurrency(dep.deployable)}</strong></div>
+      </div>
+
+      <details class="cg-flow-explain">
+        <summary>What is being protected?</summary>
+        <div class="cg-flow-explain-grid">
+          <div><b>This month · ${formatCurrency(dep.remainingBudget)}</b><p>${currentDetail}.</p><p>Money you already spent is <b>not deducted again</b>; it is already reflected in your bank/card balances.</p></div>
+          <div><b>Future salary · ${formatCurrency(dep.futureSalaryHold)}</b><p>If a later month's salary arrives early, the whole salary is kept out of today's goal money. In its own month, only salary minus that month's budget becomes goal cash.</p></div>
+        </div>
+      </details>
+
+      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Future salary is shown in the month it belongs to — not counted twice.</small></div>${futureDetails}</div>` : ""}
+      <span class="cg-note" id="compactBudgetPullStatus"></span>
     </section>`;
 }
-
 function deleteCompactGoal(idx) {
   goalsData.splice(idx, 1);
   renderCompactGoalsPage();
