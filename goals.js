@@ -761,7 +761,7 @@ function computeFutureSalaryHold() {
         futureSalary,
         budgetForMonth,
         budgetReserve: Math.min(futureSalary, Math.max(0, budgetForMonth)),
-        reserve: futureSalary
+        reserve: Math.min(futureSalary, Math.max(0, budgetForMonth))
       };
     })
     .filter(item => item.reserve > 0);
@@ -2133,14 +2133,14 @@ function getPlannedSavingsSchedule(monthCount = 12) {
     // recorded in today's balances, still show the usable salary surplus in the
     // month it belongs to; accounting protection prevents it being spent today.
     const salaryForDisplay = recordedSalary > 0 ? recordedSalary : salary;
-    let basePlanned = Math.max(0, salaryForDisplay - budget);
+    let basePlanned = recordedSalary > 0 ? 0 : Math.max(0, salaryForDisplay - budget);
     let shortfallAbsorbed = 0;
-    if (recordedSalary > 0 && actualCashShortfallCarry > 0) {
+    if (recordedSalary <= 0 && actualCashShortfallCarry > 0) {
       shortfallAbsorbed = Math.min(basePlanned, actualCashShortfallCarry);
       basePlanned -= shortfallAbsorbed;
       actualCashShortfallCarry -= shortfallAbsorbed;
     }
-    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, shortfallAbsorbed, planned: Math.max(0, basePlanned + adjustment) };
+    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, shortfallAbsorbed, releasedToday: recordedSalary > 0 ? Math.max(0, recordedSalary - budget) : 0, planned: Math.max(0, basePlanned + adjustment) };
   });
 }
 
@@ -2152,7 +2152,7 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
     const afterShortfall = Math.max(0, afterBudget - (item.shortfallAbsorbed || 0));
     return `<span class="cg-plan-month">
       <b>${label}</b>
-      <strong>${formatCurrency(item.planned)} for goals</strong>
+      <strong>${item.recordedSalary > 0 ? `${formatCurrency(item.releasedToday)} already available today` : `${formatCurrency(item.planned)} for goals`}</strong>
       <span class="cg-salary-math">
         <em><small>Salary</small>${formatCurrency(item.salaryForDisplay)}</em>
         <i>−</i>
@@ -2162,7 +2162,7 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
         <i>=</i>
         <em class="result"><small>Goal cash</small>${formatCurrency(item.planned)}</em>
       </span>
-      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">Salary is already in today’s bank balance, so it is protected above until ${label}.</small>` : ""}
+      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}; the remaining ${formatCurrency(item.releasedToday)} is already included in today’s available goal cash, so it is not forecast again.</small>` : ""}
     </span>`;
   }).join("");
 }
