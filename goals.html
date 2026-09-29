@@ -1851,7 +1851,7 @@
   </style>
   <link rel="stylesheet" href="goals-compact.css?v=goals-live-20260923-15">
 </head>
-<body onload="initGoalsMobileNav(); loadGoalsPage()">
+<body onload="initGlobalNav(); loadGoalsPage()">
 
   <aside class="sidebar">
     <div class="sidebar-brand">
@@ -1869,8 +1869,7 @@
       <p id="status"></p>
     </div>
   </aside>
-
-  <button class="goals-nav-toggle" id="goalsNavToggle" type="button" onclick="toggleGoalsNav()" aria-label="Hide navigation">☰</button>
+<button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Hide navigation">‹</button>
 
   <main class="main">
     <header class="topbar">
@@ -1886,28 +1885,13 @@
     <div id="goalsContainer"></div>
 
   </main>
+  <script>
+function applyGlobalNav(hidden){document.body.classList.toggle("nav-hidden",hidden);const b=document.getElementById("globalNavToggle");if(b){b.textContent=hidden?"☰":"‹";b.setAttribute("aria-label",hidden?"Show navigation":"Hide navigation");}}
+function toggleGlobalNav(){const hidden=!document.body.classList.contains("nav-hidden");localStorage.setItem("fintrackNavHidden",hidden?"true":"false");applyGlobalNav(hidden);}
+function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");applyGlobalNav(saved==="true"||(saved===null&&window.innerWidth<=768));}
+</script>
 
-<script>
-    function applyGoalsNavState(hidden) {
-      document.body.classList.toggle("goals-nav-hidden", hidden);
-      const btn = document.getElementById("goalsNavToggle");
-      if (btn) {
-        btn.textContent = hidden ? "☰" : "‹";
-        btn.setAttribute("aria-label", hidden ? "Show navigation" : "Hide navigation");
-        btn.title = hidden ? "Show navigation" : "Hide navigation";
-      }
-    }
-    function toggleGoalsNav() {
-      const hidden = !document.body.classList.contains("goals-nav-hidden");
-      localStorage.setItem("goalsNavHidden", hidden ? "true" : "false");
-      applyGoalsNavState(hidden);
-    }
-    function initGoalsMobileNav() {
-      const saved = localStorage.getItem("goalsNavHidden");
-      applyGoalsNavState(saved === "true" || (saved === null && window.innerWidth <= 600));
-    }
-  </script>
-  <script src="config.js"></script>
+<script src="config.js"></script>
   <script src="onedrive.js"></script>
   <script src="business.js"></script>
   <script src="goals.js?v=goals-live-20260923-15"></script>
