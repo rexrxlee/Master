@@ -104,7 +104,7 @@ function compactGoalUsableBreakdown(dep) {
       <span class="cg-flow-arrow">→</span>
       <span><b>${formatCurrency(item.budgetReserve || 0)}</b><small>month's budget</small></span>
       <span class="cg-flow-arrow">→</span>
-      <span><b>${formatCurrency(usable)}</b><small>already released into today's goal cash</small></span>
+      <span><b>${formatCurrency(usable)}</b><small>${escapeHtml(item.label)} goal bucket</small></span>
     </div>`;
   }).join("");
 
@@ -137,7 +137,7 @@ function compactGoalUsableBreakdown(dep) {
         </div>
       </details>
 
-      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Only the future budget stays protected; the salary surplus is usable today and is not counted again next month.</small></div>${futureDetails}</div>` : ""}
+      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Early salary is already in your balance. Protect the month's budget now; keep the surplus tagged to that month in the plan.</small></div>${futureDetails}</div>` : ""}
       <span class="cg-note" id="compactBudgetPullStatus"></span>
     </section>`;
 }
