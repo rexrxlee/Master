@@ -2079,9 +2079,27 @@ function _boostDurationLabel(itemOrFrom, maybeToMonth) {
   return months + " months";
 }
 
+function getRecordedFutureSalaryForMonth(monthDate) {
+  const targetKey = monthKeyFromDate(monthDate);
+  const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+  return (allTxForGoals || []).reduce((sum, row) => {
+    const date = parseExcelDate(row["Date"]);
+    if (!date || monthKeyFromDate(date) !== targetKey) return sum;
+    if (!eligibleAccountKeys.has(accountKey(row["Account"]))) return sum;
+    if (!isSalaryIncomeRow(row)) return sum;
+    return sum + Math.max(0, getAmount(row["Amount"]));
+  }, 0);
+}
+
 function getPlannedSavingsForMonth(monthDate) {
   const salary = Math.max(0, Number(historicalStats.avgMonthlyIncome) || 0);
   const budget = computeFutureMonthBudgetReserve(monthDate);
+  const recordedSalary = getRecordedFutureSalaryForMonth(monthDate);
+
+  // A future-dated salary transaction is already inside today's account balance.
+  // computeDeployableBalance already protects that month's budget from it, so the
+  // projection must not add the same salary (or subtract its budget) a second time.
+  if (recordedSalary > 0) return 0;
   return Math.max(0, salary - budget);
 }
 
@@ -2096,6 +2114,7 @@ function getPlannedSavingsSchedule(monthCount = 12) {
   return Array.from({ length: monthCount }, (_, i) => {
     const date = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
     const budget = computeFutureMonthBudgetReserve(date);
+    const recordedSalary = getRecordedFutureSalaryForMonth(date);
     let adjustment = 0;
     (incomeBoosts || []).forEach(item => {
       if (_isBoostActiveInMonth(item, i + 1, monthCount + 2, d => {
@@ -2104,7 +2123,8 @@ function getPlannedSavingsSchedule(monthCount = 12) {
         return (Number(p[0]) - today.getFullYear()) * 12 + (Number(p[1]) - 1 - today.getMonth());
       })) adjustment += _boostSignedAmount(item);
     });
-    return { date, salary, budget, adjustment, planned: Math.max(0, salary - budget + adjustment) };
+    const basePlanned = recordedSalary > 0 ? 0 : Math.max(0, salary - budget);
+    return { date, salary, budget, recordedSalary, adjustment, planned: Math.max(0, basePlanned + adjustment) };
   });
 }
 
@@ -2112,7 +2132,10 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
   return getPlannedSavingsSchedule(monthCount).map(item => {
     const label = item.date.toLocaleDateString("en-SG", { month:"short", year:"numeric" });
     const adj = item.adjustment === 0 ? "" : ` ${item.adjustment > 0 ? "+" : "−"} adjustment ${formatCurrency(Math.abs(item.adjustment))}`;
-    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)}</b><small>Salary ${formatCurrency(item.salary)} − budget ${formatCurrency(item.budget)}${adj}</small></span>`;
+    const detail = item.recordedSalary > 0
+      ? `${formatCurrency(item.recordedSalary)} future salary is already in selected account balances; its ${formatCurrency(item.budget)} budget is already protected above${adj}`
+      : `Salary ${formatCurrency(item.salary)} − budget ${formatCurrency(item.budget)}${adj}`;
+    return `<span class="cg-plan-month"><b>${label}: ${formatCurrency(item.planned)} new forecast cash</b><small>${detail}</small></span>`;
   }).join("");
 }
 
