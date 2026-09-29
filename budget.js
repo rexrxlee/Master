@@ -34,7 +34,14 @@ async function loadBudgetPage(forceRefresh = false) {
     billsBudget        = readBudgetSection(budgetSheet, "A2:B13", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
     applyBudgetFundingMap(budgetSheet);
-    extraMonthlyAllowance = Math.max(0, toNumber(budgetSheet["AG2"]?.v));
+    // Read the allowance directly from Excel rather than the downloaded workbook cache.
+    // Range writes can be newer than the cached workbook snapshot.
+    try {
+      const allowanceResult = await readBudgetSetupRange("AG2:AG2");
+      extraMonthlyAllowance = Math.max(0, toNumber(allowanceResult?.values?.[0]?.[0]));
+    } catch (_) {
+      extraMonthlyAllowance = Math.max(0, toNumber(budgetSheet["AG2"]?.v));
+    }
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
     budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
 
@@ -262,10 +269,18 @@ function renderExtraMonthlyAllowance(rows) {
     </div>`;
 }
 
-function updateExtraMonthlyAllowance(value) {
+async function updateExtraMonthlyAllowance(value) {
   extraMonthlyAllowance = Math.max(0, toNumber(value));
   renderBudget();
-  scheduleBudgetAutoSave();
+  clearTimeout(budgetAutoSaveTimer);
+  try {
+    setBudgetAutoSaveStatus("Saving allowance...");
+    await writeBudgetSetupRange("AG2:AG2", [[extraMonthlyAllowance]]);
+    setBudgetAutoSaveStatus("Allowance saved to Excel", "ok");
+  } catch (err) {
+    setBudgetAutoSaveStatus("Allowance save failed", "error");
+    console.error(err);
+  }
 }
 
 function computeBudgetRow(item) {
