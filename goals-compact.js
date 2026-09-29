@@ -109,7 +109,7 @@ function compactGoalUsableBreakdown(dep) {
   }).join("");
 
   return `
-    <section class="cg-usable-now cg-money-flow" aria-label="Goal money flow">
+    <section class="cg-usable-now cg-money-flow" aria-label="Goal money flow"><div class="cg-section-intro"><span class="cg-step-label">STEP 1</span><h2>What can I use today?</h2><p>Start with your real balances, then protect money that is already spoken for.</p></div>
       <div class="cg-flow-header">
         <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for goals</h2><p>What is genuinely free to assign today after protecting bills, spending and future salary.</p></div>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
