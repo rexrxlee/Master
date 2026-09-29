@@ -4,7 +4,7 @@ let billsBudget = [];
 let monthlyBudget = [];
 let budgetAutoSaveTimer = null;
 let budgetAutoSaveInFlight = false;
-let budgetSelfLoan = { amount: 0, account: "" };
+let budgetSelfLoan = { amount: 0 };
 
 const BUDGET_SHEET = "Budget Setup";
 const BUDGET_PROJECTION_STORAGE_KEY = "fintrackBudgetProjectionAssumptions";
@@ -166,8 +166,8 @@ function accountKey(name) { return clean(name).toLowerCase(); }
 function loadBudgetSelfLoan(sheet) {
   try {
     const saved = JSON.parse(String(sheet["AG2"]?.v || "{}"));
-    budgetSelfLoan = { amount: Math.max(0, Number(saved.amount) || 0), account: clean(saved.account || "") };
-  } catch (_) { budgetSelfLoan = { amount: 0, account: "" }; }
+    budgetSelfLoan = { amount: Math.max(0, Number(saved.amount) || 0) };
+  } catch (_) { budgetSelfLoan = { amount: 0 }; }
 }
 
 function getMonthlyExpenseOverspend() {
@@ -180,17 +180,15 @@ function getMonthlyExpenseOverspend() {
 function getSelfLoanPosition() {
   const amount = Math.max(0, Number(budgetSelfLoan.amount) || 0);
   const consumed = Math.min(amount, getMonthlyExpenseOverspend());
-  return { amount, consumed, remaining: Math.max(0, amount - consumed), account: clean(budgetSelfLoan.account) };
+  return { amount, consumed, remaining: Math.max(0, amount - consumed) };
 }
 
 function renderSelfLoanControl() {
   const el = document.getElementById("budgetSelfLoanPanel");
   if (!el) return;
   const p = getSelfLoanPosition();
-  const savings = (budgetAccountTypes || []).filter(a => clean(a.type).toLowerCase() === "savings").map(a => clean(a.name)).filter(Boolean);
   el.innerHTML = `<div class="self-loan-card">
-    <div><strong>One-time self loan</strong><small>Extra cash ring-fenced for Monthly Expenses. Existing category, card and transaction logic stays unchanged.</small></div>
-    <label>From savings account<select id="budgetSelfLoanAccount" onchange="updateBudgetSelfLoan()"><option value="">Select savings…</option>${savings.map(n=>`<option value="${escapeHtml(n)}" ${accountKey(n)===accountKey(p.account)?"selected":""}>${escapeHtml(n)}</option>`).join("")}</select></label>
+    <div><strong>One-time self loan</strong><small>Extra cash ring-fenced across Monthly Expenses. It is a general reserve, not tied to any bank account.</small></div>
     <label>Loan amount<input id="budgetSelfLoanAmount" type="number" min="0" step="0.01" value="${p.amount || ""}" placeholder="0.00" onchange="updateBudgetSelfLoan()"></label>
     <div class="self-loan-position"><span>Used by overspend <b>${formatCurrency(p.consumed)}</b></span><span>Still blocked <b>${formatCurrency(p.remaining)}</b></span></div>
   </div>`;
@@ -198,8 +196,7 @@ function renderSelfLoanControl() {
 
 function updateBudgetSelfLoan() {
   budgetSelfLoan = {
-    amount: Math.max(0, Number(document.getElementById("budgetSelfLoanAmount")?.value) || 0),
-    account: clean(document.getElementById("budgetSelfLoanAccount")?.value || "")
+    amount: Math.max(0, Number(document.getElementById("budgetSelfLoanAmount")?.value) || 0)
   };
   renderBudget();
   scheduleBudgetAutoSave();
