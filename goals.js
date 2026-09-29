@@ -33,6 +33,7 @@ let goalsAutoSaveInFlight = false;
 let incomeBoostsDirty = false;
 let holdFutureSalaryBudget = localStorage.getItem("holdFutureSalaryBudget") !== "false";
 let futureSalaryBudgetOverride = null;
+let extraMonthlyAllowance = 0;
 const futureSalaryBudgetOverrideRaw = localStorage.getItem("futureSalaryBudgetOverride");
 if (futureSalaryBudgetOverrideRaw !== null && futureSalaryBudgetOverrideRaw !== "") {
   const parsedFutureSalaryBudgetOverride = Number(futureSalaryBudgetOverrideRaw);
@@ -71,6 +72,7 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals must always use the latest funding accounts / ending dates without
     // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
+    extraMonthlyAllowance = Math.max(0, Number(budgetSheet["AG2"]?.v || 0) || 0);
     await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
@@ -530,7 +532,13 @@ function computeDeployableBalance() {
     })
     .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
   const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
-  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
+  // Extra allowance is a ceiling above the normal monthly-expense budget.
+  // Overspend already made is in bank/card balances, so only the unused portion is reserved.
+  const monthlyExpenseOverspend = Math.max(0, -(budgetPosition.monthly.balance || 0));
+  const extraAllowance = Math.max(0, Number(extraMonthlyAllowance) || 0);
+  const extraAllowanceUsed = Math.min(extraAllowance, monthlyExpenseOverspend);
+  const extraAllowanceReserve = Math.max(0, extraAllowance - extraAllowanceUsed);
+  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget + extraAllowanceReserve;
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
@@ -548,6 +556,9 @@ function computeDeployableBalance() {
     remainingBudget: remainingBudgetReserve,
     unpaidGoalBills,
     remainingMonthlyExpenseBudget,
+    extraAllowance,
+    extraAllowanceUsed,
+    extraAllowanceReserve,
     monthlyBudgetBalance,
     futureSalaryHold: futureSalaryHold.total,
     futureSalaryHoldDetails: futureSalaryHold.details,
