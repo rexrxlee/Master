@@ -1413,3 +1413,7 @@ body.nav-hidden .main{margin-left:0!important;width:100vw!important;max-width:10
 body.nav-hidden .global-nav-toggle{left:10px}
 body.nav-hidden .topbar{padding-left:56px}
 @media(max-width:768px){.global-nav-toggle{left:68px}.global-nav-toggle{width:40px;height:40px}.main{min-width:0}body.nav-hidden .main{overflow-x:hidden}}
+
+.self-loan-card{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(180px,1fr) minmax(130px,.7fr) minmax(190px,1fr);gap:12px;align-items:end;padding:14px 16px;margin:0 0 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.self-loan-card>div:first-child{align-self:center}.self-loan-card small{display:block;color:var(--muted);margin-top:4px;line-height:1.35}.self-loan-card label{display:grid;gap:5px;font-size:12px;color:var(--muted)}.self-loan-card select,.self-loan-card input{width:100%;min-height:40px}.self-loan-position{display:grid;gap:4px;font-size:12px}.self-loan-position span{display:flex;justify-content:space-between;gap:8px}
+@media(max-width:768px){.self-loan-card{grid-template-columns:1fr}.self-loan-card select,.self-loan-card input{min-height:46px;font-size:16px}}
