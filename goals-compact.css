@@ -204,3 +204,14 @@
 .cg-salary-math i{font-style:normal;font-weight:800;color:var(--muted)}
 .cg-salary-math .result{border-width:2px}
 .cg-recorded-note{color:var(--muted);line-height:1.35}
+
+/* Compact monthly forecast: arithmetic should scan left-to-right without oversized tiles. */
+.cg-planned-savings{max-width:100%!important}
+.cg-planned-savings-list{display:grid!important;grid-template-columns:repeat(3,minmax(280px,1fr))!important;gap:10px!important}
+.cg-plan-month{padding:14px!important;min-height:0!important}
+.cg-plan-month>strong{font-size:16px!important}
+.cg-salary-math{display:grid!important;grid-template-columns:1fr auto 1fr auto 1fr!important;gap:5px!important}
+.cg-salary-math em{padding:5px 7px!important;font-size:14px!important}
+.cg-recorded-note{font-size:12px!important}
+@media(max-width:1100px){.cg-planned-savings-list{grid-template-columns:repeat(2,minmax(260px,1fr))!important}}
+@media(max-width:650px){.cg-planned-savings-list{grid-template-columns:1fr!important}.cg-salary-math{grid-template-columns:1fr auto 1fr!important}}
