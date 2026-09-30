@@ -47,12 +47,22 @@ function updateCompactSaveStatus() {
   if (status) status.textContent = compactSaving ? "Saving…" : compactPlanChanged() ? "Preview — not saved" : "No unsaved changes";
   const save = document.getElementById("compactSavePlan");
   const reset = document.getElementById("compactResetPlan");
-  if (save) save.disabled = compactSaving || !compactPlanChanged();
+  if (save) save.disabled = compactSaving;
   if (reset) reset.disabled = compactSaving || !compactPlanChanged();
 }
 
+function scheduleCompactForecastRefresh(delay = 900) {
+  clearTimeout(compactForecastTimer);
+  compactForecastTimer = setTimeout(() => {
+    compactForecastTimer = null;
+    refreshCompactGoalForecast();
+  }, delay);
+}
+
 async function saveCompactPlan() {
-  if (compactSaving || !compactPlanChanged()) return;
+  if (compactSaving) return;
+  clearTimeout(compactForecastTimer);
+  compactForecastTimer = null;
   compactNormaliseManualAssignments();
   compactSaving = true;
   updateCompactSaveStatus();
@@ -68,7 +78,7 @@ async function saveCompactPlan() {
     compactSaving = false;
     const save = document.getElementById("compactSavePlan");
     const reset = document.getElementById("compactResetPlan");
-    if (save) save.disabled = !compactPlanChanged();
+    if (save) save.disabled = false;
     if (reset) reset.disabled = !compactPlanChanged();
     if (!compactPlanChanged()) updateCompactSaveStatus();
   }
@@ -88,21 +98,22 @@ function resetCompactPlan() {
 function compactGoalUsableBreakdown(dep) {
   const currentParts = [
     [dep.unpaidGoalBills || 0, "unpaid bills"],
-    [dep.remainingMonthlyExpenseBudget || 0, "monthly budget left"],
-    [dep.extraAllowanceReserve || 0, "extra spending allowance left"]
+    [dep.remainingMonthlyExpenseBudget || 0, "monthly budget left"]
   ].filter(([amount]) => amount > 0.005);
 
   const currentDetail = currentParts.length
     ? currentParts.map(([amount, label]) => `${formatCurrency(amount)} ${label}`).join(" + ")
     : "Nothing else reserved for this month.";
 
-  const futureDetails = (dep.futureSalaryHoldDetails || []).map(item => {
-    const usable = Math.max(0, (Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0));
+  const futureDetails = (dep.futureSalaryGoalBuckets || dep.futureSalaryHoldDetails || []).map(item => {
+    const usable = Math.max(0, Number(item.goalBucket ?? ((Number(item.futureSalary) || 0) - (Number(item.budgetReserve) || 0))) || 0);
+    const overspend = Math.max(0, Number(item.surplus || 0) - usable);
     return `<div class="cg-flow-future">
       <span><b>${escapeHtml(item.label)}</b><small>Salary already received early</small></span>
       <span><b>${formatCurrency(item.futureSalary)}</b><small>salary already received</small></span>
       <span class="cg-flow-arrow">→</span>
       <span><b>${formatCurrency(item.budgetReserve || 0)}</b><small>month's budget</small></span>
+      ${overspend > 0.005 ? `<span class="cg-flow-arrow">→</span><span><b>${formatCurrency(overspend)}</b><small>current overspend</small></span>` : ""}
       <span class="cg-flow-arrow">→</span>
       <span><b>${formatCurrency(usable)}</b><small>${escapeHtml(item.label)} goal bucket</small></span>
     </div>`;
@@ -111,7 +122,7 @@ function compactGoalUsableBreakdown(dep) {
   return `
     <section class="cg-usable-now cg-money-flow" aria-label="Goal money flow"><div class="cg-section-intro"><span class="cg-step-label">STEP 1</span><h2>What can I use today?</h2><p>Start with your real balances, then protect money that is already spoken for.</p></div>
       <div class="cg-flow-header">
-        <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for goals</h2><p>What is genuinely free to assign today after protecting bills, spending and future salary.</p></div>
+        <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for September goals</h2><p>Future salary surplus stays in its own month bucket, even if the money is already in the account.</p></div>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
       </div>
 
@@ -123,21 +134,23 @@ function compactGoalUsableBreakdown(dep) {
         <div><small>3 · Keep for this month</small><strong>${formatCurrency(dep.remainingBudget)}</strong></div>
         <span>−</span>
         <div><small>4 · Next-month budget protected</small><strong>${formatCurrency(dep.futureSalaryHold)}</strong></div>
+        <span>−</span>
+        <div><small>5 · Current overspend taken from future salary</small><strong>${formatCurrency(dep.futureSalaryGoalBucketTotal || 0)}</strong></div>
         <span>+</span>
-        <div><small>5 · Claims coming back</small><strong>${formatCurrency(dep.claimReceivableForGoals)}</strong></div>
+        <div><small>6 · Claims coming back</small><strong>${formatCurrency(dep.claimReceivableForGoals)}</strong></div>
         <span>=</span>
-        <div class="cg-flow-result"><small>Free for goals today</small><strong>${formatCurrency(dep.deployable)}</strong></div>
+        <div class="cg-flow-result"><small>Free for this month</small><strong>${formatCurrency(dep.deployable)}</strong></div>
       </div>
 
       <details class="cg-flow-explain">
         <summary>What is being protected?</summary>
         <div class="cg-flow-explain-grid">
           <div><b>This month · ${formatCurrency(dep.remainingBudget)}</b><p>${currentDetail}.</p><p>Money you already spent is <b>not deducted again</b>; it is already reflected in your bank/card balances.</p></div>
-          <div><b>Next-month budget · ${formatCurrency(dep.futureSalaryHold)}</b><p>If next month's salary arrives early, only the amount needed for that month's budget is protected. The salary surplus is already real cash in your account and can be used for goals today.</p></div>
+          <div><b>Future salary · ${formatCurrency((dep.futureSalaryHold || 0) + (dep.futureSalaryGoalBucketTotal || 0))}</b><p>If next month's salary arrives early, the budget stays protected and the surplus stays tagged to that month. It is not assignable to this month.</p></div>
         </div>
       </details>
 
-      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Early salary is already in your balance. Protect the month's budget now; keep the surplus tagged to that month in the plan.</small></div>${futureDetails}</div>` : ""}
+      ${futureDetails ? `<div class="cg-flow-next"><div class="cg-flow-next-title"><b>What happens next</b><small>Early salary is already in your balance, but each surplus stays in that salary month. Current overspend reduces that month first.</small></div>${futureDetails}</div>` : ""}
       <span class="cg-note" id="compactBudgetPullStatus"></span>
     </section>`;
 }
@@ -176,10 +189,6 @@ function renderCompactGoalsPage() {
         <p class="cg-form-message" role="status"></p>
       </form>
     </details>
-    <section class="cg-setup-panel">
-      <div class="cg-heading"><h2>Goal setup</h2></div>
-      <div class="cg-setup-grid">${goalsData.map((goal, idx) => compactGoalSetupRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal above, then use the allocation chart below.</p>'}</div>
-    </section>
     <div id="compactAdjustments"></div>
     <div class="cg-workspace">
       <section class="cg-controls">
@@ -191,9 +200,13 @@ function renderCompactGoalsPage() {
         <div id="compactGoalRows">${goalsData.map((goal, idx) => compactGoalRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal to start planning.</p>'}</div>
         <div id="compactForecastResults" aria-live="polite"></div>
         <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
-        <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save plan</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
+        <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save all goal changes</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
       </section>
-    </div>`;
+    </div>
+    <section class="cg-setup-panel">
+      <div class="cg-heading"><h2>Goal setup</h2></div>
+      <div class="cg-setup-grid">${goalsData.map((goal, idx) => compactGoalSetupRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal above, then use the allocation chart above.</p>'}</div>
+    </section>`;
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
   sortCompactGoalRows(compactGoalSort);
@@ -355,6 +368,11 @@ function updateCompactGoal(idx, field, raw) {
     alert("The deadline must be on or after the start date."); renderCompactGoalsPage(); return;
   }
   goalsData[idx] = proposed;
+  if (field === "startDate" || field === "endDate") {
+    scheduleCompactForecastRefresh();
+    scheduleGoalsAutoSave();
+    return;
+  }
   renderCompactGoalsPage();
   scheduleGoalsAutoSave();
 }
@@ -495,6 +513,9 @@ function compactTimingStatus(state, model, gap, capped) {
   if (capped) return "Beyond forecast range";
   if (state.deadlineMo < 0) return gap < 0.01 ? "Target covered" : `Overdue · ${formatCurrency(gap)} short`;
   if (gap >= 0.01) return `${formatCurrency(gap)} short`;
+  if (state.startMo > 0 && state.completedAt !== null && state.completedAt < state.startMo) {
+    return `Starts ${model.monthLabel(state.startMo, true)}`;
+  }
   if (state.deadlineMo === null) return "On track";
   if (state.completedAt === 0) return "Funded now";
   if (state.completedAt !== null) {
@@ -700,23 +721,28 @@ function refreshCompactGoalForecast() {
   if (usableBreakdown) usableBreakdown.innerHTML = compactGoalUsableBreakdown(dep);
   const model = buildGoalProjectionModel(18, 60);
   const rows = model.goalState.map((state, idx) => {
-    const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
+    const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? state.startMo ?? 17));
+    const reportMonth = Math.min(model.MONTHS - 1, Math.max(month, state.startMo || 0));
     const sum = values => values.slice(0, month + 1).reduce((total, value) => total + value, 0);
     const tx = compactRecordedForGoal(idx);
     const extra = compactMoney(Math.max(0, goalsData[idx].manualSaved || 0));
     const now = compactMoney(Math.min(state.effectiveTarget, tx + extra));
     const base = sum(model.allocationBaseData[idx]);
     const adjustments = sum(model.allocationCashflowData[idx]);
-    const projected = model.progressDollars[idx][month];
+    const projected = model.progressDollars[idx][reportMonth];
     const gap = Math.max(0, state.effectiveTarget - projected);
     const capped = state.deadlineMo !== null && state.deadlineMo >= model.MONTHS;
     const status = free < -0.005 ? "Over-assigned - rebalance" : compactTimingStatus(state, model, gap, capped);
-    const date = state.deadlineMo === null ? model.fullLabels[month] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
-    document.getElementById(`cgStatus_${idx}`).textContent = `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${date}`;
+    const deadline = state.deadlineMo === null ? model.fullLabels[reportMonth] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
+    const start = formatDateDisplay(goalsData[idx].startDate);
+    const timingLine = state.startMo > 0
+      ? `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} · starts ${start} · deadline ${deadline}`
+      : `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${deadline}`;
+    document.getElementById(`cgStatus_${idx}`).textContent = timingLine;
     document.getElementById(`cgStatus_${idx}`).classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
     const pill = document.getElementById(`cgPill_${idx}`);
     if (pill) {
-      pill.textContent = gap < 0.01 && free >= -0.005 && !capped ? (status.startsWith("Early") ? "Early" : status === "Funded now" ? "Funded" : status === "On time" ? "On time" : "On track") : gap > 0 ? `${formatCurrency(gap)} short` : "Review";
+      pill.textContent = gap < 0.01 && free >= -0.005 && !capped ? (status.startsWith("Starts") ? "Scheduled" : status.startsWith("Early") ? "Early" : status === "Funded now" ? "Funded" : status === "On time" ? "On time" : "On track") : gap > 0 ? `${formatCurrency(gap)} short` : "Review";
       pill.classList.toggle("red", gap >= 0.01 || capped || free < -0.005);
     }
     const bar = document.getElementById(`cgBar_${idx}`);
@@ -728,7 +754,7 @@ function refreshCompactGoalForecast() {
     const amount = document.getElementById(`cgAmount_${idx}`);
     if (amount) amount.min = tx;
     if (amount && document.activeElement !== amount) amount.value = now.toFixed(2);
-    return { name: state.name, date, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
+    return { name: state.name, date: deadline, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
   });
   const removable = compactMaxRemovableToday();
   const unassignedCash = compactMoney(Math.max(0, free));
@@ -737,8 +763,8 @@ function refreshCompactGoalForecast() {
   if (assignTotal) assignTotal.innerHTML = `<span>${free < -0.005 ? "Reduce assignments by" : "Free to assign today"}</span><strong class="${free < -0.005 ? "red" : ""}">${formatCurrency(free < -0.005 ? Math.abs(free) : redirectToday)}</strong>${removable.amount > 0.005 && free >= -0.005 ? `<small>${formatCurrency(removable.amount)} is already assigned but can be redirected between goals if needed.</small>` : ""}`;
   const overall = compactOverallStatus(rows, free, removable);
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
-  document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-section-intro"><span class="cg-step-label">STEP 4</span><h2>Will each goal be funded?</h2><p>This is the end result after today’s assignments plus future salary and adjustments.</p></div><div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Funded now</th><th>New cash assigned</th><th>Salary forecast</th><th>Adjustments</th><th>Expected by deadline / target</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.cashAssigned)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td><td>${formatCurrency(row.projected)} / ${formatCurrency(row.target)}</td></tr>`).join("")}</tbody></table></div>`;
-  document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Money available today:</strong> ${formatCurrency(dep.rawSavings)} selected savings − ${formatCurrency(ccOwed)} personal card debt + ${formatCurrency(dep.claimReceivableForGoals)} pending reimbursements − ${formatCurrency(dep.remainingBudget)} remaining budget − ${formatCurrency(dep.futureSalaryHold)} future salary budget hold = ${formatCurrency(dep.deployable)}.</p><p><strong>Forecast monthly savings:</strong> preset recurring salary minus that month's active Budget items, with Budget ending dates respected. Cashflow adjustments are then added or subtracted for their configured months. Next month starts at ${formatCurrency(getNextMonthPlannedSavings())} before adjustments.</p><p><strong>Forecast = assigned now + forecast allocated + positive adjustments allocated.</strong> Assigned now is the slider total, including progress already recorded to the goal. Moving the slider above recorded progress assigns extra cash. Reductions lower the monthly pool before allocation. The same pool is shared across all goals, never counted in full for each one. Contributions begin next month or the goal’s start month, whichever is later. Forced goals go first; other goals follow priority and deadline, with base targets before buffers. No interest or investment return is assumed.</p><p>Pending reimbursements are not cash yet. ${free < 0 ? "Current extra assignments exceed the available pool; reduce a slider or use Smart Assign before relying on this forecast." : "Forecast figures are estimates, not guaranteed savings."}</p>`;
+  document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-section-intro"><span class="cg-step-label">STEP 4</span><h2>Will each goal be funded?</h2><p>Funded now plus future salary and adjustments.</p></div><div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Funded now</th><th>Salary forecast</th><th>Adjustments</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td></tr>`).join("")}</tbody></table></div>`;
+  document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Today:</strong> selected savings − card debt − this month’s protected budget − future salary holds + pending claims = ${formatCurrency(dep.deployable)} free now.</p><p><strong>Future months:</strong> salary − that month’s budget − any overspend/adjustments = goal cash for that month.</p><p><strong>Allocation:</strong> goals use start dates, deadlines, priority, and forced-priority flags. Pending claims and forecasts are estimates until the cash is actually settled.</p>`;
   renderCompactTimeline(rows, model);
 }
 
@@ -755,7 +781,9 @@ const redrawCompactAdjustments = _redrawBoostsPanel;
 _redrawBoostsPanel = function(panel) {
   redrawCompactAdjustments(panel);
   const button = panel?.querySelector('[onclick="_saveIncomeBoostsFromPanel()"]');
-  if (button) button.textContent = "Save plan";
+  if (button) button.remove();
+  const status = panel?.querySelector("#boostAutosaveStatus");
+  if (status) status.textContent = incomeBoostsDirty ? "Unsaved - use Save all goal changes" : "Saved with goal plan";
 };
 window.addEventListener("beforeunload", event => {
   if (!compactPlanChanged()) return;

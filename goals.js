@@ -33,7 +33,6 @@ let goalsAutoSaveInFlight = false;
 let incomeBoostsDirty = false;
 let holdFutureSalaryBudget = localStorage.getItem("holdFutureSalaryBudget") !== "false";
 let futureSalaryBudgetOverride = null;
-let extraMonthlyAllowance = 0;
 const futureSalaryBudgetOverrideRaw = localStorage.getItem("futureSalaryBudgetOverride");
 if (futureSalaryBudgetOverrideRaw !== null && futureSalaryBudgetOverrideRaw !== "") {
   const parsedFutureSalaryBudgetOverride = Number(futureSalaryBudgetOverrideRaw);
@@ -72,12 +71,6 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals must always use the latest funding accounts / ending dates without
     // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
-    try {
-      const allowanceResult = await readBudgetSetupRange("AG2:AG2");
-      extraMonthlyAllowance = Math.max(0, Number(allowanceResult?.values?.[0]?.[0] || 0) || 0);
-    } catch (_) {
-      extraMonthlyAllowance = Math.max(0, Number(budgetSheet["AG2"]?.v || 0) || 0);
-    }
     await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
@@ -226,7 +219,7 @@ async function refreshGoalBudgetMetadataFromExcel() {
 }
 
 function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
-  const billsRows = readBudgetSection(budgetSheet, "A2:B13", "Bills");
+  const billsRows = readBudgetSection(budgetSheet, "A2:B16", "Bills");
   const monthlyRows = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
   budgetSummary.billsTotal = billsRows.reduce((s,r)=>s+r.allocated,0);
   budgetSummary.monthlyTotal = monthlyRows.reduce((s,r)=>s+r.allocated,0);
@@ -537,20 +530,17 @@ function computeDeployableBalance() {
     })
     .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
   const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
-  // Extra allowance is a ceiling above the normal monthly-expense budget.
-  // Overspend already made is in bank/card balances, so only the unused portion is reserved.
-  const monthlyExpenseOverspend = Math.max(0, -(budgetPosition.monthly.balance || 0));
-  const extraAllowance = Math.max(0, Number(extraMonthlyAllowance) || 0);
-  const extraAllowanceUsed = Math.min(extraAllowance, monthlyExpenseOverspend);
-  const extraAllowanceReserve = Math.max(0, extraAllowance - extraAllowanceUsed);
-  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget + extraAllowanceReserve;
+  const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
 
   // Step 4: future-dated salary is already in account balances, but should
   // not be treated as goal money until that month arrives.
   const futureSalaryHold = computeFutureSalaryHold();
   const deployableBeforeFloor = afterCC - remainingBudgetReserve - futureSalaryHold.total;
   const currentCashShortfall = Math.max(0, -deployableBeforeFloor);
-  const deployable = Math.max(0, deployableBeforeFloor);
+  const deployableAfterFutureBudget = Math.max(0, deployableBeforeFloor);
+  const futureSalaryGoalBuckets = buildFutureSalaryGoalBuckets(futureSalaryHold.details, deployableAfterFutureBudget);
+  const futureSalaryGoalBucketTotal = futureSalaryGoalBuckets.reduce((sum, item) => sum + item.goalBucket, 0);
+  const deployable = Math.max(0, deployableAfterFutureBudget - futureSalaryGoalBucketTotal);
 
   return {
     rawSavings,
@@ -563,18 +553,31 @@ function computeDeployableBalance() {
     remainingBudget: remainingBudgetReserve,
     unpaidGoalBills,
     remainingMonthlyExpenseBudget,
-    extraAllowance,
-    extraAllowanceUsed,
-    extraAllowanceReserve,
+    extraAllowance: 0,
+    extraAllowanceUsed: 0,
+    extraAllowanceReserve: 0,
     monthlyBudgetBalance,
     futureSalaryHold: futureSalaryHold.total,
     futureSalaryHoldDetails: futureSalaryHold.details,
+    futureSalaryGoalBuckets,
+    futureSalaryGoalBucketTotal,
     futureSalaryTotal: futureSalaryHold.futureSalary,
+    deployableAfterFutureBudget,
     budgetPosition,
     deployableBeforeFloor,
     currentCashShortfall,
     deployable
   };
+}
+
+function buildFutureSalaryGoalBuckets(details = [], availableAfterFutureBudget = 0) {
+  let remaining = Math.max(0, Number(availableAfterFutureBudget) || 0);
+  return (details || []).map(item => {
+    const surplus = Math.max(0, Number(item.futureSalary || 0) - Number(item.budgetReserve || item.reserve || 0));
+    const goalBucket = Math.min(surplus, remaining);
+    remaining = Math.max(0, remaining - goalBucket);
+    return { ...item, surplus, goalBucket };
+  });
 }
 
 function computeCurrentMonthBudgetPosition() {
@@ -2117,10 +2120,22 @@ function getPlannedSavingsSchedule(monthCount = 12) {
   const today = new Date();
   const salary = Math.max(0, Number(historicalStats.avgMonthlyIncome) || 0);
   let actualCashShortfallCarry = Math.max(0, Number(computeDeployableBalance().currentCashShortfall) || 0);
+  const dep = computeDeployableBalance();
+  const earlyGoalBucketByMonth = new Map(
+    (dep.futureSalaryGoalBuckets || []).map(item => [item.monthKey, Number(item.goalBucket || 0)])
+  );
+  const earlyShortfallByMonth = new Map(
+    (dep.futureSalaryGoalBuckets || []).map(item => [
+      item.monthKey,
+      Math.max(0, Number(item.surplus || 0) - Number(item.goalBucket || 0))
+    ])
+  );
   return Array.from({ length: monthCount }, (_, i) => {
     const date = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+    const monthKey = monthKeyFromDate(date);
     const budget = computeFutureMonthBudgetReserve(date);
     const recordedSalary = getRecordedFutureSalaryForMonth(date);
+    const earlyShortfall = Math.max(0, earlyShortfallByMonth.get(monthKey) || 0);
     let adjustment = 0;
     (incomeBoosts || []).forEach(item => {
       if (_isBoostActiveInMonth(item, i + 1, monthCount + 2, d => {
@@ -2133,14 +2148,14 @@ function getPlannedSavingsSchedule(monthCount = 12) {
     // recorded in today's balances, still show the usable salary surplus in the
     // month it belongs to; accounting protection prevents it being spent today.
     const salaryForDisplay = recordedSalary > 0 ? recordedSalary : salary;
-    let basePlanned = recordedSalary > 0 ? 0 : Math.max(0, salaryForDisplay - budget);
+    let basePlanned = recordedSalary > 0 ? Math.max(0, earlyGoalBucketByMonth.get(monthKey) || 0) : Math.max(0, salaryForDisplay - budget);
     let shortfallAbsorbed = 0;
     if (recordedSalary <= 0 && actualCashShortfallCarry > 0) {
       shortfallAbsorbed = Math.min(basePlanned, actualCashShortfallCarry);
       basePlanned -= shortfallAbsorbed;
       actualCashShortfallCarry -= shortfallAbsorbed;
     }
-    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, shortfallAbsorbed, releasedToday: recordedSalary > 0 ? Math.max(0, recordedSalary - budget) : 0, planned: Math.max(0, basePlanned + adjustment) };
+    return { date, salary, budget, recordedSalary, salaryForDisplay, adjustment, shortfallAbsorbed, earlyShortfall, releasedToday: basePlanned, planned: Math.max(0, basePlanned + adjustment) };
   });
 }
 
@@ -2152,17 +2167,18 @@ function renderPlannedSavingsSchedule(monthCount = 12) {
     const afterShortfall = Math.max(0, afterBudget - (item.shortfallAbsorbed || 0));
     return `<span class="cg-plan-month">
       <b>${label}</b>
-      <strong>${item.recordedSalary > 0 ? `${formatCurrency(item.releasedToday)} already in today’s cash` : `${formatCurrency(item.planned)} for goals`}</strong>
+      <strong>${formatCurrency(item.planned)} for goals</strong>
       <span class="cg-salary-math">
         <em><small>Salary</small>${formatCurrency(item.salaryForDisplay)}</em>
         <i>−</i>
         <em><small>Budget</small>${formatCurrency(item.budget)}</em>
+        ${item.earlyShortfall ? `<i>−</i><em><small>Overspend</small>${formatCurrency(item.earlyShortfall)}</em>` : ""}
         ${item.shortfallAbsorbed ? `<i>−</i><em><small>Current shortfall</small>${formatCurrency(item.shortfallAbsorbed)}</em>` : ""}
         ${signedAdj ? `<i>${signedAdj > 0 ? "+" : "−"}</i><em><small>Adjustment</small>${formatCurrency(Math.abs(signedAdj))}</em>` : ""}
         <i>=</i>
-        <em class="result"><small>${item.recordedSalary > 0 ? "Already included" : "Goal cash"}</small>${formatCurrency(item.recordedSalary > 0 ? item.releasedToday : item.planned)}</em>
+        <em class="result"><small>Goal cash</small>${formatCurrency(item.planned)}</em>
       </span>
-      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}. The remaining ${formatCurrency(item.releasedToday)} is already inside today’s free cash, so it is not added again in Step 3.</small>` : ""}
+      ${item.recordedSalary > 0 ? `<small class="cg-recorded-note">${formatCurrency(item.budget)} is protected for ${label}${item.earlyShortfall ? `; ${formatCurrency(item.earlyShortfall)} was used by current overspend` : ""}. The remainder stays in this month bucket.</small>` : ""}
     </span>`;
   }).join("");
 }
@@ -2273,20 +2289,16 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const cashflowReductionData = Array(MONTHS).fill(0);
   const forecastStartMonth = 0;
 
-  // Current-month forecast uses the real goal cash already available today.
-  // Early future salary is already in the bank balance; only its future month's
-  // budget is protected, so the surplus belongs here rather than being forecast again later.
+  // Current-month forecast uses only the cash that truly belongs to today.
+  // Early future salary is physically in the account, but its surplus stays
+  // tagged to the salary month so current overspend can eat into that month.
   const depForTimeline = computeDeployableBalance();
   const manualAssignedNow = goalsData.reduce((sum, goal) => sum + Math.max(0, Number(goal.manualSaved || 0)), 0);
   const currentUnassignedGoalCash = Math.max(0, depForTimeline.deployable - manualAssignedNow);
-  // Reuse the exact early-salary details already calculated in Step 1.
-  // computeDeployableBalance exposes these as futureSalaryHoldDetails.
-  // This keeps the salary surplus visible under its actual future month in Step 3
-  // without relying on a second transaction scan.
   const earlySalaryVisualByMonth = new Map(
-    (depForTimeline.futureSalaryHoldDetails || []).map(item => [
+    (depForTimeline.futureSalaryGoalBuckets || []).map(item => [
       item.monthKey,
-      Math.max(0, Number(item.futureSalary || 0) - Number(item.budgetForMonth || 0))
+      Math.max(0, Number(item.goalBucket || 0))
     ])
   );
 
@@ -2366,7 +2378,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
       : 0;
     const plannedBaseForMonth = m === 0
       ? currentUnassignedGoalCash
-      : (visualEarlySalarySurplus > 0 ? 0 : getPlannedSavingsForMonth(forecastMonthDate));
+      : (visualEarlySalarySurplus > 0 ? visualEarlySalarySurplus : getPlannedSavingsForMonth(forecastMonthDate));
     let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
     const monthPoolAvailable = basePool + cashflowPool;

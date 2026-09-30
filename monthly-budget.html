@@ -12,7 +12,7 @@
   <style>
     .budget-page-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 20px;
       margin-bottom: 24px;
     }
@@ -733,19 +733,86 @@
           background: #f0fdf4;
           color: #14532d;
         }
+        .autosave-status.warn {
+          border-color: #fcd34d;
+          background: #fffbeb;
+          color: #92400e;
+        }
         .autosave-status.error {
           border-color: #fca5a5;
           background: #fef2f2;
           color: #7f1d1d;
         }
+        .primary-save-btn {
+          background: var(--text) !important;
+          color: #fff !important;
+          border-color: var(--text) !important;
+        }
         @media (max-width: 900px) {
           .budget-page-grid { grid-template-columns: 1fr; }
           .budget-section-card {
-            overflow-x: auto;
-            overscroll-behavior-x: contain;
-            -webkit-overflow-scrolling: touch;
+            overflow: visible;
           }
-          .budget-section-card .budget-table { min-width: 520px; }
+          .budget-section-card .budget-table,
+          .budget-section-card .budget-table tbody,
+          .budget-section-card .budget-table tr,
+          .budget-section-card .budget-table td {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+          }
+          .budget-section-card .budget-table tr:first-child {
+            display: none;
+          }
+          .budget-section-card .budget-table tr {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+          }
+          .budget-section-card .budget-table tr.total-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 12px;
+            background: var(--bg);
+          }
+          .budget-section-card .budget-table td {
+            border: 0;
+            padding: 6px 0;
+          }
+          .budget-section-card .budget-table td[data-label]::before {
+            content: attr(data-label);
+            display: block;
+            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+          }
+          .budget-section-card .budget-table td[data-label=""]::before {
+            display: none;
+          }
+          .budget-section-card .budget-table input,
+          .budget-section-card .budget-table select {
+            width: 100%;
+            min-width: 0;
+            min-height: 44px;
+            box-sizing: border-box;
+            font-size: 16px;
+          }
+          .budget-section-card .budget-table button {
+            width: 100%;
+            min-height: 42px;
+          }
+          .add-item-row {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+          .add-item-row input,
+          .add-item-row button {
+            width: 100%;
+            min-height: 44px;
+            box-sizing: border-box;
+            font-size: 16px;
+          }
           .bv-summary-grid,
           .bv-section-grid,
           .bproj-grid { grid-template-columns: 1fr; }
@@ -812,7 +879,8 @@
       </div>
       <div class="topbar-right">
         <button class="reload-btn" onclick="loadBudgetPage(true)">↻ Reload</button>
-        <span class="autosave-status" id="budgetAutosaveStatus">Autosaves to Excel</span>
+        <button class="reload-btn primary-save-btn" onclick="saveBudgetSetupToExcel({ silent: true })">Save budget</button>
+        <span class="autosave-status" id="budgetAutosaveStatus">No unsaved changes</span>
       </div>
     </header>
 
@@ -841,7 +909,7 @@
       </div>
     </div>
 
-    <section id="extraMonthlyAllowancePanel"></section>
+    <section id="cashLeftPanel"></section>
     <section id="budgetVisualPanel"></section>
 
 
@@ -849,7 +917,7 @@
 
 
     <!-- Budget tables side by side -->
-    <details class="simple-details"><summary>Edit budget categories, amounts &amp; funding accounts</summary><div class="simple-details-body"><div class="budget-page-grid">
+    <details class="simple-details"><summary>Budget settings</summary><div class="simple-details-body"><div class="budget-page-grid">
       <div class="budget-section-card">
         <div class="card-header">
           <h2 class="card-title">Bills</h2>
@@ -894,12 +962,13 @@ function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");a
       const allocated = Number(document.getElementById(prefix + 'AllocatedInput').value);
       if (!category || isNaN(allocated)) { alert('Please enter Sub Category and Allocated.'); return; }
       const list = type === 'Bills' ? billsBudget : monthlyBudget;
-      if (list.length >= 12) { alert('Maximum 12 rows allowed.'); return; }
+      const maxRows = type === 'Bills' ? 15 : 12;
+      if (list.length >= maxRows) { alert(`Maximum ${maxRows} rows allowed.`); return; }
       list.push({ type, category, allocated });
       document.getElementById(prefix + 'SubCategoryInput').value = '';
       document.getElementById(prefix + 'AllocatedInput').value = '';
       renderBudget();
-      scheduleBudgetAutoSave();
+      markBudgetSetupDirty();
     }
   </script>
   <script src="ui.js"></script>
