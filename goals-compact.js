@@ -96,6 +96,7 @@ function resetCompactPlan() {
 }
 
 function compactGoalUsableBreakdown(dep) {
+  const currentMonthLabel = new Date().toLocaleDateString("en-SG", { month: "long" });
   const currentParts = [
     [dep.unpaidGoalBills || 0, "unpaid bills"],
     [dep.remainingMonthlyExpenseBudget || 0, "monthly budget left"]
@@ -122,7 +123,7 @@ function compactGoalUsableBreakdown(dep) {
   return `
     <section class="cg-usable-now cg-money-flow" aria-label="Goal money flow"><div class="cg-section-intro"><span class="cg-step-label">STEP 1</span><h2>What can I use today?</h2><p>Start with your real balances, then protect money that is already spoken for.</p></div>
       <div class="cg-flow-header">
-        <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for September goals</h2><p>Future salary surplus stays in its own month bucket, even if the money is already in the account.</p></div>
+        <div><span class="cg-eyebrow">RIGHT NOW</span><h2>${formatCurrency(dep.deployable)} available for ${currentMonthLabel} goals</h2><p>Future salary surplus stays in its own month bucket, even if the money is already in the account.</p></div>
         <button type="button" class="btn-secondary btn-sm" onclick="pullGoalBudgetFromExcel()">Refresh Budget</button>
       </div>
 
