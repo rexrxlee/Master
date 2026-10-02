@@ -43,6 +43,35 @@ if (futureSalaryBudgetOverrideRaw !== null && futureSalaryBudgetOverrideRaw !== 
 
 // ─── Entry Point ──────────────────────────────────────────────────
 
+// Imported as a module by the dashboard to keep the Goals calculation isolated.
+window.calculateFinancePlanFromWorkbook = async function(workbook) {
+  const sheet = workbook.Sheets["Budget Setup"];
+  const transactions = workbook.Sheets[CONFIG.sheetName];
+  if (!sheet || !transactions) throw new Error("Goal budget data is unavailable.");
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+  allAccounts = rows.slice(1)
+    .map(row => ({ name: String(row[9] ?? "").trim(), type: String(row[10] ?? "Savings").trim() }))
+    .filter(account => account.name);
+  goalSavingsAccts = String(sheet.AD2?.v ?? "").split("|").map(name => name.trim())
+    .filter(name => allAccounts.some(account => accountKey(account.name) === accountKey(name) && account.type === "Savings"));
+  refreshGoalBudgetSummaryFromSheet(sheet);
+  allTxForGoals = readAllTx(transactions);
+  savingsBalances = computeAccountBalances(allTxForGoals);
+  ccOwed = computeCCOwed(allTxForGoals);
+  holdFutureSalaryBudget = localStorage.getItem("holdFutureSalaryBudget") !== "false";
+  const override = localStorage.getItem("futureSalaryBudgetOverride");
+  futureSalaryBudgetOverride = override !== null && override !== "" && Number.isFinite(Number(override)) && Number(override) >= 0
+    ? Number(override) : null;
+  const position = computeDeployableBalance();
+  const emergencyGoal = readGoalsFromSheet(sheet).find(goal => accountKey(goal.name) === "emergency fund");
+  return {
+    freeCash: position.deployable,
+    monthlySpend: position.budgetPosition.total.allocated,
+    emergencyTarget: emergencyGoal ? emergencyGoal.target : null,
+    emergencyDeadline: emergencyGoal?.endDate || ""
+  };
+};
+
 async function loadGoalsPage(forceRefresh = false) {
   if (typeof compactPlanChanged === "function" && compactPlanChanged() &&
       !confirm("Reload and discard your unsaved goal plan?")) return;
@@ -71,7 +100,6 @@ async function loadGoalsPage(forceRefresh = false) {
     // Goals must always use the latest funding accounts / ending dates without
     // requiring the user to press "Pull Budget" manually.
     refreshGoalBudgetSummaryFromSheet(budgetSheet);
-    await refreshGoalBudgetMetadataFromExcel();
 
     // Transactions
     allTxForGoals   = readAllTx(txSheet);
@@ -228,9 +256,12 @@ function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
 }
 
 function readGoalsFromSheet(sheet) {
+  let groups = {};
+  try { groups = JSON.parse(String(sheet.AG2?.v || "{}")) || {}; } catch { /* Older workbooks have no groups. */ }
   const rows = XLSX.utils.sheet_to_json(sheet, { header:1, range:GOALS_RANGE, blankrows:false });
   return rows.map(row => ({
     name:        String(row[0] ?? "").trim(),
+    group:       groups[String(row[0] ?? "").trim()] === "Wants" ? "Wants" : groups[String(row[0] ?? "").trim()] === "Needs" ? "Needs" : (/tax|insurance|emergency/i.test(String(row[0] ?? "")) ? "Needs" : "Wants"),
     target:      Number(row[1] ?? 0)  || 0,
     manualSaved: Math.round((Number(row[2] ?? 0) || 0) * 100) / 100,
     monthlyAlloc:Number(row[3] ?? 0)  || 0,
@@ -496,7 +527,30 @@ function isSalaryIncomeRow(row) {
 }
 
 // ─── Available Balance Calculation ────────────────────────────────
+let goalCalculationCache = null;
+const goalMonthFormatters = [
+  new Intl.DateTimeFormat("en-SG", { month: "short", year: "2-digit" }),
+  new Intl.DateTimeFormat("en-SG", { month: "short", year: "numeric" })
+];
+
+// These inputs stay fixed during one synchronous forecast, including its what-if runs.
+function withGoalCalculationCache(work) {
+  if (goalCalculationCache) return work();
+  goalCalculationCache = new Map();
+  try { return work(); } finally { goalCalculationCache = null; }
+}
+
+function cachedGoalCalculation(key, calculate) {
+  if (!goalCalculationCache) return calculate();
+  if (!goalCalculationCache.has(key)) goalCalculationCache.set(key, calculate());
+  return goalCalculationCache.get(key);
+}
+
 function computeDeployableBalance() {
+  return cachedGoalCalculation("deployable", calculateDeployableBalance);
+}
+
+function calculateDeployableBalance() {
   // Step 1: sum balances of goal-eligible savings accounts
   let rawSavings = 0;
   goalSavingsAccts.forEach(name => {
@@ -777,6 +831,10 @@ function computeFutureSalaryHold() {
 }
 
 function computeFutureMonthBudgetReserve(monthDate) {
+  return cachedGoalCalculation("budget:" + monthDate.getTime(), () => calculateFutureMonthBudgetReserve(monthDate));
+}
+
+function calculateFutureMonthBudgetReserve(monthDate) {
    const goalAccountKeys = new Set(goalSavingsAccts.map(accountKey));
 
   // Future Bills are held only when their configured funding account is a
@@ -2088,6 +2146,10 @@ function _boostDurationLabel(itemOrFrom, maybeToMonth) {
 }
 
 function getRecordedFutureSalaryForMonth(monthDate) {
+  return cachedGoalCalculation("salary:" + monthKeyFromDate(monthDate), () => calculateRecordedFutureSalaryForMonth(monthDate));
+}
+
+function calculateRecordedFutureSalaryForMonth(monthDate) {
   const targetKey = monthKeyFromDate(monthDate);
   const eligibleAccountKeys = new Set(goalSavingsAccts.map(accountKey));
   return (allTxForGoals || []).reduce((sum, row) => {
@@ -2198,8 +2260,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   }
 
   function monthLabel(offset, longForm=false) {
-    return new Date(today.getFullYear(), today.getMonth() + offset, 1)
-      .toLocaleDateString("en-SG", longForm ? { month:"short", year:"numeric" } : { month:"short", year:"2-digit" });
+    return goalMonthFormatters[longForm ? 1 : 0].format(new Date(today.getFullYear(), today.getMonth() + offset, 1));
   }
 
   function relativeDeadlineText(completedMo, deadlineMo) {
@@ -4570,6 +4631,10 @@ function renderGoalCard(goal, idx, container) {
 // ─── Helpers ──────────────────────────────────────────────────────
 
 function getSavedViaTransactions(goalName) {
+  return cachedGoalCalculation("saved:" + goalName, () => calculateSavedViaTransactions(goalName));
+}
+
+function calculateSavedViaTransactions(goalName) {
   return allTxForGoals
     .filter(r => clean(r["Sub Category"]).toLowerCase() === ("goal: " + goalName).toLowerCase())
     .reduce((s,r) => s + getGoalTransactionProgressImpact(r), 0);
@@ -4585,6 +4650,10 @@ function getGoalTransactionProgressImpact(row) {
 }
 
 function getGoalSpentViaTransactions(goalName) {
+  return cachedGoalCalculation("spent:" + goalName, () => calculateGoalSpentViaTransactions(goalName));
+}
+
+function calculateGoalSpentViaTransactions(goalName) {
   return allTxForGoals
     .filter(r => clean(r["Sub Category"]).toLowerCase() === ("goal: " + goalName).toLowerCase())
     .filter(isGoalExpenseTransaction)
@@ -4851,8 +4920,16 @@ async function persistGoalsToExcel(options = {}) {
 
   try {
     setGoalsAutoSaveStatus("Saving...");
-    await writeBudgetSetupRange(GOALS_RANGE, buildGoalsSaveValues());
-    if (includeBoosts) await saveIncomeBoosts();
+    const updates = [
+      { sheetName: "Budget Setup", rangeAddress: GOALS_RANGE, values: buildGoalsSaveValues() },
+      { sheetName: "Budget Setup", rangeAddress: "AG2:AG2", values: [[JSON.stringify(Object.fromEntries(goalsData.map(goal => [goal.name, goal.group === "Needs" ? "Needs" : "Wants"])) )]] }
+    ];
+    if (includeBoosts) {
+      incomeBoosts = _normaliseIncomeBoosts(incomeBoosts, true);
+      updates.push({ sheetName: "Budget Setup", rangeAddress: BOOSTS_RANGE, values: [[JSON.stringify(incomeBoosts)]] });
+    }
+    await writeExcelRanges(updates);
+    if (includeBoosts) incomeBoostsDirty = false;
     await refreshGoalBudgetMetadataFromExcel();
     setGoalsAutoSaveStatus("Saved to Excel", "ok");
     log("Goals saved.");

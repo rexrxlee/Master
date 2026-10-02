@@ -356,6 +356,7 @@ async function invalidateExcelDownloadCache() {
 }
 
 async function downloadExcelFile(forceRefresh = false) {
+  await excelWriteQueue;
   if (!forceRefresh) {
     try {
       const cached = await readExcelDownloadCache();
@@ -421,7 +422,43 @@ async function readExcelRange(sheetName, rangeAddress) {
 }
 
 function writeExcelRange(sheetName, rangeAddress, values) {
-  const write = excelWriteQueue.then(() => writeExcelRangeNow(sheetName, rangeAddress, values));
+  return writeExcelRanges([{ sheetName, rangeAddress, values }]).then(results => results[0]);
+}
+
+function writeExcelRanges(updates) {
+  // Snapshot edits before queuing; one workbook rebuild per save, not per range.
+  const pending = updates.map(update => ({ ...update, values: update.values.map(row => row.slice()) }));
+  const write = excelWriteQueue.then(async () => {
+    let cached = null;
+    let savedAt = 0;
+    try {
+      cached = await readExcelDownloadCache();
+      savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY));
+    } catch (_) {}
+    const results = [];
+    // Clear first: a failed or partially completed save must never leave stale cache.
+    await invalidateExcelDownloadCache();
+    const generation = excelCacheGeneration;
+    for (const update of pending) {
+      results.push(await writeExcelRangeNow(update.sheetName, update.rangeAddress, update.values));
+    }
+    if (cached) {
+      try {
+        const workbook = XLSX.read(cached, { type: "array" });
+        const hasFormulas = Object.values(workbook.Sheets).some(sheet =>
+          Object.keys(sheet).some(key => !key.startsWith("!") && sheet[key]?.f));
+        const writesFormula = pending.some(update => update.values.some(row => row.some(value =>
+          typeof value === "string" && value.startsWith("="))));
+        if (!hasFormulas && !writesFormula && pending.every(update => workbook.Sheets[update.sheetName])) {
+          for (const update of pending) {
+            XLSX.utils.sheet_add_aoa(workbook.Sheets[update.sheetName], update.values, { origin: update.rangeAddress.split(":")[0] });
+          }
+          await storeExcelDownloadCache(XLSX.write(workbook, { type: "array", bookType: "xlsx" }), savedAt, generation);
+        }
+      } catch (_) { /* Confirmed server saves remain successful if local caching fails. */ }
+    }
+    return results;
+  });
   excelWriteQueue = write.catch(() => {});
   return write;
 }
@@ -445,35 +482,7 @@ async function writeExcelRangeNow(sheetName, rangeAddress, values) {
       rangeAddress +
       "')";
 
-    // Retain the downloaded snapshot after confirmed range writes. This avoids
-    // downloading the entire workbook again when navigating to another page.
-    let cached = null;
-    let savedAt = 0;
-    try {
-      cached = await readExcelDownloadCache();
-      savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY));
-    } catch (_) {}
     const result = await graphPatch(url, token, { values }, true);
-    await invalidateExcelDownloadCache();
-    if (cached) {
-      try {
-        const workbook = XLSX.read(cached, { type: "array" });
-        const sheet = workbook.Sheets[sheetName];
-        // Formula dependencies need a server refresh, not a partial local update.
-        const hasFormulas = Object.values(workbook.Sheets).some(ws =>
-          Object.keys(ws).some(key => !key.startsWith("!") && ws[key]?.f));
-        const writesFormula = values.some(row => row.some(value =>
-          typeof value === "string" && value.startsWith("=")));
-        if (sheet && !hasFormulas && !writesFormula) {
-          XLSX.utils.sheet_add_aoa(sheet, values, { origin: rangeAddress.split(":")[0] });
-          const updated = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
-          // Keep the original freshness deadline so external edits are still checked.
-          await storeExcelDownloadCache(updated, savedAt);
-        }
-      } catch (_) {
-        // The server save succeeded; cache failures must not turn it into a failed save.
-      }
-    }
     return result;
   });
 }

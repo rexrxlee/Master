@@ -36,12 +36,7 @@ async function loadBudgetPage(forceRefresh = false) {
     billsBudget        = readBudgetSection(budgetSheet, "A2:B16", "Bills");
     monthlyBudget      = readBudgetSection(budgetSheet, "F2:G13", "Monthly Expenses");
     applyBudgetFundingMap(budgetSheet);
-    try {
-      const allowanceAccountsResult = await readBudgetSetupRange("AI2:AI2");
-      extraAllowanceAccounts = parsePipeList(allowanceAccountsResult?.values?.[0]?.[0]);
-    } catch (_) {
-      extraAllowanceAccounts = parsePipeList(budgetSheet["AI2"]?.v);
-    }
+    extraAllowanceAccounts = parsePipeList(budgetSheet["AI2"]?.v);
     goalSavingsAccountsForBudget = parsePipeList(budgetSheet["AD2"]?.v);
     accountsList       = readAccountsSection(budgetSheet, "J2:J10");
     budgetAccountTypes = XLSX.utils.sheet_to_json(budgetSheet, {header: 1, range: "J2:K10"}).map(row => ({name: row[0], type: row[1]}));
@@ -269,9 +264,12 @@ function renderCashLeftPanel() {
     : `<p class="extra-allowance-empty">Add Savings accounts in Accounts & Setup first.</p>`;
   const impactClass = funding.cashLeft > 0 ? "ok" : "danger";
   const impactTitle = funding.cashLeft > 0 ? "Cash left" : "No cash left";
+  const protectedText = funding.futureSalaryReceived
+    ? "card payments, current bills, and next month's budget"
+    : "card payments and current bills";
   const impactText = funding.cashLeft > 0
-    ? `${formatCurrency(funding.cashLeft)} remains after protecting card payments, current bills, and next month's budget.`
-    : "Selected accounts are fully used after protecting card payments, current bills, and next month's budget.";
+    ? `${formatCurrency(funding.cashLeft)} remains after protecting ${protectedText}.`
+    : `Selected accounts are fully used after protecting ${protectedText}.`;
   el.innerHTML = `
     <div class="extra-allowance-card">
       <div class="extra-allowance-funding">
@@ -326,10 +324,27 @@ function getExtraAllowanceFundingPosition() {
   const selectedAccountNames = selected.map(account => account.name);
   const creditCardOwed = computeBudgetCreditCardOwed();
   const currentBillsProtected = computeCurrentBillsProtected(selectedAccountNames);
-  const nextMonthBudgetBlock = computeNextMonthBudgetBlock(selectedAccountNames);
+  const futureSalaryReceived = hasFutureSalaryInSelectedAccounts(selectedAccountNames);
+  const nextMonthBudgetBlock = futureSalaryReceived ? computeNextMonthBudgetBlock(selectedAccountNames) : 0;
   const claimsComingBack = computePendingClaimsForAccounts(selectedAccountNames);
   const cashLeft = Math.max(0, available - creditCardOwed - currentBillsProtected - nextMonthBudgetBlock + claimsComingBack);
-  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, nextMonthBudgetBlock, claimsComingBack, cashLeft };
+  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, futureSalaryReceived, nextMonthBudgetBlock, claimsComingBack, cashLeft };
+}
+
+function hasFutureSalaryInSelectedAccounts(selectedAccountNames = []) {
+  if (!selectedAccountNames.length) return false;
+  const selectedKeys = new Set(selectedAccountNames.map(accountKey));
+  const today = new Date();
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  return budgetTransactions.some(row => {
+    const date = parseBudgetDate(row["Date"]);
+    return date &&
+      date >= currentMonthStart &&
+      date.getMonth() !== today.getMonth() &&
+      selectedKeys.has(accountKey(row["Account"])) &&
+      isBudgetSalaryIncomeRow(row) &&
+      Math.abs(getSignedBudgetAmount(row["Amount"])) > 0;
+  });
 }
 
 function computeCurrentBillsProtected(selectedAccountNames = []) {

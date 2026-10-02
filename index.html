@@ -10,7 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=age-milestones-1">
 </head>
 <body onload="initGlobalNav(); loadDashboard()">
 
@@ -94,6 +94,7 @@
     <nav class="dashboard-tabs" aria-label="Dashboard views">
       <button type="button" id="expensesDashboardTab" class="dashboard-tab-btn active" onclick="switchDashboardView('expenses')">Expenses</button>
       <button type="button" id="incomeDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('income')">Income</button>
+      <button type="button" id="planDashboardTab" class="dashboard-tab-btn" onclick="switchDashboardView('plan')">Plan</button>
     </nav>
 
     <section id="expensesDashboardView" class="dashboard-view active"><section class="kpi-row budget-kpi-row">
@@ -302,6 +303,104 @@
         </div>
       </section></div></details></section>
 
+    <section id="planDashboardView" class="dashboard-view">
+      <section class="plan-panel">
+        <div class="plan-header">
+          <div>
+            <h2>Finance management</h2>
+            <p>Uses your protected cash, salary, CPF and goals to decide what should happen first.</p>
+          </div>
+          <span class="plan-status" id="planStatus">Cash buffer first</span>
+        </div>
+
+        <div class="plan-input-grid">
+          <label>Free cash after protection
+            <input type="number" id="planFreeCashInput" step="0.01" readonly aria-label="Free cash after protection from Goals">
+            <a href="goals.html">From Goals</a>
+          </label>
+        </div>
+        <div class="plan-input-grid plan-cashflow-grid">
+          <label>Gross salary / month
+            <input type="number" id="planGrossSalaryInput" step="0.01" value="7700">
+          </label>
+          <div class="plan-metric">
+            <span>Estimated take-home</span>
+            <strong id="planTakeHome">$0.00</strong>
+            <small>Assumes 20% employee CPF; before income tax.</small>
+          </div>
+          <label>All-in spending / month
+            <input type="number" id="planMonthlySpendInput" step="0.01" readonly aria-label="Monthly spending from Budget">
+            <a href="monthly-budget.html">From Budget</a>
+          </label>
+          <div class="plan-metric">
+            <span>Monthly cash gap / surplus</span>
+            <strong id="planMonthlySurplus">$0.00</strong>
+            <small>Take-home minus spending and planned investing.</small>
+          </div>
+        </div>
+
+        <div class="plan-input-grid">
+          <label>CPF cash top-up this year
+            <input type="number" id="planCpfTopupInput" step="0.01" value="0">
+          </label>
+          <label>Monthly investing after buffer
+            <input type="number" id="planInvestmentInput" step="0.01" value="0">
+          </label>
+        </div>
+
+        <div class="plan-kpi-row">
+          <div class="plan-metric">
+            <span>Emergency fund target</span>
+            <strong id="planEmergencyTarget">$0.00</strong>
+            <small id="planEmergencyNote">-</small>
+            <a href="goals.html">From Goals</a>
+          </div>
+          <div class="plan-metric">
+            <span>CPF top-up tax saving</span>
+            <strong id="planTaxSaving">$0.00</strong>
+            <small id="planTaxNote">Relief is capped at $8,000 for self.</small>
+          </div>
+        </div>
+
+        <section class="plan-milestones">
+          <div class="plan-header"><h3>Milestones</h3><label>Current age <input id="planAgeInput" type="number" min="1" max="120" step="1"></label></div>
+          <div id="planMilestoneChart" aria-live="polite"></div>
+        </section>
+
+        <div class="plan-two-col">
+          <div class="plan-card">
+            <h3>Order of play</h3>
+            <ol id="planPriorityList" class="plan-list"></ol>
+          </div>
+          <div class="plan-card">
+            <h3>CPF and housing</h3>
+            <div class="plan-facts">
+              <div><span>CPF housing deduction</span><strong>$297.00 / month</strong></div>
+              <div><span>CPF used for property</span><strong>$107,378.17</strong></div>
+              <div><span>CPF accrued interest</span><strong>$1,462.82</strong></div>
+              <div><span>OA / SA / MA</span><strong>$23,276.16 / $25,957.67 / $29,101.77</strong></div>
+            </div>
+            <p id="planCpfGuidance" class="plan-note"></p>
+          </div>
+        </div>
+
+        <div class="plan-two-col">
+          <div class="plan-card">
+            <h3>Goal buckets</h3>
+            <table class="data-table compact-plan-table">
+              <thead><tr><th>Goal</th><th>Target</th><th>Due</th><th>Role</th></tr></thead>
+              <tbody id="planGoalsTable"></tbody>
+            </table>
+          </div>
+          <div class="plan-card">
+            <h3>Partner reserve</h3>
+            <p class="plan-note"><strong>$100,000</strong> stays outside this plan. Treat it as long-term family resilience, not monthly spending or goal funding.</p>
+            <p class="plan-note">Because your partner may stop working, your own cash buffer should carry the plan before extra CPF top-ups or investments.</p>
+          </div>
+        </div>
+      </section>
+    </section>
+
   </main>
   <script>
 function applyGlobalNav(hidden){document.body.classList.toggle("nav-hidden",hidden);const b=document.getElementById("globalNavToggle");if(b){b.textContent=hidden?"☰":"‹";b.setAttribute("aria-label",hidden?"Show navigation":"Hide navigation");}}
@@ -311,10 +410,10 @@ function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");a
 
 
   <script src="config.js"></script>
-  <script src="onedrive.js"></script>
+  <script src="onedrive.js?v=performance-1"></script>
   <script src="business.js"></script>
   <script src="charts.js"></script>
-  <script src="dashboard.js"></script>
+  <script src="dashboard.js?v=age-milestones-1"></script>
   <script src="ui.js"></script>
 </body>
 </html>

@@ -20,7 +20,7 @@ function sortCompactGoalRows(value) {
   if (value === "priority") order.sort(compareGoalPriorityOrder);
   order.forEach(goal => {
     const row = document.getElementById(`compactGoal_${goal.originalIdx}`);
-    if (row) container.appendChild(row);
+    if (row) document.getElementById(`compactGroup${goal.group === "Needs" ? "Needs" : "Wants"}`).appendChild(row);
   });
 }
 let compactSavedPlan = null;
@@ -164,6 +164,17 @@ function compactPriorityOptions(value) {
   return ["Critical", "High", "Medium", "Low"].map(name => `<option ${name === value ? "selected" : ""}>${name}</option>`).join("");
 }
 
+function compactGroupOptions(value) {
+  return ["Needs", "Wants"].map(group => `<option ${group === value ? "selected" : ""}>${group}</option>`).join("");
+}
+
+function compactGroupedGoals(setup = false) {
+  return ["Needs", "Wants"].map(group => {
+    const items = goalsData.map((goal, idx) => ({ goal, idx })).filter(({ goal }) => (goal.group || "Wants") === group);
+    return `<section class="cg-goal-group"><h3>${group}</h3><div ${setup ? 'class="cg-setup-grid"' : `class="cg-group-rows" id="compactGroup${group}"`}>${items.map(({ goal, idx }) => setup ? compactGoalSetupRow(goal, idx) : compactGoalRow(goal, idx)).join("") || '<p class="cg-note">No goals.</p>'}</div></section>`;
+  }).join("");
+}
+
 function renderCompactGoalsPage() {
   compactNormaliseManualAssignments();
   if (!compactSavedPlan) captureCompactSavedPlan();
@@ -185,6 +196,7 @@ function renderCompactGoalsPage() {
         <label>Start<input name="start" type="date" value="${today}" required></label>
         <label>Deadline<input name="end" type="date" required></label>
         <label>Priority<select name="urgency">${compactPriorityOptions("Medium")}</select></label>
+        <label>Group<select name="group">${compactGroupOptions("Wants")}</select></label>
         <button class="btn-primary" type="submit">Add goal</button>
         <p class="cg-form-message" role="status"></p>
       </form>
@@ -197,7 +209,7 @@ function renderCompactGoalsPage() {
         <label class="cg-sort" for="compactGoalSort">Sort by <select id="compactGoalSort" onchange="sortCompactGoalRows(this.value)"><option value="original" ${compactGoalSort === "original" ? "selected" : ""}>Original order</option><option value="priority" ${compactGoalSort === "priority" ? "selected" : ""}>Priority (highest first)</option></select></label>
         <p class="cg-note">Try allocations freely. Sliders and Smart Assign only preview your plan; choose Save plan when ready.</p>
         <div class="cg-chart-scroll"><div class="cg-chart-wrap" id="compactGoalTimeline" role="img" aria-label="Goal allocation timeline"></div></div>
-        <div id="compactGoalRows">${goalsData.map((goal, idx) => compactGoalRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal to start planning.</p>'}</div>
+        <div id="compactGoalRows">${compactGroupedGoals()}</div>
         <div id="compactForecastResults" aria-live="polite"></div>
         <details class="cg-method"><summary>How this forecast is calculated</summary><div id="compactForecastMethod"></div></details>
         <div class="cg-save-actions"><button id="compactSavePlan" class="btn-primary" onclick="saveCompactPlan()">Save all goal changes</button><button id="compactResetPlan" class="btn-secondary" onclick="resetCompactPlan()">Reset changes</button><span id="goalsAutosaveStatus" class="goals-autosave-status" role="status">No unsaved changes</span></div>
@@ -205,7 +217,7 @@ function renderCompactGoalsPage() {
     </div>
     <section class="cg-setup-panel">
       <div class="cg-heading"><h2>Goal setup</h2></div>
-      <div class="cg-setup-grid">${goalsData.map((goal, idx) => compactGoalSetupRow(goal, idx)).join("") || '<p class="cg-note">Add your first goal above, then use the allocation chart above.</p>'}</div>
+      ${compactGroupedGoals(true)}
     </section>`;
   renderIncomeBoostsPanel(document.getElementById("compactAdjustments"));
   document.getElementById("boostsPanel").open = adjustmentsOpen;
@@ -239,6 +251,7 @@ function compactGoalSetupRow(goal, idx) {
   return `<article class="cg-setup-goal">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><select aria-label="Priority for ${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'urgency', this.value)">${compactPriorityOptions(goal.urgency)}</select></div>
     <div class="cg-options">
+      <label>Group<select onchange="updateCompactGoal(${idx}, 'group', this.value)">${compactGroupOptions(goal.group || "Wants")}</select></label>
       <label>Name<input value="${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'name', this.value)"></label>
       <label>Target ($)<input type="number" min="0.01" step="0.01" value="${goal.target}" onchange="updateCompactGoal(${idx}, 'target', this.value)"></label>
       <label>Monthly plan ($)<input type="number" min="0" step="0.01" value="${goal.monthlyAlloc}" onchange="updateCompactGoal(${idx}, 'monthlyAlloc', this.value)"></label>
@@ -267,6 +280,7 @@ function addCompactGoal(form) {
     message.textContent = goalsData.length >= MAX_GOALS ? `Maximum ${MAX_GOALS} goals.` : "Use a unique goal name."; return;
   }
   goalsData.push({ name, target, startDate, endDate, urgency: fields.namedItem("urgency").value,
+    group: fields.namedItem("group").value,
     manualSaved: 0, monthlyAlloc: 0, goalBuffer: 0, priority: 0, notes: "", color: getNextGoalColor() });
   renderCompactGoalsPage();
   scheduleGoalsAutoSave();
@@ -708,6 +722,10 @@ function renderCompactTimeline(rows, model) {
 }
 
 function refreshCompactGoalForecast() {
+  return withGoalCalculationCache(renderCompactGoalForecast);
+}
+
+function renderCompactGoalForecast() {
   const timeline = document.getElementById("compactGoalTimeline");
   if (!timeline) return;
   updateCompactSaveStatus();

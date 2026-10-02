@@ -7,10 +7,22 @@ let monthlyExpenseBudgetRows = [];
 let assetAccountSelections = {};
 let activeDashboardView = "expenses";
 let dashboardFiltersInitialized = false;
+let dashboardTabsInitialized = false;
+let financePlanGoalCash = 0;
+let financePlanMonthlyBudget = 0;
+let financePlanEmergencyTarget = null;
+let financePlanEmergencyDeadline = "";
 const ASSET_SCOPE_STORAGE_KEY = "fintrack.dashboard.assetAccountSelections.v1";
+const FINANCE_PLAN_STORAGE_KEY = "fintrack.dashboard.financePlan.v1";
 const NO_FILTER_SELECTION = "__FINTRACK_NONE_SELECTED__";
+const FINANCE_PLAN_DEFAULTS = {
+  grossSalary: 7700,
+  cpfTopup: 0,
+  monthlyInvestment: 0
+};
 async function loadDashboard(forceRefresh = false) {
   try {
+    setupDashboardTabs();
     clearOutput();
     log("Downloading Excel file...");
     const arrayBuffer = await downloadExcelFile(forceRefresh);
@@ -42,6 +54,12 @@ async function loadDashboard(forceRefresh = false) {
       monthlyExpenseBudgetRows = [];
     }
     loadAssetAccountSelections();
+    await import("./goals.js?v=age-milestones-1");
+    const financePlan = await window.calculateFinancePlanFromWorkbook(workbook);
+    financePlanGoalCash = financePlan.freeCash;
+    financePlanMonthlyBudget = financePlan.monthlySpend;
+    financePlanEmergencyTarget = financePlan.emergencyTarget;
+    financePlanEmergencyDeadline = financePlan.emergencyDeadline;
     setupFilters();
     const filters = getCurrentFilters();
     refreshAllFilters(filters);
@@ -53,6 +71,19 @@ async function loadDashboard(forceRefresh = false) {
     alert(err.message);
     console.error(err);
   }
+}
+
+function setupDashboardTabs() {
+  if (dashboardTabsInitialized) return;
+  dashboardTabsInitialized = true;
+  [
+    ["expensesDashboardTab", "expenses"],
+    ["incomeDashboardTab", "income"],
+    ["planDashboardTab", "plan"]
+  ].forEach(([id, view]) => {
+    const tab = document.getElementById(id);
+    if (tab) tab.addEventListener("click", () => switchDashboardView(view));
+  });
 }
 
 function clean(value) { return String(value ?? "").trim(); }
@@ -145,7 +176,7 @@ function setupFilters() {
 }
 
 function switchDashboardView(view) {
-  if (!["expenses", "income"].includes(view)) return;
+  if (!["expenses", "income", "plan"].includes(view)) return;
   if (activeDashboardView !== view) {
     const current = getCurrentFilters();
     activeDashboardView = view;
@@ -168,15 +199,20 @@ function switchDashboardView(view) {
 
 function syncDashboardViewVisibility() {
   const isIncome = activeDashboardView === "income";
+  const isPlan = activeDashboardView === "plan";
   const expensesView = document.getElementById("expensesDashboardView");
   const incomeView = document.getElementById("incomeDashboardView");
+  const planView = document.getElementById("planDashboardView");
   const expensesTab = document.getElementById("expensesDashboardTab");
   const incomeTab = document.getElementById("incomeDashboardTab");
+  const planTab = document.getElementById("planDashboardTab");
 
-  if (expensesView) expensesView.classList.toggle("active", !isIncome);
+  if (expensesView) expensesView.classList.toggle("active", !isIncome && !isPlan);
   if (incomeView) incomeView.classList.toggle("active", isIncome);
-  if (expensesTab) expensesTab.classList.toggle("active", !isIncome);
+  if (planView) planView.classList.toggle("active", isPlan);
+  if (expensesTab) expensesTab.classList.toggle("active", !isIncome && !isPlan);
   if (incomeTab) incomeTab.classList.toggle("active", isIncome);
+  if (planTab) planTab.classList.toggle("active", isPlan);
 }
 
 function toggleDropdown(menuId) {
@@ -491,7 +527,213 @@ function updateDashboard(filters = getCurrentFilters()) {
     renderIncomeSummaryCards(incomeFiltered, filters);
     renderIncomeInsightCards(incomeFiltered, allTransactions, filters);
     renderIncomeMonthlyTable(incomeFiltered);
+  } else if (activeDashboardView === "plan") {
+    renderFinanceManagementPlan();
   }
+}
+
+// ─── Finance Management Plan ────────────────────────────────────────────────
+
+function getFinancePlanInputs() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(FINANCE_PLAN_STORAGE_KEY) || "{}") || {};
+  } catch {
+    saved = {};
+  }
+  return { ...FINANCE_PLAN_DEFAULTS, ...saved, freeCash: financePlanGoalCash, monthlySpend: financePlanMonthlyBudget };
+}
+
+function readFinancePlanInputsFromDom() {
+  return {
+    freeCash: financePlanGoalCash,
+    grossSalary: readNumberInput("planGrossSalaryInput", FINANCE_PLAN_DEFAULTS.grossSalary),
+    monthlySpend: financePlanMonthlyBudget,
+    currentAge: document.getElementById("planAgeInput")?.value || "",
+    cpfTopup: readNumberInput("planCpfTopupInput", FINANCE_PLAN_DEFAULTS.cpfTopup),
+    monthlyInvestment: readNumberInput("planInvestmentInput", FINANCE_PLAN_DEFAULTS.monthlyInvestment)
+  };
+}
+
+function readNumberInput(id, fallback = 0) {
+  const element = document.getElementById(id);
+  if (!element) return fallback;
+  const value = Number(element.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function setFinancePlanInputValues(values) {
+  setInputValue("planFreeCashInput", financePlanGoalCash.toFixed(2));
+  setInputValue("planGrossSalaryInput", values.grossSalary);
+  setInputValue("planMonthlySpendInput", financePlanMonthlyBudget.toFixed(2));
+  setInputValue("planAgeInput", values.currentAge || "");
+  setInputValue("planCpfTopupInput", values.cpfTopup);
+  setInputValue("planInvestmentInput", values.monthlyInvestment);
+}
+
+function setInputValue(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.value = String(value);
+}
+
+function persistFinancePlanInputs(values) {
+  try {
+    localStorage.setItem(FINANCE_PLAN_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // The calculator still works if local storage is unavailable.
+  }
+}
+
+function setupFinancePlanInputs() {
+  document.querySelectorAll("#planDashboardView input").forEach(input => {
+    if (input.dataset.planBound === "true") return;
+    input.dataset.planBound = "true";
+    input.addEventListener("input", () => {
+      const values = readFinancePlanInputsFromDom();
+      persistFinancePlanInputs(values);
+      renderFinanceManagementPlan(false);
+    });
+  });
+}
+
+function renderFinanceManagementPlan(restoreSavedValues = true) {
+  const planView = document.getElementById("planDashboardView");
+  if (!planView) return;
+
+  if (restoreSavedValues) setFinancePlanInputValues(getFinancePlanInputs());
+  setupFinancePlanInputs();
+
+  const values = readFinancePlanInputsFromDom();
+  const employeeCpf = values.grossSalary * 0.20;
+  const takeHomeBeforeTax = Math.max(0, values.grossSalary - employeeCpf);
+  const monthlySurplus = takeHomeBeforeTax - values.monthlySpend - values.monthlyInvestment;
+  const emergencyTarget = financePlanEmergencyTarget ?? 0;
+  const emergencyGap = Math.max(0, emergencyTarget - values.freeCash);
+  const monthsToEmergency = monthlySurplus > 0 ? Math.ceil(emergencyGap / monthlySurplus) : null;
+  const chargeableIncomeBeforeTopup = Math.max(0, values.grossSalary * 12 - employeeCpf * 12 - 1000);
+  const marginalRate = estimateSingaporeMarginalTaxRate(chargeableIncomeBeforeTopup);
+  const selfCpfRelief = Math.min(Math.max(0, values.cpfTopup), 8000);
+  const estimatedTaxSaving = selfCpfRelief * marginalRate;
+  const threeMonthBuffer = values.monthlySpend * 3;
+
+  setText("planTakeHome", formatCurrency(takeHomeBeforeTax));
+  setText("planMonthlySurplus", formatCurrency(monthlySurplus));
+  setText("planEmergencyTarget", financePlanEmergencyTarget === null ? "Not set" : formatCurrency(emergencyTarget));
+  setText("planTaxSaving", formatCurrency(estimatedTaxSaving));
+
+  const status = document.getElementById("planStatus");
+  if (status) {
+    status.textContent = values.freeCash < threeMonthBuffer ? "Cash buffer first" : "CPF/investment ready";
+    status.classList.toggle("ok", values.freeCash >= threeMonthBuffer);
+  }
+
+  const emergencyNote = document.getElementById("planEmergencyNote");
+  if (emergencyNote) {
+    emergencyNote.textContent = financePlanEmergencyTarget === null ? "Set an Emergency Fund goal in Goals." : emergencyGap <= 0
+      ? "Your cash buffer target is covered."
+      : `${formatCurrency(emergencyGap)} gap${monthsToEmergency ? `, about ${monthsToEmergency} months` : ""}.`;
+  }
+
+  const taxNote = document.getElementById("planTaxNote");
+  if (taxNote) {
+    taxNote.textContent = selfCpfRelief > 0
+      ? `Estimated at ${(marginalRate * 100).toFixed(1)}% marginal tax rate. Relief is not cash back.`
+      : "Use later; self top-up relief is capped at $8,000.";
+  }
+
+  renderPlanPriorityList(values, monthlySurplus, threeMonthBuffer, emergencyTarget, estimatedTaxSaving);
+  renderPlanGoalsTable();
+  renderPlanMilestones(values.currentAge);
+  renderCpfGuidance(values, threeMonthBuffer, estimatedTaxSaving);
+}
+
+function renderPlanMilestones(ageValue) {
+  const container = document.getElementById("planMilestoneChart");
+  if (!container) return;
+  const age = Number(ageValue);
+  if (ageValue === "" || !Number.isInteger(age) || age < 1 || age > 120) {
+    container.innerHTML = '<p class="plan-note">Current age required.</p>';
+    return;
+  }
+  const deadline = parseExcelDate(financePlanEmergencyDeadline);
+  const today = new Date();
+  const offset = deadline ? Math.max(0, (deadline - today) / (365.2425 * 86400000)) : null;
+  const years = Math.max(10, offset === null ? 0 : Math.ceil(offset) + 1);
+  const ticks = Array.from({ length: years + 1 }, (_, i) => `<span>${age + i}</span>`).join("");
+  const dateLabel = deadline ? deadline.toLocaleDateString("en-SG", {day:"numeric", month:"short", year:"numeric"}) : "";
+  const milestone = financePlanEmergencyTarget !== null && offset !== null
+    ? `<a class="plan-milestone" href="goals.html" style="left:${offset / years * 100}%"><strong>Emergency Fund</strong><b>${formatCurrency(financePlanEmergencyTarget)}</b><small>Target ${escapeHtml(dateLabel)}${deadline < today ? " (past due)" : ""}</small></a>`
+    : '<p class="plan-note">Set an Emergency Fund amount and deadline in Goals.</p>';
+  container.innerHTML = `<div class="plan-age-scroll"><div class="plan-age-track" style="min-width:${(years + 1) * 65}px"><div class="plan-age-markers">${milestone}</div><div class="plan-age-axis">${ticks}</div></div></div><small class="plan-note">Age (approximate) · Target date from Goals</small>`;
+}
+
+function renderPlanPriorityList(values, monthlySurplus, threeMonthBuffer, emergencyTarget, estimatedTaxSaving) {
+  const list = document.getElementById("planPriorityList");
+  if (!list) return;
+  const items = [
+    `Keep this month's free cash tight: ${formatCurrency(values.freeCash)} is the only flexible cash after protected items.`,
+    `Build emergency cash to at least ${formatCurrency(threeMonthBuffer)} first, then stretch toward ${formatCurrency(emergencyTarget)}.`,
+    "Fund near fixed goals next: Tax 2027 and Insurance before optional goals.",
+    monthlySurplus > 0
+      ? `After spending, estimated monthly surplus is ${formatCurrency(monthlySurplus)} before income tax. Split this between goals until the buffer is healthy.`
+      : `Monthly cashflow is short by ${formatCurrency(Math.abs(monthlySurplus))}; reduce spending or pause optional goals before investing.`,
+    values.cpfTopup > 0
+      ? `CPF top-up may save about ${formatCurrency(estimatedTaxSaving)} tax, but the cash is locked for retirement.`
+      : "Delay CPF cash top-up until emergency cash is stable; it is useful, but it locks liquidity."
+  ];
+  list.innerHTML = items.map(item => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function renderPlanGoalsTable() {
+  const table = document.getElementById("planGoalsTable");
+  if (!table) return;
+  const rows = [
+    ["Tax 2027", "$2,000", "31 Mar 2027", "First fixed bill"],
+    ["Insurance", "$5,500", "01 Jan 2029", "Critical sinking fund"],
+    ["Emergency Fund", financePlanEmergencyTarget === null ? "Not set" : formatCurrency(financePlanEmergencyTarget), "01 Jan 2029", "Cash resilience"],
+    ["Korea 2028", "$8,000 + 5%", "01 Jul 2027", "Optional after buffer"]
+  ];
+  table.innerHTML = rows.map(row => `
+    <tr>
+      <td>${row[0]}</td>
+      <td>${row[1]}</td>
+      <td>${row[2]}</td>
+      <td>${row[3]}</td>
+    </tr>
+  `).join("");
+}
+
+function renderCpfGuidance(values, threeMonthBuffer, estimatedTaxSaving) {
+  const guidance = document.getElementById("planCpfGuidance");
+  if (!guidance) return;
+  if (values.freeCash < threeMonthBuffer) {
+    guidance.textContent = "I would not use cash for CPF top-up or voluntary housing refund yet. Your CPF is already handling housing monthly, and your cash buffer is the scarce part.";
+  } else if (values.cpfTopup > 0) {
+    guidance.textContent = `CPF top-up is reasonable to test once the buffer is covered. ${formatCurrency(values.cpfTopup)} top-up estimates about ${formatCurrency(estimatedTaxSaving)} tax saved, but it should be money you will not need back.`;
+  } else {
+    guidance.textContent = "Once cash buffer and near goals are covered, compare CPF SA top-up against low-cost investing. CPF gives certainty and tax relief; investing keeps more flexibility.";
+  }
+}
+
+function estimateSingaporeMarginalTaxRate(chargeableIncome) {
+  if (chargeableIncome <= 20000) return 0;
+  if (chargeableIncome <= 30000) return 0.02;
+  if (chargeableIncome <= 40000) return 0.035;
+  if (chargeableIncome <= 80000) return 0.07;
+  if (chargeableIncome <= 120000) return 0.115;
+  if (chargeableIncome <= 160000) return 0.15;
+  if (chargeableIncome <= 200000) return 0.18;
+  if (chargeableIncome <= 240000) return 0.19;
+  if (chargeableIncome <= 280000) return 0.195;
+  if (chargeableIncome <= 320000) return 0.20;
+  if (chargeableIncome <= 500000) return 0.22;
+  if (chargeableIncome <= 1000000) return 0.23;
+  return 0.24;
+}
+
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
 }
 
 // ─── Monthly Expenses Budget Insight ──────────────────────────────────────────

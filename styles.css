@@ -354,6 +354,162 @@ body {
 .dashboard-view { display: none; }
 .dashboard-view.active { display: block; }
 
+/* ── Finance Management Plan ─────────────────────────────────────────────── */
+.plan-panel {
+  display: grid;
+  gap: 16px;
+}
+.plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.plan-header h2 {
+  font-size: 20px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.plan-header p,
+.plan-note {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.plan-status {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 700;
+}
+.plan-status.ok {
+  background: var(--green-bg);
+  border-color: #86efac;
+  color: var(--green);
+}
+.plan-input-grid,
+.plan-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.plan-cashflow-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.plan-milestones { min-width: 0; padding: 16px 0; border-top: 1px solid var(--border); }
+.plan-milestones input { width: 76px; padding: 8px; margin-left: 8px; }
+.plan-age-scroll { overflow-x: auto; padding: 8px 12px 16px; }
+.plan-age-track { margin-right: 170px; }
+.plan-age-markers { height: 118px; position: relative; }
+.plan-milestone { position: absolute; bottom: 0; display: grid; gap: 5px; width: 170px; padding: 0 0 18px 12px; border-left: 2px solid #16804a; color: var(--text); text-decoration: none; }
+.plan-milestone::after { content: ''; position: absolute; left: -6px; bottom: -5px; width: 10px; height: 10px; border-radius: 50%; background: #16804a; }
+.plan-milestone small { font-size: 11px; color: var(--muted); }
+.plan-age-axis { display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; }
+.plan-age-axis span { width: 0; overflow: visible; }
+.plan-cashflow-grid > * {
+  min-width: 0;
+}
+.plan-input-grid label,
+.plan-metric,
+.plan-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.plan-input-grid label {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.plan-input-grid input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  font: 600 16px 'DM Mono', monospace;
+}
+.plan-metric {
+  padding: 14px 16px;
+}
+.plan-metric span,
+.plan-facts span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.plan-metric strong,
+.plan-facts strong {
+  display: block;
+  color: var(--text);
+  font: 700 20px 'DM Mono', monospace;
+}
+.plan-metric small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.plan-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.plan-card {
+  padding: 16px 18px;
+  min-width: 0;
+}
+.plan-card h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.plan-list {
+  display: grid;
+  gap: 8px;
+  padding-left: 22px;
+  color: var(--text);
+  line-height: 1.4;
+}
+.plan-list li::marker {
+  font-weight: 700;
+}
+.plan-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.plan-facts div {
+  min-width: 0;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.plan-facts strong {
+  font-size: 14px;
+  white-space: normal;
+}
+.compact-plan-table th,
+.compact-plan-table td {
+  padding: 8px 10px;
+}
+
 /* ── Date Range Panel ──────────────────────────────────────────────────────── */
 .date-range-panel {
   position: absolute;
@@ -1002,6 +1158,9 @@ button, select, input {
   .charts-row { grid-template-columns: 1fr; }
   .income-breakdown-row { grid-template-columns: 1fr; }
   .tables-row { grid-template-columns: 1fr; }
+  .plan-input-grid,
+  .plan-kpi-row,
+  .plan-two-col { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
@@ -1031,6 +1190,11 @@ button, select, input {
   .dashboard-tab-btn { flex: 1; min-width: 0; padding-inline: 6px; }
   .kpi-row, .kpi-row.kpi-row-3 { grid-template-columns: 1fr 1fr; }
   .insight-row { grid-template-columns: repeat(2, 1fr); }
+  .plan-header { flex-direction: column; }
+  .plan-input-grid,
+  .plan-kpi-row,
+  .plan-two-col,
+  .plan-facts { grid-template-columns: 1fr; }
   .claims-section {
     width: 100%;
     max-width: 100%;

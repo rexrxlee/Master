@@ -46,7 +46,10 @@
 .cg-setup-panel { margin-bottom: 12px; }
 .cg-setup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
 .cg-setup-goal { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--bg); min-width: 0; }
-#compactGoalRows { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 280px); gap: 12px; overflow-x: auto; padding: 6px 2px 12px; scroll-snap-type: x proximity; }
+#compactGoalRows { display: block; padding: 6px 2px 12px; }
+.cg-goal-group { min-width: 0; margin: 16px 0; }
+.cg-goal-group h3 { margin: 0 0 10px; font-size: 16px; }
+.cg-group-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
 .cg-goal { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--bg); min-width: 0; scroll-snap-align: start; }
 .cg-dates, .cg-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .cg-allocation { display: grid; grid-template-columns: minmax(0, 1fr) 105px; gap: 10px; align-items: center; margin-top: 10px; }
