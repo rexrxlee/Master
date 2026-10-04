@@ -21,6 +21,7 @@ if (typeof Chart !== "undefined" && typeof ChartDataLabels !== "undefined") {
 }
 
 let goalsData       = [];
+let goalsTaxRevision = 0;
 let allTxForGoals   = [];
 let allAccounts     = [];          // { name, type } from col J/K
 let goalSavingsAccts = [];         // names of accounts chosen for goals
@@ -256,11 +257,15 @@ function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
 }
 
 function readGoalsFromSheet(sheet) {
+  const tax = typeof FinTaxStore !== 'undefined' ? FinTaxStore.parse(sheet.AK2?.v) : null;
+  if (tax?.pendingGoal) throw new Error('An interrupted tax save needs recovery. Open Personal Tax and reload before editing Goals.');
+  goalsTaxRevision = Number(tax?.revision || 0);
   let groups = {};
   try { groups = JSON.parse(String(sheet.AG2?.v || "{}")) || {}; } catch { /* Older workbooks have no groups. */ }
   const rows = XLSX.utils.sheet_to_json(sheet, { header:1, range:GOALS_RANGE, blankrows:false });
   return rows.map(row => ({
     name:        String(row[0] ?? "").trim(),
+    taxManaged:  !!tax?.linkedName && String(row[0] ?? '').trim() === tax.linkedName,
     group:       groups[String(row[0] ?? "").trim()] === "Wants" ? "Wants" : groups[String(row[0] ?? "").trim()] === "Needs" ? "Needs" : (/tax|insurance|emergency/i.test(String(row[0] ?? "")) ? "Needs" : "Wants"),
     target:      Number(row[1] ?? 0)  || 0,
     manualSaved: Math.round((Number(row[2] ?? 0) || 0) * 100) / 100,
@@ -4920,6 +4925,12 @@ async function persistGoalsToExcel(options = {}) {
 
   try {
     setGoalsAutoSaveStatus("Saving...");
+    if (typeof FinTaxStore !== 'undefined') {
+      const liveTax = FinTaxStore.parse((await readBudgetSetupRange('AK2')).values?.[0]?.[0]);
+      if (liveTax.pendingGoal || Number(liveTax.revision || 0) !== goalsTaxRevision) {
+        throw new Error('Personal Tax changed. Reload Goals before saving so the new tax year is preserved.');
+      }
+    }
     const updates = [
       { sheetName: "Budget Setup", rangeAddress: GOALS_RANGE, values: buildGoalsSaveValues() },
       { sheetName: "Budget Setup", rangeAddress: "AG2:AG2", values: [[JSON.stringify(Object.fromEntries(goalsData.map(goal => [goal.name, goal.group === "Needs" ? "Needs" : "Wants"])) )]] }

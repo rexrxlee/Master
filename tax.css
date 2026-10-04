@@ -1,0 +1,29 @@
+.tax-main { max-width: 1250px; }
+.tax-main h1 { font-size: 24px; }
+.tax-main .topbar { padding-left: 48px; }
+.tax-main h2 { font-size: 17px; margin: 0 0 14px; }
+.tax-main p { line-height: 1.5; margin: 12px 0; }
+.tax-main small { display: block; font-size: 12px; line-height: 1.5; color: var(--muted, #68717d); font-weight: 400; }
+.tax-main label { display: grid; gap: 8px; font-weight: 600; min-width: 0; }
+.tax-main input, .tax-main select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border, #d9dce2); border-radius: 5px; background: var(--surface, white); color: inherit; font: inherit; }
+.tax-main button { padding: 10px 16px; cursor: pointer; }
+.tax-main section, .tax-main fieldset { border: 0; border-bottom: 1px solid var(--border, #d9dce2); padding: 20px 0; margin: 0; }
+.tax-main legend { padding-top: 20px; font-size: 17px; font-weight: 600; }
+.tax-grid, .tax-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px 28px; }
+.tax-controls p { align-self: center; }
+.tax-main .tax-check { display: flex; align-items: center; margin: 14px 0; }
+.tax-check input { width: 18px; height: 18px; flex: 0 0 18px; }
+.tax-result dl { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.tax-result dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.tax-total { font-size: 20px; font-weight: 700; color: #167455; }
+#taxSave { margin-top: 20px; background: #202326; color: white; border: 0; border-radius: 5px; }
+#taxMessage, #taxSaveStatus { white-space: pre-wrap; }
+.tax-main table { width: 100%; border-collapse: collapse; }
+.tax-main td, .tax-main th { text-align: left; padding: 10px 6px; border-bottom: 1px solid #ddd; }
+@media(max-width:650px) { .tax-grid,.tax-controls { grid-template-columns: 1fr; } .tax-main { padding: 16px; } }
+@media(max-width:768px) {
+  .tax-page .sidebar { width: 216px; z-index: 99; }
+  .tax-page .sidebar .nav-item { font-size: 14px; justify-content: flex-start; }
+  .tax-page .main { margin-left: 0; width: 100%; max-width: 100%; }
+  .tax-page:not(.nav-hidden) .global-nav-toggle { left: 224px; }
+}

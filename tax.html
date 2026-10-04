@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal Tax - Fintrack</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="tax.css?v=tax-2">
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body class="tax-page" onload="initGlobalNav(); loadTax()">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><span class="brand-name">Fintrack</span></div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="index.html">Dashboard</a>
+      <a class="nav-item" href="goals.html">Goals</a>
+      <a class="nav-item active" href="tax.html">Personal Tax</a>
+      <a class="nav-item" href="monthly-budget.html">Budget</a>
+      <a class="nav-item" href="add-transaction.html">Add Transaction</a>
+      <a class="nav-item" href="accounts.html">Accounts &amp; Setup</a>
+    </nav><p id="status"></p>
+  </aside>
+  <button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Toggle navigation" title="Toggle navigation">&#9776;</button>
+  <main class="main tax-main">
+    <header class="topbar"><div><h1>Personal Tax</h1><p>Singapore tax residents</p></div><button type="button" onclick="loadTax(true)">Reload</button></header>
+    <p id="taxMessage" role="status" aria-live="polite">Loading tax settings...</p>
+    <section id="taxReloadConfirm" hidden role="alert">
+      <p>Discard your unsaved tax changes and reload?</p>
+      <button type="button" onclick="loadTax(true,true)">Discard and reload</button>
+      <button type="button" onclick="document.getElementById('taxReloadConfirm').hidden=true">Keep editing</button>
+    </section>
+    <form id="taxForm" hidden>
+      <section class="tax-controls">
+        <label>Year of Assessment<select id="taxYear"></select></label>
+        <p id="taxBasis"></p>
+        <label>Linked goal<select id="taxGoal"></select></label>
+      </section>
+      <p>Enter annual amounts in SGD. Relief fields need your eligible claim, not the amount you spent. Use your IR8A and myTax Portal records.</p>
+      <p><a href="https://www.iras.gov.sg/quick-links/calculators" target="_blank" rel="noopener">Official IRAS calculator</a> &middot; <a href="https://www.iras.gov.sg/taxes/individual-income-tax/basics-of-individual-income-tax/tax-reliefs-rebates-and-deductions" target="_blank" rel="noopener">Relief eligibility</a></p>
+      <div id="taxFields"></div>
+      <section class="tax-payment">
+        <h2>Tax bill and payment</h2>
+        <div class="tax-grid">
+          <label>Tax bill issue date<input id="taxBillDate" type="date"><small>Use the date on your Notice of Assessment. Leave blank until it arrives.</small></label>
+          <label>Actual payment deadline, if different<input id="taxDueOverride" type="date"><small>Optional: copy the due date from your bill or agreed payment schedule. For GIRO, use the final instalment date for this annual goal.</small></label>
+        </div>
+        <p id="taxDeadline"></p>
+        <p>IRAS payment is due one month from the tax bill date unless another payment arrangement applies. There is no fixed annual payment date. <a href="https://www.iras.gov.sg/taxes/individual-income-tax/basics-of-individual-income-tax/receive-tax-bill-pay-tax-check-refunds/late-payment-or-non-payment-of-individual-income-tax" target="_blank" rel="noopener">IRAS payment rules</a></p>
+        <label class="tax-check"><input id="taxConfirmed" type="checkbox"> I have checked this year's income and eligible reliefs.</label>
+        <label class="tax-check"><input id="taxPaid" type="checkbox"> Fully paid to IRAS (or confirmed no tax payable).</label>
+        <small>Payment status only: record the bank payment separately in Transactions. Saving a paid year opens next year's forecast and clears its goal allocation.</small>
+      </section>
+      <section class="tax-result" aria-live="polite"><h2>Estimated tax</h2><div id="taxResult"></div></section>
+      <button id="taxSave" type="submit">Save &amp; update Personal Tax</button>
+      <p id="taxSaveStatus" role="status" aria-live="polite"></p>
+    </form>
+    <section id="taxHistory"></section>
+    <pre id="output" hidden></pre>
+  </main>
+  <script>
+    function applyGlobalNav(hidden) { document.body.classList.toggle('nav-hidden',hidden); }
+    function toggleGlobalNav() { const hidden = !document.body.classList.contains('nav-hidden'); localStorage.setItem('fintrackNavHidden',String(hidden)); applyGlobalNav(hidden); }
+    function initGlobalNav() { const saved = localStorage.getItem('fintrackNavHidden'); applyGlobalNav(saved === 'true' || (saved === null && innerWidth <= 768)); }
+  </script>
+  <script src="config.js"></script><script src="onedrive.js?v=performance-1"></script>
+  <script src="tax-engine.js?v=tax-2"></script><script src="tax-storage.js?v=tax-2"></script><script src="tax.js?v=tax-2"></script><script src="ui.js"></script>
+</body>
+</html>

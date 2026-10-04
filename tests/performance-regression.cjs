@@ -65,6 +65,22 @@ async function main() {
   assert.equal(vm.runInContext('reloadedEmergency.target', ctx), 50000, 'Saved amount must not be overwritten by legacy months');
   console.log('Emergency goal amount preserved');
 
+  load(ctx, 'tax-engine.js');
+  load(ctx, 'tax-storage.js');
+  vm.runInContext(`
+    const taxStateTest = FinTaxStore.parse('');
+    taxStateTest.linkedName = 'Personal Tax YA 2026';
+    taxStateTest.revision = 2;
+    XLSX.utils.sheet_to_json = () => [['Personal Tax YA 2026',550,0,0,'2026-10-01','','Critical']];
+    const managedTaxTest = readGoalsFromSheet({AK2:{v:JSON.stringify(taxStateTest)}})[0];
+  `,ctx);
+  assert.equal(vm.runInContext('managedTaxTest.taxManaged',ctx),true);
+  assert.equal(vm.runInContext('managedTaxTest.target',ctx),550);
+  assert.equal(vm.runInContext('managedTaxTest.endDate',ctx),'');
+  assert.match(vm.runInContext('compactGoalSetupRow(managedTaxTest,0)',ctx),/Awaiting tax bill/);
+  assert.doesNotMatch(vm.runInContext('compactGoalSetupRow(managedTaxTest,0)',ctx),/onchange=/);
+  console.log('Linked tax goal retains calculated target and awaits its real bill deadline');
+
   const plan = context();
   load(plan, 'dashboard.js');
   vm.runInContext(`

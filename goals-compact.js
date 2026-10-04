@@ -249,6 +249,14 @@ function compactNormaliseManualAssignments() {
 }
 
 function compactGoalSetupRow(goal, idx) {
+  if (goal.taxManaged) return `<article class="cg-setup-goal">
+    <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong></div>
+    <p>Calculated target: ${formatCurrency(goal.target)}</p>
+    <p>${goal.endDate ? 'Payment deadline: ' + escapeHtml(goal.endDate) : 'Awaiting tax bill: no official payment deadline yet.'}</p>
+    <p>${escapeHtml(goal.notes || '')}</p>
+    <a href="tax.html">Update calculator / mark year paid</a>
+    <p><a href="add-transaction.html?goal=${encodeURIComponent(goal.name)}">Record tax payment</a></p>
+  </article>`;
   return `<article class="cg-setup-goal">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong><select aria-label="Priority for ${escapeHtml(goal.name)}" onchange="updateCompactGoal(${idx}, 'urgency', this.value)">${compactPriorityOptions(goal.urgency)}</select></div>
     <div class="cg-options">
