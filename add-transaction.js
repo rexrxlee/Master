@@ -185,12 +185,8 @@ function addSavedRowsToPage(rows, firstExcelRow) {
 // ── Read helpers ──────────────────────────────────────────────────────────────
 function readCategories(sheet) {
   const map = {};
-  // Main cats in col C (index 2), sub cats in col D (index 3) — rows 2..13 (Bills) and rows 2..13 (Monthly)
-  // Actually read from Budget Setup: cols A (sub), D (main) grouping
-  // We'll parse col D = main cat, col E = sub cat (if that's your setup)
-  // ── fallback: derive from transaction sheet header structure ──
-  // Use cols A–B for Bills, F–G for Monthly; main categories are the section headers
-  const billsRows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: "A2:A13", blankrows: false });
+  // Match Budget's 15 bill slots (A2:B16) and 12 monthly expense slots (F2:G13).
+  const billsRows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: "A2:A16", blankrows: false });
   const monthlyRows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: "F2:F13", blankrows: false });
 
   map["Bills"] = billsRows.map(r => String(r[0] ?? "").trim()).filter(Boolean);
