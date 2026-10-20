@@ -717,12 +717,13 @@ function renderBudgetMeter(row, reserved = 0, options = {}) {
 }
 
 function renderBudgetOverspendBanner(bills, monthly) {
-  const monthlyOver = monthly.rows.reduce((sum, row) => sum + row.over, 0);
-  if (monthlyOver <= 0) return "";
+  const categoryOver = monthly.rows.reduce((sum, row) => sum + row.over, 0);
+  if (categoryOver <= 0) return "";
+  const unusedBudget = monthly.rows.reduce((sum, row) => sum + Math.max(0, row.balance), 0);
+  const monthlyOver = Math.max(0, -monthly.balance);
 
   const overRows = monthly.rows
     .filter(row => row.over > 0)
-    .slice(0, 5)
     .map(row => `
         <div class="bv-cover-row">
           <span>${escapeHtml(row.category)}</span>
@@ -732,10 +733,20 @@ function renderBudgetOverspendBanner(bills, monthly) {
   return `
     <div class="bv-cover-banner danger">
       <div class="bv-cover-main">
-        <span>Monthly overspent from allocated budget</span>
+        <span>Monthly Expenses Overspend (net)</span>
         <strong>${formatCurrency(monthlyOver)}</strong>
       </div>
       <div class="bv-cover-list">
+        <div class="bv-cover-row">
+          <span>Category overspend total</span>
+          <strong>${formatCurrency(categoryOver)}</strong>
+        </div>
+        <div class="bv-cover-row">
+          <span>Offset by unused monthly budget</span>
+          <strong>${formatCurrency(Math.min(categoryOver, unusedBudget))}</strong>
+        </div>
+        <p class="kpi-note">Category overspend minus the unused-budget offset equals net monthly overspend. Bills are excluded.</p>
+        <p class="kpi-note">Overspent category breakdown:</p>
         ${overRows}
       </div>
     </div>`;
