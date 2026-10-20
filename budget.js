@@ -238,8 +238,8 @@ function updateBudgetAllocated(type, index, value) {
 }
 
 function renderBudget() {
-  const computedBills   = billsBudget.map(item => computeBudgetRow(item));
-  const computedMonthly = monthlyBudget.map(item => computeBudgetRow(item));
+  const computedBills   = computeBudgetSectionRows(billsBudget, "Bills");
+  const computedMonthly = computeBudgetSectionRows(monthlyBudget, "Monthly Expenses");
 
   renderBudgetTable("billsTable",   "Bills",            computedBills);
   renderBudgetTable("monthlyTable", "Monthly Expenses", computedMonthly);
@@ -522,6 +522,21 @@ function computeBudgetRow(item) {
   return { ...item, spent, balance: item.allocated - spent };
 }
 
+function computeBudgetSectionRows(items, type) {
+  const rows = items.map(item => computeBudgetRow(item));
+  const known = new Set(items.map(item => budgetCategoryKey(item.category)));
+  budgetTransactions.forEach(transaction => {
+    if (clean(transaction["Main Category"]).toLowerCase() !== type.toLowerCase()) return;
+    const category = clean(transaction["Sub Category"]);
+    const key = budgetCategoryKey(category);
+    if (known.has(key)) return;
+    known.add(key);
+    const row = computeBudgetRow({ type, category, allocated: 0, isUnbudgeted: true });
+    if (row.spent !== 0) rows.push(row);
+  });
+  return rows;
+}
+
 /**
  * Calculates spending for the current month.
  * Claimable rows count for the portion that cannot be reimbursed.
@@ -575,6 +590,15 @@ function renderBudgetTable(tableId, type, rows) {
     totalBalance   += row.balance;
 
     const tr = document.createElement("tr");
+    if (row.isUnbudgeted) {
+      tr.innerHTML = `<td data-label="${type}">${escapeHtml(row.category || "(Uncategorised)")} (unbudgeted)</td>
+        <td data-label="Allocated">${formatCurrency(0)}</td>
+        ${isBills ? "<td></td><td></td>" : ""}
+        <td data-label="Spent">${formatCurrency(row.spent)}</td>
+        <td data-label="Balance" style="color:var(--red)">${formatCurrency(row.balance)}</td><td></td>`;
+      table.appendChild(tr);
+      return;
+    }
     tr.innerHTML = `
       <td data-label="${type}"><input value="${escapeHtml(row.category)}" onchange="updateBudgetCategory('${type}', ${index}, this.value)"></td>
       <td data-label="Allocated"><input type="number" step="0.01" value="${row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
@@ -717,12 +741,13 @@ function renderBudgetMeter(row, reserved = 0, options = {}) {
 }
 
 function renderBudgetOverspendBanner(bills, monthly) {
-  const monthlyOver = monthly.rows.reduce((sum, row) => sum + row.over, 0);
-  if (monthlyOver <= 0) return "";
+  const categoryOver = monthly.categoryOver;
+  if (categoryOver <= 0) return "";
+  const unusedBudget = monthly.positiveBalance;
+  const monthlyOver = monthly.over;
 
   const overRows = monthly.rows
     .filter(row => row.over > 0)
-    .slice(0, 5)
     .map(row => `
         <div class="bv-cover-row">
           <span>${escapeHtml(row.category)}</span>
@@ -732,10 +757,20 @@ function renderBudgetOverspendBanner(bills, monthly) {
   return `
     <div class="bv-cover-banner danger">
       <div class="bv-cover-main">
-        <span>Monthly overspent from allocated budget</span>
+        <span>Monthly Expenses Overspend (net)</span>
         <strong>${formatCurrency(monthlyOver)}</strong>
       </div>
       <div class="bv-cover-list">
+        <div class="bv-cover-row">
+          <span>Category overspend total</span>
+          <strong>${formatCurrency(categoryOver)}</strong>
+        </div>
+        <div class="bv-cover-row">
+          <span>Offset by unused monthly budget</span>
+          <strong>${formatCurrency(Math.min(categoryOver, unusedBudget))}</strong>
+        </div>
+        <p class="kpi-note">Category overspend minus the unused-budget offset equals net monthly overspend. Bills are excluded.</p>
+        <p class="kpi-note">Overspent category breakdown:</p>
         ${overRows}
       </div>
     </div>`;
@@ -1020,6 +1055,19 @@ function buildSaveValues(list, rows = 12) {
   return values;
 }
 
+function calculateBillCoverage(billsRows, monthlyRows) {
+  const bills = summariseBudgetRows(billsRows);
+  const monthly = summariseBudgetRows(monthlyRows);
+  const billsLeft = bills.positiveBalance;
+  const totalBalance = bills.balance + monthly.balance;
+  return {
+    billsLeft,
+    monthlyOverspend: monthly.over,
+    // Budget-based shortfall, not an account balance or unpaid-invoice lookup.
+    makeupAmount: Math.max(0, billsLeft - totalBalance)
+  };
+}
+
 function updateBudgetCards(billsRows, monthlyRows) {
   const rows = [...billsRows, ...monthlyRows];
   const bills = summariseBudgetRows(billsRows);
@@ -1028,17 +1076,21 @@ function updateBudgetCards(billsRows, monthlyRows) {
   const totalAllocated = rows.reduce((s, r) => s + r.allocated, 0);
   const totalSpent     = rows.reduce((s, r) => s + r.spent,     0);
   const totalBalance   = rows.reduce((s, r) => s + r.balance,   0);
+  const coverage = calculateBillCoverage(billsRows, monthlyRows);
 
   const foodRow     = monthlyRows.find(r => clean(r.category).toLowerCase() === "food");
   const foodBalance = foodRow ? foodRow.balance : 0;
   const daysLeft    = getDaysRemainingInMonth();
   const monthlyIsOverspent = monthly.balance < 0;
-  const foodPerDay = monthlyIsOverspent ? 0 : foodBalance / daysLeft;
+  const foodPerDay = Math.max(0, Math.min(foodBalance, monthlyFreeBalance)) / daysLeft;
   const monthlyPerDay = monthlyIsOverspent ? 0 : monthlyFreeBalance / daysLeft;
 
   setCurrencyValue("totalAllocated", totalAllocated);
   setCurrencyValue("totalSpent", totalSpent, "red");
   setCurrencyValue("totalBalance", totalBalance, totalBalance < 0 ? "red" : "green");
+  setCurrencyValue("billsLeftTotal", coverage.billsLeft);
+  setCurrencyValue("monthlyOverspend", coverage.monthlyOverspend, coverage.monthlyOverspend > 0 ? "red" : "green");
+  setCurrencyValue("billMakeupAmount", coverage.makeupAmount, coverage.makeupAmount > 0 ? "red" : "green");
   setCurrencyValue("foodPerDay", foodPerDay, foodPerDay <= 0 ? "red" : "green");
   setCurrencyValue("monthlyPerDay", monthlyPerDay, monthlyPerDay <= 0 ? "red" : "green");
   setTextValue(
@@ -1068,6 +1120,7 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
 
   const bills = summariseBudgetRows(billsRows);
   const monthly = summariseBudgetRows(monthlyRows);
+  const coverage = calculateBillCoverage(billsRows, monthlyRows);
   const total = {
     allocated: bills.allocated + monthly.allocated,
     spent: bills.spent + monthly.spent,
@@ -1094,22 +1147,22 @@ function renderBudgetPressurePanel(billsRows, monthlyRows) {
   } else {
     actions.push(`
       <div class="bp-action ok">
-        <strong>Bills are covered.</strong>
-        Bills still have ${formatCurrency(Math.max(0, bills.balance))} left. Keep that available before sending extra money to goals.
+        <strong>Bills remaining.</strong>
+        ${formatCurrency(coverage.billsLeft)} of bill allocations remains. ${coverage.makeupAmount > 0 ? `The remaining total budget is short by ${formatCurrency(coverage.makeupAmount)} to cover this.` : "The remaining total budget covers this; actual payment cash depends on your accounts."}
       </div>`);
   }
 
-  if (monthlyCategoryOver > 0) {
+  if (monthly.over > 0) {
     actions.push(`
       <div class="bp-action warn">
         <strong>Trim flexible spend next.</strong>
-        Monthly expense categories are ${formatCurrency(monthlyCategoryOver)} over${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}. Put a short cap on those categories for the rest of the month.
+        Monthly expenses are ${formatCurrency(monthly.over)} over overall, after unused monthly allocations offset category overruns of ${formatCurrency(monthlyCategoryOver)}${monthlyNames ? `, led by ${escapeHtml(monthlyNames)}` : ""}.
       </div>`);
   } else {
     actions.push(`
       <div class="bp-action ok">
         <strong>Monthly expenses are within plan.</strong>
-        Flexible spending still has ${formatCurrency(Math.max(0, monthly.balance))} left.
+        Flexible spending still has ${formatCurrency(Math.max(0, monthly.balance))} left overall.${monthlyCategoryOver > 0 ? ` Individual category overruns of ${formatCurrency(monthlyCategoryOver)} are covered by unused monthly allocations.` : ""}
       </div>`);
   }
 
@@ -1197,7 +1250,7 @@ function budgetCategoryKey(category) {
 
 function summariseBudgetRows(rows) {
   const sortedRows = [...rows]
-    .map(row => ({ ...row, over: Math.max(0, row.spent - row.allocated) }))
+    .map(row => ({ ...row, balance: row.allocated - row.spent, over: Math.max(0, row.spent - row.allocated) }))
     .sort((a, b) => b.over - a.over || b.spent - a.spent);
   const allocated = sortedRows.reduce((sum, row) => sum + row.allocated, 0);
   const spent = sortedRows.reduce((sum, row) => sum + row.spent, 0);
@@ -1207,6 +1260,8 @@ function summariseBudgetRows(rows) {
     allocated,
     spent,
     balance,
+    categoryOver: sortedRows.reduce((sum, row) => sum + row.over, 0),
+    positiveBalance: sortedRows.reduce((sum, row) => sum + Math.max(0, row.balance), 0),
     over: Math.max(0, spent - allocated)
   };
 }
