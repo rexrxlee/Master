@@ -1020,6 +1020,19 @@ function buildSaveValues(list, rows = 12) {
   return values;
 }
 
+function calculateBillCoverage(billsRows, monthlyRows) {
+  const billsLeft = billsRows.reduce((sum, row) => sum + Math.max(0, row.allocated - row.spent), 0);
+  const monthlyBalance = monthlyRows.reduce((sum, row) => sum + row.allocated - row.spent, 0);
+  const totalBalance = [...billsRows, ...monthlyRows]
+    .reduce((sum, row) => sum + row.allocated - row.spent, 0);
+  return {
+    billsLeft,
+    monthlyOverspend: Math.max(0, -monthlyBalance),
+    // Budget-based shortfall, not an account balance or unpaid-invoice lookup.
+    makeupAmount: Math.max(0, billsLeft - totalBalance)
+  };
+}
+
 function updateBudgetCards(billsRows, monthlyRows) {
   const rows = [...billsRows, ...monthlyRows];
   const bills = summariseBudgetRows(billsRows);
@@ -1028,6 +1041,7 @@ function updateBudgetCards(billsRows, monthlyRows) {
   const totalAllocated = rows.reduce((s, r) => s + r.allocated, 0);
   const totalSpent     = rows.reduce((s, r) => s + r.spent,     0);
   const totalBalance   = rows.reduce((s, r) => s + r.balance,   0);
+  const coverage = calculateBillCoverage(billsRows, monthlyRows);
 
   const foodRow     = monthlyRows.find(r => clean(r.category).toLowerCase() === "food");
   const foodBalance = foodRow ? foodRow.balance : 0;
@@ -1039,6 +1053,9 @@ function updateBudgetCards(billsRows, monthlyRows) {
   setCurrencyValue("totalAllocated", totalAllocated);
   setCurrencyValue("totalSpent", totalSpent, "red");
   setCurrencyValue("totalBalance", totalBalance, totalBalance < 0 ? "red" : "green");
+  setCurrencyValue("billsLeftTotal", coverage.billsLeft);
+  setCurrencyValue("monthlyOverspend", coverage.monthlyOverspend, coverage.monthlyOverspend > 0 ? "red" : "green");
+  setCurrencyValue("billMakeupAmount", coverage.makeupAmount, coverage.makeupAmount > 0 ? "red" : "green");
   setCurrencyValue("foodPerDay", foodPerDay, foodPerDay <= 0 ? "red" : "green");
   setCurrencyValue("monthlyPerDay", monthlyPerDay, monthlyPerDay <= 0 ? "red" : "green");
   setTextValue(
