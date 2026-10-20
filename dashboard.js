@@ -759,10 +759,12 @@ function computeMonthlyExpenseBudgetPosition(data) {
     if (!rowDate) return;
     if (rowDate.getFullYear() !== currentYear || rowDate.getMonth() !== currentMonth) return;
     if (clean(row["Main Category"]).toLowerCase() !== "monthly expenses") return;
-    if (isClaimableRow(row) || isBusinessTransaction(row, configuredAccounts)) return;
+    if (isBusinessTransaction(row, configuredAccounts)) return;
 
     const category = clean(row["Sub Category"]) || "Uncategorised";
-    spentByCategory[category] = (spentByCategory[category] || 0) + getAmount(row["Amount"]);
+    const amount = getAmount(row["Amount"]);
+    const personalSpend = isClaimableRow(row) ? Math.max(0, amount - getClaimAmount(row)) : amount;
+    spentByCategory[category] = (spentByCategory[category] || 0) + personalSpend;
   });
 
   const categories = [...new Set([
@@ -781,7 +783,7 @@ function computeMonthlyExpenseBudgetPosition(data) {
       allocated,
       spent,
       balance,
-      leftPerDay: balance / daysLeft,
+      leftPerDay: Math.max(0, balance) / daysLeft,
       projectedSpend,
       projectedBalance,
       status: getMonthlyBudgetStatus(allocated, spent, balance, projectedBalance)
@@ -803,7 +805,7 @@ function computeMonthlyExpenseBudgetPosition(data) {
     allocated,
     spent,
     balance,
-    leftPerDay: balance / daysLeft,
+    leftPerDay: Math.max(0, balance) / daysLeft,
     projectedSpend,
     projectedBalance,
     monthLabel: today.toLocaleString("en-SG", { month: "short", year: "2-digit" })
