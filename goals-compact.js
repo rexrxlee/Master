@@ -136,7 +136,7 @@ function compactGoalUsableBreakdown(dep) {
         <span>−</span>
         <div><small>4 · Next-month budget protected</small><strong>${formatCurrency(dep.futureSalaryHold)}</strong></div>
         <span>−</span>
-        <div><small>5 · Current overspend taken from future salary</small><strong>${formatCurrency(dep.futureSalaryGoalBucketTotal || 0)}</strong></div>
+        <div><small>5 · Future-month goal savings protected</small><strong>${formatCurrency(dep.futureSalaryGoalBucketTotal || 0)}</strong></div>
         <span>+</span>
         <div><small>6 · Claims coming back</small><strong>${formatCurrency(dep.claimReceivableForGoals)}</strong></div>
         <span>=</span>
