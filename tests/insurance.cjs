@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict');require('../insurance-engine.js');const I=global.FinInsurance;
+const p={id:'a',number:'P1',description:'Health',premium:1000,increment:0,start:'2020-02-29',due:'2024-02-29',end:'',annual:true};
+assert.equal(I.first(p,'2026-10-28').due,'2027-02-28');
+assert.equal(I.first({...p,due:'2026-10-28'},'2026-10-28').due,'2026-10-28');
+assert.equal(I.first({...p,annual:false},'2026-10-28').finished,true);
+assert.equal(I.amount({...p,increment:10,start:'2026-01-01'},'2027-01-01'),1120);
+assert.throws(()=>I.validate({...p,premium:-1}));assert.throws(()=>I.validate({...p,due:'2027-02-30'}));
+const s={policies:[{...p,due:'2027-02-28'},{...p,id:'b',due:'2027-03-01',premium:500,end:'2027-03-01'}]};
+assert.deepEqual(I.batch(s),{due:'2027-02-28',amount:1000});assert.equal(I.events(s,'2028-12-31').length,3);
+const vm=require('node:vm'),fs=require('node:fs');const code=fs.readFileSync('goals.js','utf8');const f=code.slice(code.indexOf('function insuranceReserveForMonth('));const ctx=vm.createContext({FinInsurance:I,goalsInsuranceState:{...s,linkedName:'Insurance'}});vm.runInContext(f,ctx);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,1,1)),500);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,0,1)),0);
+console.log('Insurance: rollover, leap dates, first setup, increments, validation, multiple deadlines, end dates and later reserve passed');
+(async()=>{
+ let stateWrites=0,txWrites=0,goalWrites=0,existing='';const before=['Insurance',1000,1000],goal=['Insurance',500,0];
+ const pending={version:1,revision:1,policies:[],history:[],pending:{i:0,g:goal,previous:before,tx:{row:2,values:['2026-10-28','Insurance: Health [ref]',1000]}}};
+ const c=vm.createContext({document:{getElementById(){}},FinInsurance:I,XLSX:{read:()=>({Sheets:{Transaction:{B2:{v:existing}}}})},CONFIG:{sheetName:'Transaction'},downloadExcelFile:async()=>null,readBudgetSetupRange:async()=>({values:[before]}),writeExcelRange:async()=>{txWrites++;existing='Insurance: Health [ref]';},writeBudgetSetupRange:async(range)=>{if(range==='AL2')stateWrites++;else goalWrites++;}});
+ vm.runInContext(fs.readFileSync('insurance.js','utf8'),c);
+ await c.recoverInsurance(structuredClone(pending));await c.recoverInsurance(structuredClone(pending));
+ assert.equal(txWrites,1);assert.equal(goalWrites,2);assert.equal(stateWrites,2);
+ existing='Another transaction';await assert.rejects(()=>c.recoverInsurance(structuredClone(pending)),/row changed/);
+ console.log('Insurance recovery: retry records payment only once; conflicting transaction protected');
+})().catch(e=>{console.error(e);process.exitCode=1;});
