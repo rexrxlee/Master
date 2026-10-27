@@ -15,7 +15,7 @@
     <nav class="sidebar-nav">
       <a class="nav-item" href="index.html">Dashboard</a>
       <a class="nav-item" href="goals.html">Goals</a>
-      <a class="nav-item" href="tax.html">Insurance</a>
+      <a class="nav-item" href="tax.html">Tax</a>
       <a class="nav-item active" href="insurance.html">Insurance</a>
       <a class="nav-item" href="monthly-budget.html">Budget</a>
       <a class="nav-item" href="add-transaction.html">Add Transaction</a>
@@ -31,13 +31,13 @@
     <p>Save a policy to link this page. Existing goal savings are preserved. First setup moves past annual premium dates to the next renewal; existing unpaid premiums remain overdue.</p>
     <form id="editor" onsubmit="savePolicy(event)"><h2>Policy</h2><input id="id" type="hidden">
     <div class="tax-grid">
-    <label>Policy number<input id="number" required></label><label>Description<input id="description" required></label>
-    <label>Annual / one-time premium (SGD)<input id="premium" type="number" min="0.01" step="0.01" required></label>
+    <label>Owner<input id="owner"></label><label>Insurer<input id="insurer"></label><label>Funding<select id="funding"><option>Cash</option><option>CPF MediSave</option></select></label><label>Policy number<input id="number"></label><label>Description<input id="description" required></label>
+    <label>Annual / one-time premium (SGD)<input id="premium" type="number" min="0.01" step="0.01"></label>
     <label>Monthly premium increase (SGD)<input id="increment" type="number" min="0" step="0.01" value="0" required><small>Added to the base premium for every completed month since policy start. Leave 0 for a fixed premium.</small></label>
-    <label>Policy start<input id="start" type="date" required></label><label>Policy end (optional)<input id="end" type="date"></label>
-    <label>Premium due date<input id="due" type="date" required></label><label><input id="annual" type="checkbox" checked> Repeat annually</label></div>
-    <button type="submit">Save policy &amp; update goal</button> <button type="button" onclick="resetEditor()">New policy</button></form>
-    <section><h2>Payment details</h2><label>Payment date<input id="paydate" type="date"></label><label>Paid from<select id="account"></select></label><p>Record a full premium once using its policy button. This records the account transaction and advances annual renewal. Do not also enter it in Add Transaction.</p></section>
+    <label>Policy start<input id="start" type="date"></label><label>Policy end (optional)<input id="end" type="date"></label>
+    <label>Premium due date<input id="due" type="date"></label><label><input id="annual" type="checkbox" checked> Repeat annually</label></div>
+    <label>Notes<textarea id="notes"></textarea></label><p>Missing policy numbers, premiums or dates may be saved. These policies are excluded from cash forecasts until completed. MediSave is recorded separately and never uses cash goal savings.</p><button type="submit">Save policy &amp; update goal</button> <button type="button" onclick="resetEditor()">New policy</button></form>
+    <section><h2>Import policies</h2><p>Paste a prepared policy JSON register. Existing policies are preserved; duplicates are rejected. Importing historical paid amounts does not create transactions.</p><label>Policy register<textarea id="import-data" rows="5"></textarea></label><label>Google Sheet link (optional)<input id="sheet-link" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label><button onclick="importPolicies()">Import policies &amp; update goal</button><p id="sheet-reference"></p><p>Every save updates the Insurance tab in your connected OneDrive workbook. The Google Sheet is a separate register; automatic Google sync is not configured.</p></section><section><h2>Payment details</h2><label>Payment date<input id="paydate" type="date"></label><label>Paid from<select id="account"></select></label><p>Record a full premium once using its policy button. This records the account transaction and advances annual renewal. Do not also enter it in Add Transaction.</p></section>
     <section id="policies" class="tax-grid"></section><section id="history"></section>
     <pre id="output" hidden></pre>
   </main>
