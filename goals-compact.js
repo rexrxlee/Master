@@ -249,6 +249,8 @@ function compactNormaliseManualAssignments() {
 }
 
 function compactGoalSetupRow(goal, idx) {
+  if (goal.insuranceManaged) return `<article class="cg-setup-goal"><h3>${escapeHtml(goal.name)}</h3><p>Next premium batch: ${formatCurrency(goal.target)} by ${escapeHtml(goal.endDate || 'none')}</p><p>Later annual premiums are reserved in the forecast one month before due. Other goals use the remaining pool.</p><a href="insurance.html">Manage policies / record premium payment</a></article>`;
+
   if (goal.taxManaged) return `<article class="cg-setup-goal">
     <div class="cg-heading"><strong>${escapeHtml(goal.name)}</strong></div>
     <p>Calculated target: ${formatCurrency(goal.target)}</p>

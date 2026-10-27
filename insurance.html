@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Insurance - Fintrack</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="tax.css?v=tax-2">
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body class="tax-page" onload="initGlobalNav(); loadInsurance()">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><span class="brand-name">Fintrack</span></div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="index.html">Dashboard</a>
+      <a class="nav-item" href="goals.html">Goals</a>
+      <a class="nav-item" href="tax.html">Insurance</a>
+      <a class="nav-item active" href="insurance.html">Insurance</a>
+      <a class="nav-item" href="monthly-budget.html">Budget</a>
+      <a class="nav-item" href="add-transaction.html">Add Transaction</a>
+      <a class="nav-item" href="accounts.html">Accounts &amp; Setup</a>
+    </nav><p id="status"></p>
+  </aside>
+  <button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Toggle navigation" title="Toggle navigation">&#9776;</button>
+  <main class="main tax-main">
+    <header class="topbar"><div><h1>Insurance</h1><p>Policies, premiums and payment deadlines</p></div><button type="button" onclick="loadInsurance()">Reload</button></header>
+    <p id="message" role="status">Loading insurance…</p>
+    <p id="summary"></p>
+    <label>Replace existing Insurance goal<select id="link"></select></label>
+    <p>Save a policy to link this page. Existing goal savings are preserved. First setup moves past annual premium dates to the next renewal; existing unpaid premiums remain overdue.</p>
+    <form id="editor" onsubmit="savePolicy(event)"><h2>Policy</h2><input id="id" type="hidden">
+    <div class="tax-grid">
+    <label>Policy number<input id="number" required></label><label>Description<input id="description" required></label>
+    <label>Annual / one-time premium (SGD)<input id="premium" type="number" min="0.01" step="0.01" required></label>
+    <label>Monthly premium increase (SGD)<input id="increment" type="number" min="0" step="0.01" value="0" required><small>Added to the base premium for every completed month since policy start. Leave 0 for a fixed premium.</small></label>
+    <label>Policy start<input id="start" type="date" required></label><label>Policy end (optional)<input id="end" type="date"></label>
+    <label>Premium due date<input id="due" type="date" required></label><label><input id="annual" type="checkbox" checked> Repeat annually</label></div>
+    <button type="submit">Save policy &amp; update goal</button> <button type="button" onclick="resetEditor()">New policy</button></form>
+    <section><h2>Payment details</h2><label>Payment date<input id="paydate" type="date"></label><label>Paid from<select id="account"></select></label><p>Record a full premium once using its policy button. This records the account transaction and advances annual renewal. Do not also enter it in Add Transaction.</p></section>
+    <section id="policies" class="tax-grid"></section><section id="history"></section>
+    <pre id="output" hidden></pre>
+  </main>
+  <script>
+    function applyGlobalNav(hidden) { document.body.classList.toggle('nav-hidden',hidden); }
+    function toggleGlobalNav() { const hidden = !document.body.classList.contains('nav-hidden'); localStorage.setItem('fintrackNavHidden',String(hidden)); applyGlobalNav(hidden); }
+    function initGlobalNav() { const saved = localStorage.getItem('fintrackNavHidden'); applyGlobalNav(saved === 'true' || (saved === null && innerWidth <= 768)); }
+  </script>
+  <script src="config.js"></script><script src="onedrive.js?v=performance-1"></script>
+  <script src="insurance-engine.js"></script><script src="insurance.js"></script><script src="ui.js"></script>
+</body>
+</html>

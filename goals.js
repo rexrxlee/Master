@@ -1,3 +1,4 @@
+let goalsInsuranceRevision = 0, goalsInsuranceState = null;
 // ═══════════════════════════════════════════════════════════════════
 //  GOALS PAGE — Fintrack  (goals.js)
 //
@@ -257,6 +258,10 @@ function refreshGoalBudgetSummaryFromSheet(budgetSheet) {
 }
 
 function readGoalsFromSheet(sheet) {
+  goalsInsuranceState = FinInsurance.parse(sheet.AL2?.v);
+  if (goalsInsuranceState.pending) throw new Error('Open Insurance and reload to recover an interrupted payment.');
+  goalsInsuranceRevision = goalsInsuranceState.revision;
+
   const tax = typeof FinTaxStore !== 'undefined' ? FinTaxStore.parse(sheet.AK2?.v) : null;
   if (tax?.pendingGoal) throw new Error('An interrupted tax save needs recovery. Open Personal Tax and reload before editing Goals.');
   goalsTaxRevision = Number(tax?.revision || 0);
@@ -265,6 +270,7 @@ function readGoalsFromSheet(sheet) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header:1, range:GOALS_RANGE, blankrows:false });
   return rows.map(row => ({
     name:        String(row[0] ?? "").trim(),
+    insuranceManaged: !!goalsInsuranceState.linkedName && String(row[0] ?? "").trim() === goalsInsuranceState.linkedName,
     taxManaged:  !!tax?.linkedName && String(row[0] ?? '').trim() === tax.linkedName,
     group:       groups[String(row[0] ?? "").trim()] === "Wants" ? "Wants" : groups[String(row[0] ?? "").trim()] === "Needs" ? "Needs" : (/tax|insurance|emergency/i.test(String(row[0] ?? "")) ? "Needs" : "Wants"),
     target:      Number(row[1] ?? 0)  || 0,
@@ -2204,6 +2210,7 @@ function getPlannedSavingsSchedule(monthCount = 12) {
     const recordedSalary = getRecordedFutureSalaryForMonth(date);
     const earlyShortfall = Math.max(0, earlyShortfallByMonth.get(monthKey) || 0);
     let adjustment = 0;
+    adjustment -= insuranceReserveForMonth(date);
     (incomeBoosts || []).forEach(item => {
       if (_isBoostActiveInMonth(item, i + 1, monthCount + 2, d => {
         const p = String(d || "").split("-");
@@ -2333,6 +2340,9 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const goalBoost = {};
   goalState.forEach(gs => { goalBoost[gs.name] = Array(MONTHS).fill(0); });
 
+  if (goalsInsuranceState?.linkedName) {
+    for (let m = 0; m < MONTHS; m++) poolBoost[m] -= insuranceReserveForMonth(new Date(today.getFullYear(), today.getMonth()+m, 1));
+  }
   incomeBoosts.forEach(b => {
     const signedAmount = _boostSignedAmount(b);
     _forEachBoostActiveMonth(b, MONTHS, monthOffsetFromToday, m => {
@@ -2991,6 +3001,9 @@ function renderSavingsTimelineStacked(container, dep) {
   const goalBoost = {};
   goalState.forEach(gs => { goalBoost[gs.name] = Array(MONTHS).fill(0); });
 
+  if (goalsInsuranceState?.linkedName) {
+    for (let m = 0; m < MONTHS; m++) poolBoost[m] -= insuranceReserveForMonth(new Date(today.getFullYear(), today.getMonth()+m, 1));
+  }
   incomeBoosts.forEach(b => {
     const signedAmount = _boostSignedAmount(b);
     _forEachBoostActiveMonth(b, MONTHS, monthOffsetFromToday, m => {
@@ -4640,6 +4653,8 @@ function getSavedViaTransactions(goalName) {
 }
 
 function calculateSavedViaTransactions(goalName) {
+  if (goalsInsuranceState?.linkedName === goalName) return 0; // Payments consume reserves; they never fund the next renewal.
+
   return allTxForGoals
     .filter(r => clean(r["Sub Category"]).toLowerCase() === ("goal: " + goalName).toLowerCase())
     .reduce((s,r) => s + getGoalTransactionProgressImpact(r), 0);
@@ -4931,6 +4946,8 @@ async function persistGoalsToExcel(options = {}) {
         throw new Error('Personal Tax changed. Reload Goals before saving so the new tax year is preserved.');
       }
     }
+    const liveInsurance = FinInsurance.parse((await readBudgetSetupRange('AL2')).values?.[0]?.[0]);
+    if (liveInsurance.pending || liveInsurance.revision !== goalsInsuranceRevision) throw new Error('Insurance changed. Reload Goals before saving.');
     const updates = [
       { sheetName: "Budget Setup", rangeAddress: GOALS_RANGE, values: buildGoalsSaveValues() },
       { sheetName: "Budget Setup", rangeAddress: "AG2:AG2", values: [[JSON.stringify(Object.fromEntries(goalsData.map(goal => [goal.name, goal.group === "Needs" ? "Needs" : "Wants"])) )]] }
@@ -5109,4 +5126,13 @@ function parseExcelDate(value) {
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return new Date(+iso[1], +iso[2]-1, +iso[3]);
   return null;
+}
+
+function insuranceReserveForMonth(month) {
+  if (!goalsInsuranceState?.linkedName) return 0;
+  const b = FinInsurance.batch(goalsInsuranceState);
+  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const start=iso(new Date(month.getFullYear(),month.getMonth()+1,1));
+  const end=iso(new Date(month.getFullYear(),month.getMonth()+2,0));
+  return FinInsurance.events(goalsInsuranceState,end).filter(e=>e.due.slice(0,7)>b.due.slice(0,7)&&e.due>=start).reduce((sum,e)=>sum+e.amount,0);
 }
