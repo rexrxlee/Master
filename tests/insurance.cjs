@@ -12,10 +12,23 @@ console.log('Insurance: rollover, leap dates, first setup, increments, validatio
 (async()=>{
  let stateWrites=0,txWrites=0,goalWrites=0,existing='';const before=['Insurance',1000,1000],goal=['Insurance',500,0];
  const pending={version:1,revision:1,policies:[],history:[],pending:{i:0,g:goal,previous:before,tx:{row:2,values:['2026-10-28','Insurance: Health [ref]',1000]}}};
- const c=vm.createContext({document:{getElementById(){}},FinInsurance:I,XLSX:{read:()=>({Sheets:{Transaction:{B2:{v:existing}}}})},CONFIG:{sheetName:'Transaction'},downloadExcelFile:async()=>null,readBudgetSetupRange:async()=>({values:[before]}),writeExcelRange:async()=>{txWrites++;existing='Insurance: Health [ref]';},writeBudgetSetupRange:async(range)=>{if(range==='AL2')stateWrites++;else goalWrites++;}});
+ let registerWrites=0;
+ const c=vm.createContext({structuredClone,document:{getElementById(){}},FinInsurance:I,XLSX:{read:()=>({Sheets:{Insurance:{A1:{v:I.registerRows({policies:[]})[0][0]}},Transaction:{B2:{v:existing}}}})},CONFIG:{sheetName:'Transaction'},downloadExcelFile:async()=>null,readBudgetSetupRange:async()=>({values:[before]}),writeExcelRange:async(sheet)=>{if(sheet==='Insurance'){registerWrites++;return;}txWrites++;existing='Insurance: Health [ref]';},writeBudgetSetupRange:async(range)=>{if(range==='AL2')stateWrites++;else goalWrites++;}});
  vm.runInContext(fs.readFileSync('insurance.js','utf8'),c);
  await c.recoverInsurance(structuredClone(pending));await c.recoverInsurance(structuredClone(pending));
- assert.equal(txWrites,1);assert.equal(goalWrites,2);assert.equal(stateWrites,2);
+ assert.equal(txWrites,1);assert.equal(goalWrites,2);assert.equal(stateWrites,2);assert.equal(registerWrites,2);
  existing='Another transaction';await assert.rejects(()=>c.recoverInsurance(structuredClone(pending)),/row changed/);
  console.log('Insurance recovery: retry records payment only once; conflicting transaction protected');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+const incomplete={...p,number:'',premium:'',due:'',start:''};
+I.validate(incomplete);assert.equal(I.complete(incomplete),false);
+assert.deepEqual(I.first(incomplete),incomplete);
+assert.equal(I.events({policies:[incomplete,{...p,funding:'CPF MediSave'}]},'2030-12-31').length,0);
+assert.equal(I.events({policies:[{...p,funding:'Cash'}]},'2024-12-31').length,1);
+assert.throws(()=>I.validate({...p,funding:'Unknown'}));
+const imported=I.mergePolicies({policies:[],history:[]},[{...p,owner:'Test',insurer:'Example',historicalPaid:{2026:1000}}],'2026-10-28');
+assert.equal(imported.policies[0].due,'2027-02-28');assert.equal(imported.history.length,0);
+assert.throws(()=>I.mergePolicies(imported,[{...p,owner:'Test',insurer:'Example'}]),/already exists/);
+assert.equal(I.registerRows(imported)[2][12],1000);
+console.log('Insurance register: cash/MediSave separation, incomplete records, imports and historical-only payment records passed');
