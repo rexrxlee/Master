@@ -10,6 +10,11 @@
  function first(p,now=today()){validate(p);const q={...p};if(!complete(q))return q;while(q.due<now&&q.annual)q.due=year(q.due);if(q.due<now&&!q.annual)q.finished=true;return q;}
  function events(state,until){const out=[];for(const p of state.policies){if(p.finished||!cash(p)||!complete(p))continue;let due=p.due;for(let i=0;i<50&&due<=until;i++){if(!p.end||due<=p.end)out.push({id:p.id,due,amount:amount(p,due),description:p.description});if(!p.annual||p.end&&due>=p.end)break;due=year(due);}}return out.sort((a,b)=>a.due.localeCompare(b.due));}
  function batch(state){const e=events(state,'2099-12-31'),due=e[0]?.due||'';return {due,amount:money(e.filter(x=>x.due.slice(0,7)===due.slice(0,7)).reduce((s,x)=>s+x.amount,0))};}
+ // Reserve every policy's next payment by the earliest deadline. This deliberately
+ // funds later bills early rather than depending on one month's future salary.
+ function plan(state){const next=events(state,'2099-12-31').filter((e,i,all)=>all.findIndex(x=>x.id===e.id)===i);return {due:next[0]?.due||'',amount:money(next.reduce((sum,e)=>sum+e.amount,0))};}
+ // Subsequent renewals accrue across the 12 months after their preceding renewal.
+ function reserve(state,month){const key=month.slice(0,7),index=s=>+s.slice(0,4)*12+(+s.slice(5,7)-1);let cents=0;for(const p of state.policies){if(!cash(p)||!complete(p)||p.finished||!p.annual)continue;let previous=p.due;for(let i=0;i<50;i++){const due=year(previous);if(p.end&&due>p.end)break;const offset=index(key)-index(previous);if(offset>=0&&offset<12){const total=Math.round(amount(p,due)*100);cents+=Math.floor(total/12)+(offset<total%12?1:0);break;}if(index(previous)>index(key))break;previous=due;}}return cents/100;}
  function parse(v){if(!v)return {version:1,revision:0,linkedName:'',policies:[],history:[]};const s=JSON.parse(v);if(s.version!==1||!Array.isArray(s.policies))throw Error('Insurance data cannot be read');return s;}
  function mergePolicies(state,incoming,now=today()){
    if(!Array.isArray(incoming)||!incoming.length||incoming.length>200)throw Error('Import 1–200 policies.');
@@ -26,5 +31,5 @@
    }return next;
  }
  function registerRows(state){return [['Insurance register — edit policies in the app. This sheet updates on every save.'],['Owner','Insurer','Description','Policy number','Funding','Annual premium (SGD)','Cover start','Policy end','Next renewal','Monthly increase (SGD)','Paid 2024','Paid 2025','Paid 2026','Notes','Status'],...state.policies.map(p=>[p.owner||'',p.insurer||'',p.description,p.number||'',p.funding||'Cash',p.premium??'',p.start||'',p.end||'',p.due||'',p.increment||0,p.historicalPaid?.['2024']??'',p.historicalPaid?.['2025']??'',p.historicalPaid?.['2026']??'',p.notes||'',!complete(p)?'Missing details':!cash(p)?'MediSave — excluded from cash goals':p.finished?'Complete':'Cash savings'])];}
- root.FinInsurance={money,today,year,validate,amount,first,events,batch,parse,complete,cash,mergePolicies,registerRows};
+ root.FinInsurance={money,today,year,validate,amount,first,events,batch,plan,reserve,parse,complete,cash,mergePolicies,registerRows};
 })(typeof window==='undefined'?globalThis:window);
