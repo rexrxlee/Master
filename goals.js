@@ -278,11 +278,11 @@ function readGoalsFromSheet(sheet) {
     propertyTaxManaged: !!propertyTax?.linkedName && String(row[0]??'').trim()===propertyTax.linkedName,
     taxManaged:  !!tax?.linkedName && String(row[0] ?? '').trim() === tax.linkedName,
     group:       groups[String(row[0] ?? "").trim()] === "Wants" ? "Wants" : groups[String(row[0] ?? "").trim()] === "Needs" ? "Needs" : (/tax|insurance|emergency/i.test(String(row[0] ?? "")) ? "Needs" : "Wants"),
-    target:      Number(row[1] ?? 0)  || 0,
+    target:      row[0] === goalsInsuranceState.linkedName ? FinInsurance.plan(goalsInsuranceState).amount : Number(row[1] ?? 0) || 0,
     manualSaved: Math.round((Number(row[2] ?? 0) || 0) * 100) / 100,
     monthlyAlloc:Number(row[3] ?? 0)  || 0,
     startDate:   _goalDateToInputValue(row[4]),  // normalize to YYYY-MM-DD
-    endDate:     _goalDateToInputValue(row[5]),   // normalize to YYYY-MM-DD
+    endDate:     row[0] === goalsInsuranceState.linkedName ? FinInsurance.plan(goalsInsuranceState).due : _goalDateToInputValue(row[5]),   // normalize to YYYY-MM-DD
     urgency:     String(row[6] ?? "Medium").trim() || "Medium",
     notes:       String(row[7] ?? "").trim(),
     color:       String(row[8] ?? "#4caf50").trim() || "#4caf50",
@@ -5136,9 +5136,5 @@ function parseExcelDate(value) {
 
 function insuranceReserveForMonth(month) {
   if (!goalsInsuranceState?.linkedName) return 0;
-  const b = FinInsurance.batch(goalsInsuranceState);
-  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  const start=iso(new Date(month.getFullYear(),month.getMonth()+1,1));
-  const end=iso(new Date(month.getFullYear(),month.getMonth()+2,0));
-  return FinInsurance.events(goalsInsuranceState,end).filter(e=>e.due.slice(0,7)>b.due.slice(0,7)&&e.due>=start).reduce((sum,e)=>sum+e.amount,0);
+  return FinInsurance.reserve(goalsInsuranceState,month.getFullYear()+'-'+String(month.getMonth()+1).padStart(2,'0')+'-01');
 }
