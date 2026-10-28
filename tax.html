@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Personal Tax - Fintrack</title>
+  <title>Tax - Fintrack</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="tax.css?v=tax-2">
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
-<body class="tax-page" onload="initGlobalNav(); loadTax()">
+<body class="tax-page" onload="initGlobalNav(); loadTax(); loadPropertyTax()">
   <aside class="sidebar">
     <div class="sidebar-brand"><span class="brand-name">Fintrack</span></div>
     <nav class="sidebar-nav">
       <a class="nav-item" href="index.html">Dashboard</a>
       <a class="nav-item" href="goals.html">Goals</a>
-      <a class="nav-item active" href="tax.html">Personal Tax</a>
+      <a class="nav-item active" href="tax.html">Tax</a>
       <a class="nav-item" href="insurance.html">Insurance</a>
       <a class="nav-item" href="monthly-budget.html">Budget</a>
       <a class="nav-item" href="add-transaction.html">Add Transaction</a>
@@ -24,8 +24,8 @@
   </aside>
   <button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Toggle navigation" title="Toggle navigation">&#9776;</button>
   <main class="main tax-main">
-    <header class="topbar"><div><h1>Personal Tax</h1><p>Singapore tax residents</p></div><button type="button" onclick="loadTax(true)">Reload</button></header>
-    <p id="taxMessage" role="status" aria-live="polite">Loading tax settings...</p>
+    <header class="topbar"><div><h1>Tax</h1><p>Singapore tax residents</p></div><button type="button" onclick="loadTax(true)">Reload</button></header>
+    <p><a href="#taxForm">Personal income tax</a> · <a href="#propertyTax">Property tax (HDB / BTO)</a></p><p id="taxMessage" role="status" aria-live="polite">Loading tax settings...</p>
     <section id="taxReloadConfirm" hidden role="alert">
       <p>Discard your unsaved tax changes and reload?</p>
       <button type="button" onclick="loadTax(true,true)">Discard and reload</button>
@@ -57,6 +57,33 @@
       <p id="taxSaveStatus" role="status" aria-live="polite"></p>
     </form>
     <section id="taxHistory"></section>
+
+    <section id="propertyTax">
+      <h2>Property Tax — HDB / BTO</h2>
+      <p>Estimate your owner-occupied HDB tax using IRAS Annual Value (AV), not your flat purchase price. Look up your AV in myTax Portal → View Property Summary. Flat size alone cannot determine your bill.</p>
+      <p><a href="https://www.iras.gov.sg/taxes/property-tax/property-owners/information-for-hdb-flat-owners" target="_blank" rel="noopener">IRAS HDB guide and calculator</a> · <a href="https://www.iras.gov.sg/taxes/property-tax/property-owners/property-tax-reliefs/lower-property-tax-rates-for-owner-occupied-residential-properties" target="_blank" rel="noopener">Official rates</a> · <a href="https://www.iras.gov.sg/taxes/property-tax/property-owners/2026-property-tax-bill" target="_blank" rel="noopener">2026 rebate</a></p>
+      <p>Rules checked 28 Oct 2026. Full-year owner-occupied HDB estimate: 2026 includes the 15% rebate. Later years use current rates with no assumed rebate. Enter the actual net bill for first-year partial periods, adjustments, or other occupancy types.</p>
+      <p id="ptMessage" role="status">Loading property tax…</p>
+      <form id="ptForm" hidden>
+        <div class="tax-grid">
+          <label>Property tax year<input id="ptYear" type="number" min="2026" max="2100" required></label>
+          <label>Annual Value (SGD)<input id="ptAV" type="number" min="0" step="0.01"></label>
+          <label>Actual net bill amount (optional, SGD)<input id="ptActual" type="number" min="0" step="0.01"><small>Overrides the estimate. Already includes rebates; they will not be deducted again.</small></label>
+          <label>Linked goal<select id="ptGoal"></select></label>
+          <label>Deadline from bill (optional)<input id="ptDue" type="date"></label>
+        </div>
+        <label class="tax-check"><input id="ptOwner" type="checkbox" checked> I own and live in this HDB flat</label>
+        <label class="tax-check"><input id="ptFirst" type="checkbox"> First BTO bill / other notice — use its actual deadline</label>
+        <p>Annual bills are normally due 31 January. A first BTO bill starts from possession; its deadline comes from the notice. An overdue saved bill stays overdue until marked paid. For GIRO, this goal reserves the full annual amount; record instalments separately.</p>
+        <p><a href="https://www.iras.gov.sg/taxes/property-tax/property-owners/payments" target="_blank" rel="noopener">IRAS payment deadlines</a></p>
+        <div id="ptResult" class="tax-result" aria-live="polite"></div>
+        <label class="tax-check"><input id="ptPaid" type="checkbox"> Fully paid (or confirmed no tax payable) — open next year's goal</label>
+        <p>Payment status only, like Personal Tax: record payments once in Transactions. Rollover clears this year's saved allocation and actual bill, retains AV for a new estimate, and does not repeat the 2026 rebate.</p>
+        <button type="submit">Save Property Tax &amp; update goal</button>
+      </form>
+      <button type="button" onclick="loadPropertyTax()">Reload Property Tax</button>
+      <div id="ptHistory"></div>
+    </section>
     <pre id="output" hidden></pre>
   </main>
   <script>
@@ -65,6 +92,6 @@
     function initGlobalNav() { const saved = localStorage.getItem('fintrackNavHidden'); applyGlobalNav(saved === 'true' || (saved === null && innerWidth <= 768)); }
   </script>
   <script src="config.js"></script><script src="onedrive.js?v=performance-1"></script>
-  <script src="tax-engine.js?v=tax-2"></script><script src="tax-storage.js?v=tax-2"></script><script src="tax.js?v=tax-2"></script><script src="ui.js"></script>
+  <script src="tax-engine.js?v=tax-2"></script><script src="tax-storage.js?v=tax-2"></script><script src="tax.js?v=tax-2"></script><script src="property-tax-engine.js?v=1"></script><script src="property-tax-storage.js?v=1"></script><script src="property-tax.js?v=1"></script><script src="ui.js"></script>
 </body>
 </html>
