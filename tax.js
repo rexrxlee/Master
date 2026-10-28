@@ -35,7 +35,7 @@ function renderTax() {
   taxEl('taxYear').innerHTML = years.filter(y => y >= 2026).map(y => `<option value="${y}" ${y===year?'selected':''}>YA ${y} (income ${y-1})</option>`).join('');
   taxEl('taxYear').disabled = !!taxState.linkedName;
   taxEl('taxBasis').textContent = `Income earned 1 Jan to 31 Dec ${year-1}. ${record.forecast ? 'Forecast: review copied amounts and future tax rules.' : 'YA 2026 calculator rules.'}`;
-  taxEl('taxGoal').innerHTML = '<option value="">Create Personal Tax goal</option>' + taxRows.filter(r => r[0] && (/tax|iras/i.test(r[0]) || r[0] === taxState.linkedName)).map(r => `<option value="${taxEscape(r[0])}">${taxEscape(r[0])}</option>`).join('');
+  taxEl('taxGoal').innerHTML = '<option value="">Create Personal Tax goal</option>' + taxRows.filter(r => r[0] && ((/tax|iras/i.test(r[0]) && !/property/i.test(r[0])) || r[0] === taxState.linkedName)).map(r => `<option value="${taxEscape(r[0])}">${taxEscape(r[0])}</option>`).join('');
   const linkedExists = taxRows.some(row => String(row[0] || '').trim() === taxState.linkedName);
   if (taxState.linkedName && !linkedExists) taxEl('taxGoal').insertAdjacentHTML('beforeend',`<option value="${taxEscape(taxState.linkedName)}">Missing goal: ${taxEscape(taxState.linkedName)} - choose a replacement</option>`);
   taxEl('taxGoal').value = taxState.linkedName || '';

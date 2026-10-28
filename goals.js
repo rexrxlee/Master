@@ -23,6 +23,7 @@ if (typeof Chart !== "undefined" && typeof ChartDataLabels !== "undefined") {
 
 let goalsData       = [];
 let goalsTaxRevision = 0;
+let goalsPropertyTaxRevision = 0;
 let allTxForGoals   = [];
 let allAccounts     = [];          // { name, type } from col J/K
 let goalSavingsAccts = [];         // names of accounts chosen for goals
@@ -262,6 +263,9 @@ function readGoalsFromSheet(sheet) {
   if (goalsInsuranceState.pending) throw new Error('Open Insurance and reload to recover an interrupted payment.');
   goalsInsuranceRevision = goalsInsuranceState.revision;
 
+  const propertyTax = typeof FinPropertyTaxStore !== 'undefined' ? FinPropertyTaxStore.parse(sheet.AM2?.v) : null;
+  if(propertyTax?.pendingGoal)throw Error('Open Tax to recover the interrupted Property Tax save.');
+  goalsPropertyTaxRevision=Number(propertyTax?.revision||0);
   const tax = typeof FinTaxStore !== 'undefined' ? FinTaxStore.parse(sheet.AK2?.v) : null;
   if (tax?.pendingGoal) throw new Error('An interrupted tax save needs recovery. Open Personal Tax and reload before editing Goals.');
   goalsTaxRevision = Number(tax?.revision || 0);
@@ -271,6 +275,7 @@ function readGoalsFromSheet(sheet) {
   return rows.map(row => ({
     name:        String(row[0] ?? "").trim(),
     insuranceManaged: !!goalsInsuranceState.linkedName && String(row[0] ?? "").trim() === goalsInsuranceState.linkedName,
+    propertyTaxManaged: !!propertyTax?.linkedName && String(row[0]??'').trim()===propertyTax.linkedName,
     taxManaged:  !!tax?.linkedName && String(row[0] ?? '').trim() === tax.linkedName,
     group:       groups[String(row[0] ?? "").trim()] === "Wants" ? "Wants" : groups[String(row[0] ?? "").trim()] === "Needs" ? "Needs" : (/tax|insurance|emergency/i.test(String(row[0] ?? "")) ? "Needs" : "Wants"),
     target:      Number(row[1] ?? 0)  || 0,
@@ -4946,6 +4951,7 @@ async function persistGoalsToExcel(options = {}) {
         throw new Error('Personal Tax changed. Reload Goals before saving so the new tax year is preserved.');
       }
     }
+    if(typeof FinPropertyTaxStore !== 'undefined'){const live=FinPropertyTaxStore.parse((await readBudgetSetupRange('AM2')).values?.[0]?.[0]);if(live.pendingGoal||Number(live.revision||0)!==goalsPropertyTaxRevision)throw Error('Property Tax changed. Reload Goals before saving.');}
     const liveInsurance = FinInsurance.parse((await readBudgetSetupRange('AL2')).values?.[0]?.[0]);
     if (liveInsurance.pending || liveInsurance.revision !== goalsInsuranceRevision) throw new Error('Insurance changed. Reload Goals before saving.');
     const updates = [
