@@ -54,7 +54,16 @@ async function loadDashboard(forceRefresh = false) {
       monthlyExpenseBudgetRows = [];
     }
     loadAssetAccountSelections();
-    await import("./goals.js?v=age-milestones-1");
+    // Dashboard imports Goals without its HTML script tags. Load the same
+    // calculation dependencies first, including on a fresh browser visit.
+    await Promise.all([
+      import("./insurance-engine.js?v=insurance-2"),
+      import("./tax-engine.js?v=tax-2"),
+      import("./tax-storage.js?v=tax-2"),
+      import("./property-tax-engine.js?v=1"),
+      import("./property-tax-storage.js?v=1")
+    ]);
+    await import("./goals.js?v=insurance-2");
     const financePlan = await window.calculateFinancePlanFromWorkbook(workbook);
     financePlanGoalCash = financePlan.freeCash;
     financePlanMonthlyBudget = financePlan.monthlySpend;
