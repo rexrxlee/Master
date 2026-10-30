@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const html=fs.readFileSync('insurance.html','utf8');const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
+const elements=Object.fromEntries(ids.map(id=>[id,{value:'',textContent:'',innerHTML:'',checked:true,querySelectorAll:()=>[],reset(){},showModal(){this.open=true;},close(){this.open=false;}}]));
+const context=vm.createContext({Intl,Date,console,document:{getElementById:id=>elements[id],querySelectorAll:()=>[]}});context.window=context;
+vm.runInContext(fs.readFileSync('insurance-engine.js','utf8'),context);vm.runInContext(fs.readFileSync('insurance.js','utf8'),context);
+vm.runInContext(`insState={version:1,revision:0,linkedName:'Insurance',history:[],policies:[{id:'one',owner:'Example',insurer:'Example',description:'<script>unsafe</script>',number:'TEST',funding:'Cash',premium:166,increment:0,start:'2025-09-22',due:'2027-09-22',annual:true},{id:'two',description:'MediSave',funding:'CPF MediSave',premium:'',start:'',due:''}]};insRows=[['Insurance',166,50]];insAccounts=['Savings'];renderInsurance();`,context);
+assert.ok(elements.summary.innerHTML.includes('166.00'));assert.ok(elements['funding-list'].innerHTML.includes('31 Jul 2027'));assert.ok(!elements.policies.innerHTML.includes('<script>'));assert.ok(elements.policies.innerHTML.includes('&lt;script&gt;'));assert.ok(elements.policies.innerHTML.includes('data-pay="one"'));assert.ok(!elements.policies.innerHTML.includes('data-pay="two"'));
+context.editPolicy('one');assert.equal(elements['policy-dialog'].open,true);assert.equal(elements.premium.value,166);context.openInsurancePayment('one');assert.equal(elements['payment-dialog'].open,true);assert.equal(elements['payment-amount'].textContent,'$166.00');
+context.setInsuranceFilter('missing');assert.ok(!elements.policies.innerHTML.includes('data-edit="one"'));assert.ok(elements.policies.innerHTML.includes('data-edit="two"'));
+assert.ok(!html.includes('Google'));assert.ok(html.includes('insurance.css?v=schedule-1'));
+console.log('Insurance UI: form wiring, escaped policy text, filters, payment preview and missing/MediSave exclusions passed.');

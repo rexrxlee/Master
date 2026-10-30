@@ -7,7 +7,7 @@ assert.equal(I.amount({...p,increment:10,start:'2026-01-01'},'2027-01-01'),1120)
 assert.throws(()=>I.validate({...p,premium:-1}));assert.throws(()=>I.validate({...p,due:'2027-02-30'}));
 const s={policies:[{...p,due:'2027-02-28'},{...p,id:'b',due:'2027-03-01',premium:500,end:'2027-03-01'}]};
 assert.deepEqual(I.batch(s),{due:'2027-02-28',amount:1000});assert.equal(I.events(s,'2028-12-31').length,3);
-const vm=require('node:vm'),fs=require('node:fs');const code=fs.readFileSync('goals.js','utf8');const f=code.slice(code.indexOf('function insuranceReserveForMonth('));const ctx=vm.createContext({FinInsurance:I,goalsInsuranceState:{...s,linkedName:'Insurance'}});vm.runInContext(f,ctx);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,1,1)),83.34);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,0,1)),0);
+const vm=require('node:vm'),fs=require('node:fs');const code=fs.readFileSync('goals.js','utf8');const f=code.slice(code.indexOf('function insuranceReserveForMonth('));const ctx=vm.createContext({FinInsurance:I,goalsInsuranceState:{...s,linkedName:'Insurance'}});vm.runInContext(f,ctx);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,1,1)),0);assert.equal(ctx.insuranceReserveForMonth(new Date(2027,0,1)),0);
 console.log('Insurance: rollover, leap dates, first setup, increments, validation, multiple deadlines, end dates and later reserve passed');
 (async()=>{
  let stateWrites=0,txWrites=0,goalWrites=0,existing='';const before=['Insurance',1000,1000],goal=['Insurance',500,0];
@@ -33,6 +33,6 @@ assert.throws(()=>I.mergePolicies(imported,[{...p,owner:'Test',insurer:'Example'
 assert.equal(I.registerRows(imported)[2][12],1000);
 console.log('Insurance register: cash/MediSave separation, incomplete records, imports and historical-only payment records passed');
 
-assert.deepEqual(I.plan(s),{due:'2027-02-28',amount:1500});
-assert.equal(Array.from({length:12},(_,i)=>I.reserve(s,new Date(Date.UTC(2027,1+i,1)).toISOString().slice(0,10))).reduce((a,b)=>Math.round((a+b)*100)/100,0),1000);
+assert.deepEqual(I.plan(s),{due:'2026-12-31',lastDue:'2026-12-31',nextDue:'2027-02-28',amount:1500});
+assert.equal(Array.from({length:12},(_,i)=>I.reserve(s,new Date(Date.UTC(2027,1+i,1)).toISOString().slice(0,10))).reduce((a,b)=>Math.round((a+b)*100)/100,0),0);
 assert.equal(I.plan({policies:[incomplete,{...p,funding:'CPF MediSave'}]}).amount,0);

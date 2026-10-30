@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Insurance - Fintrack</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="tax.css?v=tax-2">
+  <link rel="stylesheet" href="insurance.css?v=schedule-1">
   <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
-<body class="tax-page" onload="initGlobalNav(); loadInsurance()">
+<body class="insurance-page" onload="initGlobalNav(); loadInsurance()">
   <aside class="sidebar">
     <div class="sidebar-brand"><span class="brand-name">Fintrack</span></div>
     <nav class="sidebar-nav">
@@ -23,22 +23,23 @@
     </nav><p id="status"></p>
   </aside>
   <button class="global-nav-toggle" id="globalNavToggle" type="button" onclick="toggleGlobalNav()" aria-label="Toggle navigation" title="Toggle navigation">&#9776;</button>
-  <main class="main tax-main">
-    <header class="topbar"><div><h1>Insurance</h1><p>Policies, premiums and payment deadlines</p></div><button type="button" onclick="loadInsurance()">Reload</button></header>
-    <p id="message" role="status">Loading insurance…</p>
-    <p id="summary"></p>
-    <label>Replace existing Insurance goal<select id="link"></select></label>
-    <p>Save a policy to link this page. Existing goal savings are preserved. First setup moves past annual premium dates to the next renewal; existing unpaid premiums remain overdue.</p>
-    <form id="editor" onsubmit="savePolicy(event)"><h2>Policy</h2><input id="id" type="hidden">
-    <div class="tax-grid">
+  <main class="main insurance-main">
+    <header class="ins-header"><div><span class="ins-eyebrow">YOUR FAMILY, COVERED</span><h1>Insurance</h1><p>Every premium planned. Every payment on time.</p></div><div class="ins-header-actions"><button class="ins-btn" onclick="loadInsurance()">Reload</button><button class="ins-btn ins-btn-primary" onclick="newInsurancePolicy()">+ Add policy</button></div></header>
+    <p id="message" role="status" aria-live="polite">Loading insurance…</p>
+    <section id="summary" class="ins-stats" aria-label="Insurance summary"></section>
+    <section class="ins-panel"><div class="ins-section-heading"><div><h2>Your funding plan</h2><p>At least 30 days early, planned by month-end. Existing savings cover the earliest premiums first.</p></div><a class="ins-text-link" href="goals.html">View forecast in Goals →</a></div><div id="funding-list"></div><p class="ins-footnote">Monthly amounts are a guide. Goals checks every funding date against your salary, priorities and other goals, and flags any shortfall.</p></section>
+    <section class="ins-panel ins-register"><div class="ins-section-heading"><div><h2>Family policies</h2><p id="policy-count"></p></div><label class="ins-search"><span class="sr-only">Search policies</span><input id="policy-search" type="search" placeholder="Search name or policy…" oninput="renderPolicyList()"></label></div><div class="ins-tabs" role="group" aria-label="Filter policies"><button class="active" data-filter="all" aria-pressed="true" onclick="setInsuranceFilter('all')">All policies</button><button data-filter="cash" aria-pressed="false" onclick="setInsuranceFilter('cash')">Cash</button><button data-filter="medisave" aria-pressed="false" onclick="setInsuranceFilter('medisave')">MediSave</button><button data-filter="missing" aria-pressed="false" onclick="setInsuranceFilter('missing')">Needs details</button></div><div id="policies"></div></section>
+    <details class="ins-panel ins-disclosure"><summary>Payment history</summary><div id="history"></div></details>
+    <details class="ins-panel ins-disclosure"><summary>Settings &amp; import</summary><div class="ins-settings"><label>Linked savings goal<select id="link"></select></label><p>Save a policy to update this link. Your existing saved allocation is preserved. First setup moves past annual premium dates to next renewal; unpaid saved premiums stay overdue.</p><label>Policy register<textarea id="import-data" rows="4" placeholder="Paste prepared policy JSON"></textarea></label><button class="ins-btn" onclick="importPolicies()">Import policies &amp; update goal</button><small>Imports preserve existing policies and do not create transactions for historical payments. Every save updates the Insurance tab in your OneDrive workbook.</small></div></details>
+    <dialog id="policy-dialog" class="ins-dialog">    <form id="editor" onsubmit="savePolicy(event)"><p id="editor-message" role="status"></p><div class="ins-dialog-header"><h2 id="editor-title">Policy</h2><button type="button" class="ins-btn" onclick="document.getElementById('policy-dialog').close()" aria-label="Close policy editor">Close</button></div><input id="id" type="hidden">
+    <div class="ins-form-grid">
     <label>Owner<input id="owner"></label><label>Insurer<input id="insurer"></label><label>Funding<select id="funding"><option>Cash</option><option>CPF MediSave</option></select></label><label>Policy number<input id="number"></label><label>Description<input id="description" required></label>
     <label>Annual / one-time premium (SGD)<input id="premium" type="number" min="0.01" step="0.01"></label>
     <label>Monthly premium increase (SGD)<input id="increment" type="number" min="0" step="0.01" value="0" required><small>Added to the base premium for every completed month since policy start. Leave 0 for a fixed premium.</small></label>
     <label>Policy start<input id="start" type="date"></label><label>Policy end (optional)<input id="end" type="date"></label>
     <label>Premium due date<input id="due" type="date"></label><label><input id="annual" type="checkbox" checked> Repeat annually</label></div>
-    <label>Notes<textarea id="notes"></textarea></label><p>Missing policy numbers, premiums or dates may be saved. These policies are excluded from cash forecasts until completed. MediSave is recorded separately and never uses cash goal savings.</p><button type="submit">Save policy &amp; update goal</button> <button type="button" onclick="resetEditor()">New policy</button></form>
-    <section><h2>Import policies</h2><p>Paste a prepared policy JSON register. Existing policies are preserved; duplicates are rejected. Importing historical paid amounts does not create transactions.</p><label>Policy register<textarea id="import-data" rows="5"></textarea></label><button onclick="importPolicies()">Import policies &amp; update goal</button><p>Every save updates the Insurance tab in your connected OneDrive workbook.</p></section><section><h2>Payment details</h2><label>Payment date<input id="paydate" type="date"></label><label>Paid from<select id="account"></select></label><p>Record a full premium once using its policy button. This records the account transaction and advances annual renewal. Do not also enter it in Add Transaction.</p></section>
-    <section id="policies" class="tax-grid"></section><section id="history"></section>
+    <label>Notes<textarea id="notes"></textarea></label><p>Missing policy numbers, premiums or dates may be saved. These policies are excluded from cash forecasts until completed. MediSave is recorded separately and never uses cash goal savings.</p><button type="submit" class="ins-btn ins-btn-primary">Save policy &amp; update goal</button> <button type="button" class="ins-btn" onclick="document.getElementById('policy-dialog').close()">Cancel</button></form></dialog>
+    <dialog id="payment-dialog" class="ins-dialog ins-payment"><div class="ins-dialog-header"><h2>Record premium payment</h2><button class="ins-btn" onclick="document.getElementById('payment-dialog').close()">Close</button></div><p id="payment-description"></p><p id="payment-message" role="status"></p><strong id="payment-amount" class="ins-payment-total"></strong><div class="ins-form-grid"><label>Payment date<input id="paydate" type="date"></label><label>Paid from<select id="account"></select></label></div><p>This records one transaction, reduces your saved insurance balance and advances the renewal. Only record a payment you have already made.</p><button class="ins-btn ins-btn-primary" onclick="payPolicy(paymentPolicyId)">Confirm payment record</button></dialog>
     <pre id="output" hidden></pre>
   </main>
   <script>
@@ -47,6 +48,6 @@
     function initGlobalNav() { const saved = localStorage.getItem('fintrackNavHidden'); applyGlobalNav(saved === 'true' || (saved === null && innerWidth <= 768)); }
   </script>
   <script src="config.js"></script><script src="onedrive.js?v=performance-1"></script>
-  <script src="insurance-engine.js?v=insurance-2"></script><script src="insurance.js?v=insurance-2"></script><script src="ui.js"></script>
+  <script src="insurance-engine.js?v=schedule-1"></script><script src="insurance.js?v=schedule-1"></script><script src="ui.js"></script>
 </body>
 </html>

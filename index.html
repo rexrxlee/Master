@@ -323,7 +323,7 @@
         </div>
         <div class="plan-input-grid plan-cashflow-grid">
           <label>Gross salary / month
-            <input type="number" id="planGrossSalaryInput" step="0.01" value="7700">
+            <input type="number" id="planGrossSalaryInput" step="0.01" value="0">
           </label>
           <div class="plan-metric">
             <span>Estimated take-home</span>
@@ -376,12 +376,7 @@
           </div>
           <div class="plan-card">
             <h3>CPF and housing</h3>
-            <div class="plan-facts">
-              <div><span>CPF housing deduction</span><strong>$297.00 / month</strong></div>
-              <div><span>CPF used for property</span><strong>$107,378.17</strong></div>
-              <div><span>CPF accrued interest</span><strong>$1,462.82</strong></div>
-              <div><span>OA / SA / MA</span><strong>$23,276.16 / $25,957.67 / $29,101.77</strong></div>
-            </div>
+            <p class="plan-note">Refer to your CPF statement for current housing deductions and account balances.</p>
             <p id="planCpfGuidance" class="plan-note"></p>
           </div>
         </div>
@@ -396,7 +391,7 @@
           </div>
           <div class="plan-card">
             <h3>Partner reserve</h3>
-            <p class="plan-note"><strong>$100,000</strong> stays outside this plan. Treat it as long-term family resilience, not monthly spending or goal funding.</p>
+            <p class="plan-note">Keep any separately held family reserves outside monthly spending and goal funding.</p>
             <p class="plan-note">Because your partner may stop working, your own cash buffer should carry the plan before extra CPF top-ups or investments.</p>
           </div>
         </div>
@@ -415,7 +410,7 @@ function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");a
   <script src="onedrive.js?v=performance-1"></script>
   <script src="business.js"></script>
   <script src="charts.js"></script>
-  <script src="dashboard.js?v=insurance-deps-1"></script>
+  <script src="dashboard.js?v=schedule-1"></script>
   <script src="ui.js"></script>
 </body>
 </html>
