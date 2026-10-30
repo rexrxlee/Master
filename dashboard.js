@@ -16,7 +16,7 @@ const ASSET_SCOPE_STORAGE_KEY = "fintrack.dashboard.assetAccountSelections.v1";
 const FINANCE_PLAN_STORAGE_KEY = "fintrack.dashboard.financePlan.v1";
 const NO_FILTER_SELECTION = "__FINTRACK_NONE_SELECTED__";
 const FINANCE_PLAN_DEFAULTS = {
-  grossSalary: 7700,
+  grossSalary: 0,
   cpfTopup: 0,
   monthlyInvestment: 0
 };
@@ -57,13 +57,13 @@ async function loadDashboard(forceRefresh = false) {
     // Dashboard imports Goals without its HTML script tags. Load the same
     // calculation dependencies first, including on a fresh browser visit.
     await Promise.all([
-      import("./insurance-engine.js?v=insurance-2"),
+      import("./insurance-engine.js?v=schedule-1"),
       import("./tax-engine.js?v=tax-2"),
       import("./tax-storage.js?v=tax-2"),
       import("./property-tax-engine.js?v=1"),
       import("./property-tax-storage.js?v=1")
     ]);
-    await import("./goals.js?v=insurance-2");
+    await import("./goals.js?v=schedule-1");
     const financePlan = await window.calculateFinancePlanFromWorkbook(workbook);
     financePlanGoalCash = financePlan.freeCash;
     financePlanMonthlyBudget = financePlan.monthlySpend;
@@ -682,7 +682,7 @@ function renderPlanPriorityList(values, monthlySurplus, threeMonthBuffer, emerge
   const items = [
     `Keep this month's free cash tight: ${formatCurrency(values.freeCash)} is the only flexible cash after protected items.`,
     `Build emergency cash to at least ${formatCurrency(threeMonthBuffer)} first, then stretch toward ${formatCurrency(emergencyTarget)}.`,
-    "Fund near fixed goals next: Tax 2027 and Insurance before optional goals.",
+    "Fund upcoming tax and insurance deadlines before optional goals.",
     monthlySurplus > 0
       ? `After spending, estimated monthly surplus is ${formatCurrency(monthlySurplus)} before income tax. Split this between goals until the buffer is healthy.`
       : `Monthly cashflow is short by ${formatCurrency(Math.abs(monthlySurplus))}; reduce spending or pause optional goals before investing.`,
@@ -696,20 +696,7 @@ function renderPlanPriorityList(values, monthlySurplus, threeMonthBuffer, emerge
 function renderPlanGoalsTable() {
   const table = document.getElementById("planGoalsTable");
   if (!table) return;
-  const rows = [
-    ["Tax 2027", "$2,000", "31 Mar 2027", "First fixed bill"],
-    ["Insurance", "$5,500", "01 Jan 2029", "Critical sinking fund"],
-    ["Emergency Fund", financePlanEmergencyTarget === null ? "Not set" : formatCurrency(financePlanEmergencyTarget), "01 Jan 2029", "Cash resilience"],
-    ["Korea 2028", "$8,000 + 5%", "01 Jul 2027", "Optional after buffer"]
-  ];
-  table.innerHTML = rows.map(row => `
-    <tr>
-      <td>${row[0]}</td>
-      <td>${row[1]}</td>
-      <td>${row[2]}</td>
-      <td>${row[3]}</td>
-    </tr>
-  `).join("");
+  table.innerHTML = '<tr><td colspan="4"><a href="goals.html">View current goal amounts, deadlines and funding forecasts</a></td></tr>';
 }
 
 function renderCpfGuidance(values, threeMonthBuffer, estimatedTaxSaving) {

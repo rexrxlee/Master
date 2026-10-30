@@ -249,7 +249,7 @@ function compactNormaliseManualAssignments() {
 }
 
 function compactGoalSetupRow(goal, idx) {
-  if (goal.insuranceManaged) return `<article class="cg-setup-goal"><h3>${escapeHtml(goal.name)}</h3><p>Cash savings target: ${formatCurrency(goal.target)} by ${escapeHtml(goal.endDate || 'none')}</p><p>Includes every policy’s next cash premium, saved by the earliest deadline. Following renewals build up monthly. MediSave is separate.</p><a href="insurance.html">Manage policies / record premium payment</a></article>`;
+  if (goal.insuranceManaged) { const milestones=FinInsurance.funding(goalsInsuranceState,goal.manualSaved);return `<article class="cg-setup-goal"><h3>${escapeHtml(goal.name)}</h3><p>${formatCurrency(goal.target)} in next cash premiums · 30-day safety buffer</p>${milestones.map(m=>`<p><strong>${formatCurrency(m.amount)}</strong> ready by ${escapeHtml(m.fundBy)}<br><small>Payments ${escapeHtml(m.events[0].due)}${m.events.at(-1).due!==m.events[0].due?' – '+escapeHtml(m.events.at(-1).due):''}</small></p>`).join('')}<p>Each deadline competes with other goals. Renewals get separate funding; shortfalls are flagged.</p><a href="insurance.html">Manage policies / record payment</a></article>`; }
 
   if (goal.propertyTaxManaged) return `<article class="cg-setup-goal"><h3>${escapeHtml(goal.name)}</h3><p>${formatCurrency(goal.target)} · ${escapeHtml(goal.endDate || 'Awaiting bill deadline')}</p><p>${escapeHtml(goal.notes || 'Managed by Property Tax')}</p><a href="tax.html#propertyTax">Manage Property Tax</a></article>`;
   if (goal.taxManaged) return `<article class="cg-setup-goal">
@@ -536,6 +536,7 @@ function compactOverallStatus(rows, free, removable) {
 }
 
 function compactTimingStatus(state, model, gap, capped) {
+  if(state.insuranceMilestones)return state.insuranceGap>=0.01?`${formatCurrency(state.insuranceGap)} funding shortfall`:'All funding dates on track';
   if (capped) return "Beyond forecast range";
   if (state.deadlineMo < 0) return gap < 0.01 ? "Target covered" : `Overdue · ${formatCurrency(gap)} short`;
   if (gap >= 0.01) return `${formatCurrency(gap)} short`;
@@ -557,7 +558,7 @@ function compactModelHasShortfall() {
   return model.goalState.some((state, idx) => {
     const month = Math.min(model.MONTHS - 1, Math.max(0, state.deadlineMo ?? 17));
     const forecastGap = Math.max(0, state.effectiveTarget - model.progressDollars[idx][month]);
-    return forecastGap >= 0.01 || compactNearTermCashGap(idx) >= 0.01;
+    return (state.insuranceMilestones ? state.insuranceGap >= 0.01 || state.insuranceUnverified : forecastGap >= 0.01) || compactNearTermCashGap(idx) >= 0.01;
   });
 }
 
@@ -577,6 +578,7 @@ function compactGoalNeedsCashNow(idx) {
 }
 
 function compactRequiredAssignedToday(idx) {
+  if(goalsData[idx]?.insuranceManaged){const now=FinInsurance.today();const d=new Date(now+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+31);const cutoff=d.toISOString().slice(0,10);return FinInsurance.funding(goalsInsuranceState,0,now).filter(m=>m.fundBy<=cutoff).reduce((s,m)=>s+m.amount,0);}
   if (!compactGoalNeedsCashNow(idx)) return 0;
   return compactMoney(Math.max(0, compactGoalTargetWithBuffer(idx)));
 }
@@ -760,12 +762,12 @@ function renderCompactGoalForecast() {
     const base = sum(model.allocationBaseData[idx]);
     const adjustments = sum(model.allocationCashflowData[idx]);
     const projected = model.progressDollars[idx][reportMonth];
-    const gap = Math.max(0, state.effectiveTarget - projected);
+    const gap = state.insuranceMilestones ? state.insuranceGap : Math.max(0, state.effectiveTarget - projected);
     const capped = state.deadlineMo !== null && state.deadlineMo >= model.MONTHS;
     const status = free < -0.005 ? "Over-assigned - rebalance" : compactTimingStatus(state, model, gap, capped);
-    const deadline = state.deadlineMo === null ? model.fullLabels[reportMonth] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
+    const deadline = state.insuranceMilestones ? "Multiple funding dates" : state.deadlineMo === null ? model.fullLabels[reportMonth] + " (no deadline)" : formatDateDisplay(goalsData[idx].endDate);
     const start = formatDateDisplay(goalsData[idx].startDate);
-    const timingLine = state.startMo > 0
+    const timingLine = state.insuranceMilestones ? `${status} · ${formatCurrency(state.effectiveTarget)} next premiums · 30-day buffer` : state.startMo > 0
       ? `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} · starts ${start} · deadline ${deadline}`
       : `${status} - ${formatCurrency(projected)} / ${formatCurrency(state.effectiveTarget)} by ${deadline}`;
     document.getElementById(`cgStatus_${idx}`).textContent = timingLine;
@@ -784,7 +786,7 @@ function renderCompactGoalForecast() {
     const amount = document.getElementById(`cgAmount_${idx}`);
     if (amount) amount.min = tx;
     if (amount && document.activeElement !== amount) amount.value = now.toFixed(2);
-    return { name: state.name, date: deadline, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
+    return { insuranceMilestones: state.insuranceMilestones, name: state.name, date: deadline, cashAssigned: extra, now, base, adjustments, projected, target: state.effectiveTarget, gap, status };
   });
   const removable = compactMaxRemovableToday();
   const unassignedCash = compactMoney(Math.max(0, free));
@@ -795,6 +797,8 @@ function renderCompactGoalForecast() {
   const overallHtml = `<div class="cg-overall ${overall.tone}"><strong>${escapeHtml(overall.title)}</strong><span>${escapeHtml(overall.detail)}</span></div>`;
   document.getElementById("compactForecastResults").innerHTML = `${overallHtml}<div class="cg-section-intro"><span class="cg-step-label">STEP 4</span><h2>Will each goal be funded?</h2><p>Funded now plus future salary and adjustments.</p></div><div class="cg-table-wrap"><table class="cg-breakdown"><thead><tr><th>Goal / deadline</th><th>Funded now</th><th>Salary forecast</th><th>Adjustments</th></tr></thead><tbody>${rows.map(row => `<tr><th>${escapeHtml(row.name)}<small>${escapeHtml(row.date)} · ${escapeHtml(row.status)}</small></th><td>${formatCurrency(row.now)}</td><td>${formatCurrency(row.base)}</td><td>${formatCurrency(row.adjustments)}</td></tr>`).join("")}</tbody></table></div>`;
   document.getElementById("compactForecastMethod").innerHTML = `<p><strong>Today:</strong> selected savings − card debt − this month’s protected budget − future salary holds + pending claims = ${formatCurrency(dep.deployable)} free now.</p><p><strong>Future months:</strong> salary − that month’s budget − any overspend/adjustments = goal cash for that month.</p><p><strong>Allocation:</strong> goals use start dates, deadlines, priority, and forced-priority flags. Pending claims and forecasts are estimates until the cash is actually settled.</p>`;
+  const insuranceState=model.goalState.find(s=>s.insuranceMilestones);
+  if(insuranceState){const milestones=insuranceState.insuranceMilestones.filter(m=>m.current||m.inRange&&m.gap>=0.01);document.getElementById("compactForecastResults").insertAdjacentHTML('beforeend',`<details class="cg-insurance-checkpoints" open><summary>Insurance funding checkpoints · includes 30-day buffer</summary><div style="overflow-x:auto"><table><thead><tr><th>Ready by</th><th>Premiums</th><th>Projected by then</th><th>Status</th></tr></thead><tbody>${milestones.map(m=>`<tr><td>${escapeHtml(m.fundBy)}</td><td>${formatCurrency(m.amount)}</td><td>${formatCurrency(Math.min(m.amount,m.projected))}</td><td>${m.gap>=0.01?`${formatCurrency(m.gap)} short`:"On track"}</td></tr>`).join('')}</tbody></table></div><p>Upcoming and annual renewal funding is included in the shared forecast. Forecast money is not cash already saved.</p></details>`);}
   renderCompactTimeline(rows, model);
 }
 

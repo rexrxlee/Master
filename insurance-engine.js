@@ -10,11 +10,30 @@
  function first(p,now=today()){validate(p);const q={...p};if(!complete(q))return q;while(q.due<now&&q.annual)q.due=year(q.due);if(q.due<now&&!q.annual)q.finished=true;return q;}
  function events(state,until){const out=[];for(const p of state.policies){if(p.finished||!cash(p)||!complete(p))continue;let due=p.due;for(let i=0;i<50&&due<=until;i++){if(!p.end||due<=p.end)out.push({id:p.id,due,amount:amount(p,due),description:p.description});if(!p.annual||p.end&&due>=p.end)break;due=year(due);}}return out.sort((a,b)=>a.due.localeCompare(b.due));}
  function batch(state){const e=events(state,'2099-12-31'),due=e[0]?.due||'';return {due,amount:money(e.filter(x=>x.due.slice(0,7)===due.slice(0,7)).reduce((s,x)=>s+x.amount,0))};}
- // Reserve every policy's next payment by the earliest deadline. This deliberately
- // funds later bills early rather than depending on one month's future salary.
- function plan(state){const next=events(state,'2099-12-31').filter((e,i,all)=>all.findIndex(x=>x.id===e.id)===i);return {due:next[0]?.due||'',amount:money(next.reduce((sum,e)=>sum+e.amount,0))};}
- // Subsequent renewals accrue across the 12 months after their preceding renewal.
- function reserve(state,month){const key=month.slice(0,7),index=s=>+s.slice(0,4)*12+(+s.slice(5,7)-1);let cents=0;for(const p of state.policies){if(!cash(p)||!complete(p)||p.finished||!p.annual)continue;let previous=p.due;for(let i=0;i<50;i++){const due=year(previous);if(p.end&&due>p.end)break;const offset=index(key)-index(previous);if(offset>=0&&offset<12){const total=Math.round(amount(p,due)*100);cents+=Math.floor(total/12)+(offset<total%12?1:0);break;}if(index(previous)>index(key))break;previous=due;}}return cents/100;}
+ // Use the last month-end at least 30 days before payment. Monthly forecasts
+ // cannot promise a salary arrives on a particular day within the month.
+ function fundBy(due){const d=date(due);d.setUTCDate(d.getUTCDate()-30);const end=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0));return (d.getUTCDate()===end.getUTCDate()?d:new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0))).toISOString().slice(0,10);}
+ function nextEvents(state){return state.policies.filter(p=>!p.finished&&cash(p)&&complete(p)&&(!p.end||p.due<=p.end)).map(p=>({id:p.id,due:p.due,amount:amount(p,p.due),description:p.description})).sort((a,b)=>a.due.localeCompare(b.due));}
+ function schedule(state,until,now=today()){
+   const first=new Map(nextEvents(state).map(e=>[e.id,e.due])),previous=new Map(),groups=new Map();
+   for(const e of events(state,until)){
+     const ready=fundBy(e.due),prior=previous.get(e.id),current=first.get(e.id)===e.due;
+     const start=prior?new Date(date(prior).getTime()+86400000).toISOString().slice(0,10):now;
+     previous.set(e.id,ready);
+     const key=ready+'|'+start+'|'+current;
+     if(!groups.has(key))groups.set(key,{fundBy:ready,start,amount:0,current,events:[]});
+     const group=groups.get(key);group.amount=money(group.amount+e.amount);group.events.push(e);
+   }
+   return [...groups.values()].sort((a,b)=>a.fundBy.localeCompare(b.fundBy));
+ }
+ function plan(state){const e=nextEvents(state),dates=e.map(x=>fundBy(x.due)).sort();return {due:dates[0]||'',lastDue:dates.at(-1)||'',nextDue:e[0]?.due||'',amount:money(e.reduce((sum,x)=>sum+x.amount,0))};}
+ function funding(state,saved=0,now=today()){
+   let balance=Math.max(0,+saved||0);
+   return schedule(state,nextEvents(state).at(-1)?.due||now,now).filter(x=>x.current).map(x=>{const assigned=money(Math.min(balance,x.amount));balance=money(Math.max(0,balance-assigned));const months=Math.max(1,(+x.fundBy.slice(0,4)-+now.slice(0,4))*12+(+x.fundBy.slice(5,7)-+now.slice(5,7))+1);return {...x,assigned,remaining:money(x.amount-assigned),monthly:Math.ceil((x.amount-assigned)*100/months)/100};});
+ }
+ // Renewal saving is allocated through the goal forecast, never subtracted a
+ // second time as an invisible reduction to the shared salary pool.
+ function reserve(){return 0;}
  function parse(v){if(!v)return {version:1,revision:0,linkedName:'',policies:[],history:[]};const s=JSON.parse(v);if(s.version!==1||!Array.isArray(s.policies))throw Error('Insurance data cannot be read');return s;}
  function mergePolicies(state,incoming,now=today()){
    if(!Array.isArray(incoming)||!incoming.length||incoming.length>200)throw Error('Import 1–200 policies.');
@@ -31,5 +50,5 @@
    }return next;
  }
  function registerRows(state){return [['Insurance register — edit policies in the app. This sheet updates on every save.'],['Owner','Insurer','Description','Policy number','Funding','Annual premium (SGD)','Cover start','Policy end','Next renewal','Monthly increase (SGD)','Paid 2024','Paid 2025','Paid 2026','Notes','Status'],...state.policies.map(p=>[p.owner||'',p.insurer||'',p.description,p.number||'',p.funding||'Cash',p.premium??'',p.start||'',p.end||'',p.due||'',p.increment||0,p.historicalPaid?.['2024']??'',p.historicalPaid?.['2025']??'',p.historicalPaid?.['2026']??'',p.notes||'',!complete(p)?'Missing details':!cash(p)?'MediSave — excluded from cash goals':p.finished?'Complete':'Cash savings'])];}
- root.FinInsurance={money,today,year,validate,amount,first,events,batch,plan,reserve,parse,complete,cash,mergePolicies,registerRows};
+ root.FinInsurance={money,today,year,validate,amount,first,events,batch,plan,reserve,fundBy,nextEvents,schedule,funding,parse,complete,cash,mergePolicies,registerRows};
 })(typeof window==='undefined'?globalThis:window);
