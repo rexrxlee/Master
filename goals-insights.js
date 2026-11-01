@@ -43,19 +43,22 @@ function goalTiming(g,model) {
   const early=g.deadlineMo===null?null:g.deadlineMo-done;
   return `${date}${early===null?'':early>0?` · ${early} month${early===1?'':'s'} early`:early===0?' · deadline month':` · ${-early} months late`}`;
 }
+function goalTimelineEnd(model) {
+  return Math.min(model.MONTHS-1,Math.max(12,...model.goalState.map(g=>Math.max(g.deadlineMo||0,g.completedAt||0)))+3);
+}
 function goalForecastChart(model, axisEnd=null) {
-  const end=axisEnd||Math.max(12,model.MONTHS-1);
+  const end=axisEnd||goalTimelineEnd(model);
   const x=m=>190+Math.max(0,Math.min(end,m))/end*670;
-  const height=80+model.goalState.length*74;
+  const height=65+model.goalState.length*49;
   let svg=`<svg viewBox="0 0 910 ${height}" role="img" aria-label="Goal funding timeline: solid bars end at projected funding; dotted outlines end at target months">`;
   for(let m=0;m<=end;m+=Math.max(1,Math.ceil(end/6)))svg+=`<line x1="${x(m)}" x2="${x(m)}" y1="20" y2="${height-45}" stroke="#e1e9e7"/><text x="${x(m)}" y="${height-20}" text-anchor="middle">${escapeHtml(model.monthLabel(m,true))}</text>`;
   model.goalState.forEach((g,i)=>{
-    const y=35+i*74, done=g.completedAt, deadline=g.deadlineMo;
+    const y=25+i*49, done=g.completedAt, deadline=g.deadlineMo;
     const late=done===null||(deadline!==null&&done>deadline), color=late?'#b9514e':'#18786b';
     svg+=`<text x="0" y="${y+15}">${escapeHtml(g.name)}</text>`;
     if(deadline!==null)svg+=`<rect x="190" y="${y}" width="${Math.max(4,x(deadline)-190)}" height="24" rx="5" fill="none" stroke="#738b83" stroke-width="2" stroke-dasharray="3 5"/><line x1="${x(deadline)}" x2="${x(deadline)}" y1="${y-5}" y2="${y+29}" stroke="#738b83"/>`;
     if(done!==null)svg+=`<rect x="190" y="${y+5}" width="${Math.max(5,x(done)-190)}" height="14" rx="4" fill="${color}"><title>${escapeHtml(goalTiming(g,model))}</title></rect>`;
-    svg+=`<text x="190" y="${y+45}" style="fill:${color}">${escapeHtml(goalTiming(g,model))}${g.insuranceMilestones?' · next premium cycle':''}</text>`;
+    svg+=`<text x="190" y="${y+37}" style="fill:${color}">${escapeHtml(goalTiming(g,model))}${g.insuranceMilestones?' · next premium cycle':''}</text>`;
   });
   return `<div class="gi-chart">${svg}</svg></div><p class="gc-note"><b>Solid:</b> current funding + forecast, ending when fully funded. <b>Dotted outline:</b> target month. The gap shows time gained. Dates use the monthly forecast. Insurance shows the next cycle; every premium checkpoint is checked separately.</p>`;
 }
@@ -64,23 +67,23 @@ function setupGoalSandbox(model) {
   if(!slider)return;
   const cash=Math.max(0,computeDeployableBalance().deployable);
   slider.min=-Math.floor(cash);slider.max=Math.max(10000,Math.ceil(cash));slider.step=1;slider.value=0;
-  const axisEnd=Math.max(12,model.MONTHS-1);
-  let timer;
+  const axisEnd=goalTimelineEnd(model);
+  let frame=null;
   function apply(){
     const delta=Number(slider.value);
     const result=withGoalCalculationCache(()=>goalSpendScenario(-delta));
     if(!result)return;
-    chart.innerHTML=goalForecastChart(result.model,axisEnd);
+    chart.innerHTML=goalForecastChart(result.model,Math.max(axisEnd,goalTimelineEnd(result.model)));
     status.textContent=delta===0?'Current plan · no hypothetical cash change.':result.ok?'All checked targets still fit this monthly forecast.':'At least one target, cash requirement or insurance checkpoint is not covered. Check the timeline and your plan.';
     status.classList.toggle('gi-warning',!result.ok);
   }
   slider.addEventListener('input',()=>{
     const delta=Number(slider.value);
     output.textContent=delta<0?`${formatCurrency(-delta)} removed`:delta>0?`${formatCurrency(delta)} added`:'No change';
-    clearTimeout(timer);timer=setTimeout(apply,100);
+    if(frame===null)frame=requestAnimationFrame(()=>{frame=null;apply();});
   });
-  slider.addEventListener('change',()=>{clearTimeout(timer);apply();});
-  document.getElementById('giCashReset').addEventListener('click',()=>{clearTimeout(timer);slider.value=0;output.textContent='No change';chart.innerHTML=goalForecastChart(model,axisEnd);status.textContent='Current plan · no hypothetical cash change.';status.classList.remove('gi-warning');});
+  slider.addEventListener('change',()=>{if(frame!==null)cancelAnimationFrame(frame);frame=null;apply();});
+  document.getElementById('giCashReset').addEventListener('click',()=>{if(frame!==null)cancelAnimationFrame(frame);frame=null;slider.value=0;output.textContent='No change';chart.innerHTML=goalForecastChart(model,axisEnd);status.textContent='Current plan · no hypothetical cash change.';status.classList.remove('gi-warning');});
 }
 function renderGoalInsights(model) {
   const host=document.getElementById('goalInsights');if(!host)return;
