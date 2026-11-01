@@ -63,7 +63,7 @@ function renderClarityPage() {
   const today=toDateInputValue(new Date());
   const container=document.getElementById('goalsContainer');
   container.innerHTML=`<nav class="gc-tabs" aria-label="Goal views"><button data-goal-tab="overview" onclick="switchGoalView('overview')">Overview</button><button data-goal-tab="monthly" onclick="switchGoalView('monthly')">Monthly plan</button><button data-goal-tab="settings" onclick="switchGoalView('settings')">Settings</button></nav>
-  <div data-goal-view="overview"><div id="compactGoalSummary"></div><div id="gcOverall" aria-live="polite"></div><div class="gc-section-head"><div><h2>Your goals</h2><p>Cash assigned today and projected funding are shown separately.</p></div><button class="btn-primary" onclick="compactSmartAssign()">Suggest assignments</button></div><div id="compactAssignTotal" class="gc-note"></div><div class="gc-goal-grid" id="compactGoalRows">${goalsData.map(clarityGoalCard).join('')||'<p>No goals yet. Add one in Settings.</p>'}</div></div>
+  <div data-goal-view="overview"><div id="compactGoalSummary"></div><div id="gcOverall" aria-live="polite"></div><div id="goalInsights"></div><div class="gc-section-head"><div><h2>Your goals</h2><p>Cash assigned today and projected funding are shown separately.</p></div><button class="btn-primary" onclick="compactSmartAssign()">Suggest assignments</button></div><div id="compactAssignTotal" class="gc-note"></div><div class="gc-goal-grid" id="compactGoalRows">${goalsData.map(clarityGoalCard).join('')||'<p>No goals yet. Add one in Settings.</p>'}</div></div>
   <div data-goal-view="monthly" hidden><section class="gc-panel"><div class="gc-section-head"><div><h2>Where each month’s money goes</h2><p>Today is a proposed allocation of existing cash. Later months are forecasts.</p></div><label>Show<select id="gcHorizon" onchange="renderClarityMonthly(goalClarityModel)"><option value="12">12 months</option><option value="24">24 months</option><option value="60">Full forecast</option></select></label></div><div id="compactGoalTimeline"></div></section></div>
   <div data-goal-view="settings" hidden><section class="gc-panel"><h2>Funding accounts</h2><p>Only selected savings accounts fund this plan.</p><div class="cg-accounts">${allAccounts.filter(a=>a.type==='Savings').map(a=>`<label><input type="checkbox" value="${escapeHtml(a.name)}" ${goalSavingsAccts.includes(a.name)?'checked':''} onchange="toggleGoalAccount(this)">${escapeHtml(a.name)} <strong>${formatCurrency(savingsBalances[a.name]||0)}</strong></label>`).join('')}</div></section>
   <section class="gc-panel"><h2>Forecast adjustments</h2><p>Expected bonuses and changes to future saving capacity. Pending claims are not automatically included.</p><div id="compactAdjustments"></div></section>
@@ -94,7 +94,7 @@ function renderClarityForecast() {
     document.getElementById(`cgAssignedMetric_${r.idx}`).textContent=formatCurrency(r.assigned);
     const input=document.getElementById(`gcCash_${r.idx}`);if(document.activeElement!==input)input.value=r.assigned.toFixed(2);
   });
-  renderClarityMonthly(model);updateCompactSaveStatus();
+  renderClarityMonthly(model);if(typeof renderGoalInsights==='function')renderGoalInsights(model);updateCompactSaveStatus();
 }
 // Round an entire displayed column together so its visible parts equal its total.
 function clarityRoundedParts(values) {
