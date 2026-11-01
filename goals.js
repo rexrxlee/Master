@@ -573,15 +573,14 @@ function calculateDeployableBalance() {
     rawSavings += savingsBalances[name] || 0;
   });
 
-  // Step 2: subtract factual CC owed, then add pending reimbursements as receivables.
-  // This keeps debt visible while avoiding reimbursable spend quietly blocking goals.
+  // Pending reimbursements are informational until received, never assignable cash.
   const ccAccounts = getCreditCardAccountsInData(allTxForGoals);
   const ccClaimReceivable = computePendingClaimReceivableForAccounts(allTxForGoals, ccAccounts);
   const savingsClaimReceivable = computePendingClaimReceivableForAccounts(allTxForGoals, goalSavingsAccts);
   const pendingClaimSummary = computePendingClaimSummary(allTxForGoals);
   const claimReceivableForGoals = pendingClaimSummary.total;
   const ccOwedForGoals = Math.max(0, ccOwed - ccClaimReceivable);
-  const afterCC = rawSavings - ccOwed + claimReceivableForGoals;
+  const afterCC = rawSavings - ccOwed;
 
   // Step 3: protect cash still needed this month.
   // - Bills: hold the unpaid balance only when the configured funding account is a Goal account.
@@ -946,12 +945,9 @@ function computePendingClaimSummary(txData) {
 
 function computeGoalClaimRisk(dep, totalAssigned) {
   const pendingClaims = Math.max(0, dep.claimReceivableForGoals || 0);
-  const cashOnlyDeployable = dep.deployable - pendingClaims;
+  const cashOnlyDeployable = dep.deployable;
   const cashOnlyUnassigned = cashOnlyDeployable - totalAssigned;
-  const assignedFromPendingClaims = Math.min(
-    pendingClaims,
-    Math.max(0, totalAssigned - cashOnlyDeployable)
-  );
+  const assignedFromPendingClaims = 0;
 
   return {
     pendingClaims,
@@ -1013,8 +1009,8 @@ function getPrioritizedGoalIndexes() {
 
 function computeGoalPendingClaimExposure(dep) {
   const pendingClaims = Math.max(0, dep.claimReceivableForGoals || 0);
-  let cashPool = Math.max(0, dep.deployable - pendingClaims);
-  let pendingPool = pendingClaims;
+  let cashPool = Math.max(0, dep.deployable);
+  let pendingPool = 0;
   const exposure = goalsData.map(() => 0);
 
   getPrioritizedGoalIndexes().forEach(idx => {
@@ -2296,6 +2292,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   const currentIndices=mapping[insuranceIndex].filter(i=>stageByIndex.get(i).current);
   const currentMilestones=milestones.filter(x=>x.current),currentTarget=currentMilestones.reduce((s,x)=>s+x.amount,0);
   const currentProgress=sumSeries(currentIndices,'progressDollars');
+  const currentBase=sumSeries(currentIndices,'allocationBaseData'),currentAdjustments=sumSeries(currentIndices,'allocationCashflowData');
   const completion=currentProgress.findIndex(x=>x>=currentTarget-0.005);
   const summed={...model};
   for(const key of ['allocationData','allocationBaseData','allocationCashflowData','requiredMonthlyData'])summed[key]=mapping.map(indices=>sumSeries(indices,key));
@@ -2303,7 +2300,7 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
   summed.goalState=mapping.map((indices,gi)=>{
     if(gi!==insuranceIndex)return {...model.goalState[indices[0]],idx:gi};
     const states=currentIndices.map(i=>model.goalState[i]);
-    return {...states[0],idx:gi,name:original[gi].name,baseTarget:currentTarget,effectiveTarget:currentTarget,initialSaved:states.reduce((s,x)=>s+Math.min(x.initialSaved,x.baseTarget),0),saved:currentProgress.at(-1),deadlineMo:Math.max(...states.map(x=>x.deadlineMo)),startMo:0,completedAt:completion<0?null:completion,baseCompletedAt:completion<0?null:completion,insuranceMilestones:milestones,insuranceUnverified:milestones.some(x=>x.current&&!x.inRange),insuranceGap:milestones.filter(x=>x.inRange).reduce((s,x)=>s+x.gap,0),plannedTotal:summed.allocationData[gi].reduce((s,x)=>s+x,0)};
+    return {...states[0],idx:gi,name:original[gi].name,baseTarget:currentTarget,effectiveTarget:currentTarget,initialSaved:states.reduce((s,x)=>s+Math.min(x.initialSaved,x.baseTarget),0),saved:currentProgress.at(-1),deadlineMo:Math.max(...states.map(x=>x.deadlineMo)),startMo:0,completedAt:completion<0?null:completion,baseCompletedAt:completion<0?null:completion,insuranceCurrentBase:currentBase,insuranceCurrentAdjustments:currentAdjustments,insuranceMilestones:milestones,insuranceUnverified:milestones.some(x=>x.current&&!x.inRange),insuranceGap:milestones.filter(x=>x.inRange).reduce((s,x)=>s+x.gap,0),plannedTotal:summed.allocationData[gi].reduce((s,x)=>s+x,0)};
   });
   return summed;
 }
@@ -2415,6 +2412,7 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
   const allocationCashflowData = goalState.map(() => Array(MONTHS).fill(0));
   const progressDollars = goalState.map(() => Array(MONTHS).fill(0));
   const requiredMonthlyData = goalState.map(() => Array(MONTHS).fill(null));
+  const monthLedger = [];
   const unallocatedData = Array(MONTHS).fill(0);
   const unallocatedBaseData = Array(MONTHS).fill(0);
   const unallocatedCashflowData = Array(MONTHS).fill(0);
@@ -2433,6 +2431,8 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
       Math.max(0, Number(item.goalBucket || 0))
     ])
   );
+
+  let deficitCarry = Math.max(0, Number(depForTimeline.currentCashShortfall) || 0);
 
   function allocateToGoal(gs, gi, m, amount, source="base", targetCap=gs.effectiveTarget) {
     const cappedTarget = Math.min(gs.effectiveTarget, Math.max(0, targetCap));
@@ -2468,7 +2468,7 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
 
   function activeBaseItems(m) {
     return goalItems()
-      .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.baseTarget);
+      .filter(({ gs }) => m >= gs.startMo && gs.saved < gs.effectiveTarget);
   }
 
   function activeDeadlineBufferItems(m) {
@@ -2511,8 +2511,20 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     const plannedBaseForMonth = m === 0
       ? currentUnassignedGoalCash
       : (visualEarlySalarySurplus > 0 ? visualEarlySalarySurplus : getPlannedSavingsForMonth(forecastMonthDate));
-    let basePool = isForecastMonth ? Math.max(0, plannedBaseForMonth + Math.min(0, poolBoost[m])) : 0;
+    const salaryExpected = m === 0 ? 0 : (getRecordedFutureSalaryForMonth(forecastMonthDate) || Math.max(0, historicalStats.avgMonthlyIncome || 0));
+    const budgetExpected = m === 0 ? 0 : computeFutureMonthBudgetReserve(forecastMonthDate);
+    const budgetDeficit = m > 0 && !getRecordedFutureSalaryForMonth(forecastMonthDate) ? Math.max(0, budgetExpected - salaryExpected) : 0;
+    const carryIn = deficitCarry;
+    const reduction = Math.max(0, -poolBoost[m]);
+    const netBase = plannedBaseForMonth - reduction - carryIn - budgetDeficit;
+    let basePool = Math.max(0, netBase);
+    deficitCarry = Math.max(0, -netBase);
     let cashflowPool = isForecastMonth ? Math.max(0, poolBoost[m]) : 0;
+    const directed = insuranceBoost[m] + goalState.reduce((sum, gs) => sum + (goalBoost[gs.name][m] || 0), 0);
+    // All incoming forecast cash first covers a real cash deficit.
+    let deficitPaidByBoost = Math.min(cashflowPool, deficitCarry);
+    cashflowPool -= deficitPaidByBoost; deficitCarry -= deficitPaidByBoost;
+    const ledger = { salary:salaryExpected, budget:budgetExpected, base:plannedBaseForMonth, adjustment:poolBoost[m]+directed, carryIn, budgetDeficit, carryOut:0, available:0, allocated:0, unallocated:0 };
     const monthPoolAvailable = basePool + cashflowPool;
     const monthPoolUsed = Array(goalState.length).fill(0);
     cashflowReductionData[m] = isForecastMonth ? -Math.max(0, -poolBoost[m]) : 0;
@@ -2539,6 +2551,8 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     };
 
     let directedInsurance = insuranceBoost[m];
+    const insuranceDeficitPaid = Math.min(directedInsurance, deficitCarry);
+    directedInsurance -= insuranceDeficitPaid; deficitCarry -= insuranceDeficitPaid;
     goalItems().filter(({gs})=>gs.insuranceParent).sort(compareProjection).forEach(({gs,gi})=>{
       const used=allocateToGoal(gs,gi,m,directedInsurance,"cashflow",gs.baseTarget);
       directedInsurance-=used;monthPoolUsed[gi]+=used;
@@ -2546,9 +2560,12 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     cashflowPool+=directedInsurance;
 
     goalState.forEach((gs, gi) => {
-      if (!isForecastMonth || m < gs.startMo || isForecastSatisfied(gs, m)) return;
-      const used = allocateToGoal(gs, gi, m, goalBoost[gs.name][m] || 0, "cashflow", targetCapForMonth(gs, m));
+      let boost = goalBoost[gs.name][m] || 0;
+      const paid = Math.min(boost, deficitCarry); boost -= paid; deficitCarry -= paid;
+      const used = m >= gs.startMo && !isForecastSatisfied(gs,m)
+        ? allocateToGoal(gs, gi, m, boost, "cashflow", targetCapForMonth(gs,m)) : 0;
       monthPoolUsed[gi] += used;
+      cashflowPool += boost - used;
     });
 
     const allocatePhase = (items, targetForGoal, options={}) => {
@@ -2605,10 +2622,10 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     };
 
     allocatePhase(activeForcedTargetItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
-    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { spillover:false, monthlyContribution:false });
+    allocatePhase(activeBaseItems(m), gs => gs.effectiveTarget, { spillover:false, monthlyContribution:false });
     allocatePhase(activeDeadlineBufferItems(m), gs => gs.effectiveTarget, { monthly:false, spillover:true });
-    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
-    allocatePhase(activeBaseItems(m), gs => gs.baseTarget, { required:false, monthly:false, spillover:true });
+    allocatePhase(activeBaseItems(m), gs => gs.effectiveTarget, { required:false, requiredContribution:false, monthlyContribution:true, spillover:false });
+    allocatePhase(activeBaseItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
     allocatePhase(activeOpenBufferItems(m), gs => gs.effectiveTarget, { required:false, monthly:false, spillover:true });
 
     // If this month's cash is still left after filling every currently-active
@@ -2628,6 +2645,11 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
       });
     }
 
+    ledger.carryOut = deficitCarry;
+    ledger.allocated = allocationData.reduce((sum,row) => sum + row[m],0);
+    ledger.unallocated = Math.max(0,basePool+cashflowPool);
+    ledger.available = ledger.allocated + ledger.unallocated;
+    monthLedger.push(ledger);
     unallocatedBaseData[m] = Math.max(0, basePool);
     unallocatedCashflowData[m] = Math.max(0, cashflowPool);
     unallocatedData[m] = unallocatedBaseData[m] + unallocatedCashflowData[m];
@@ -2657,6 +2679,7 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     unallocatedBaseData,
     unallocatedCashflowData,
     cashflowReductionData,
+    monthLedger,
     forecastStartMonth,
     monthOffsetFromToday,
     monthLabel,
