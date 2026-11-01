@@ -11,3 +11,17 @@ run(`goalsData[1].endDate='';`);assert.equal(c.goalSpendingRoom(),0,'Missing dea
 run(`goalsData.pop();goalsData[0].endDate='2026-11-20';`);assert.equal(c.goalSpendingRoom(),0,'Imminent target must have cash now');
 run(`goalsData[0].endDate='2027-01-31';var model=buildGoalProjectionModel(18,60);`);assert.ok(c.goalForecastChart(c.model).includes('<svg'));assert.ok(c.goalForecastChart(c.model).includes('Test'));
 console.log('Spending simulations: real cash removal, all-goal constraints, near-term protection, missing deadlines and state restoration passed.');
+const before=run('JSON.stringify(goalsData)');
+const added=c.goalSpendScenario(-1000),base=c.goalSpendScenario(0),removed=c.goalSpendScenario(500);
+assert.ok(added.model.goalState[0].completedAt<=base.model.goalState[0].completedAt,'Adding cash cannot delay this goal');
+assert.ok(removed.model.goalState[0].completedAt>=base.model.goalState[0].completedAt,'Removing cash cannot accelerate this goal');
+assert.equal(run('JSON.stringify(goalsData)'),before,'Preview never changes goal data');
+assert.equal(run('computeDeployableBalance===original'),true);
+assert.ok(c.goalForecastChart(base.model).includes('stroke-dasharray="3 5"'));
+const start=performance.now();for(let i=0;i<30;i++)c.withGoalCalculationCache(()=>c.goalSpendScenario(-i*100));
+console.log(`30 slider scenarios: ${Math.round(performance.now()-start)}ms`);
+const elements={};for(const id of ['giCashSlider','giCashValue','giTimeline','giScenarioStatus','giCashReset'])elements[id]={value:0,textContent:'',innerHTML:'',handlers:{},classList:{toggle(){},remove(){}},addEventListener(t,f){this.handlers[t]=f;}};
+c.document.getElementById=id=>elements[id];c.setupGoalSandbox(base.model);
+elements.giCashSlider.value=-500;elements.giCashSlider.handlers.change();assert.ok(elements.giTimeline.innerHTML.includes('<svg'));
+elements.giCashReset.handlers.click();assert.equal(elements.giCashSlider.value,0);assert.equal(run('JSON.stringify(goalsData)'),before);
+console.log('Timeline cash additions/removals, fixed axis, slider change/reset and non-persistence passed.');
