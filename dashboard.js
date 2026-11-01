@@ -63,7 +63,7 @@ async function loadDashboard(forceRefresh = false) {
       import("./property-tax-engine.js?v=1"),
       import("./property-tax-storage.js?v=1")
     ]);
-    await import("./goals.js?v=schedule-1");
+    await import("./goals.js?v=clarity-1");
     const financePlan = await window.calculateFinancePlanFromWorkbook(workbook);
     financePlanGoalCash = financePlan.freeCash;
     financePlanMonthlyBudget = financePlan.monthlySpend;
