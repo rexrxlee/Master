@@ -47,7 +47,7 @@
     function toggleGlobalNav() { const hidden = !document.body.classList.contains('nav-hidden'); localStorage.setItem('fintrackNavHidden',String(hidden)); applyGlobalNav(hidden); }
     function initGlobalNav() { const saved = localStorage.getItem('fintrackNavHidden'); applyGlobalNav(saved === 'true' || (saved === null && innerWidth <= 768)); }
   </script>
-  <script src="config.js"></script><script src="onedrive.js?v=performance-1"></script>
+  <script src="config.js"></script><script src="onedrive.js?v=save-recovery-1"></script>
   <script src="insurance-engine.js?v=schedule-1"></script><script src="insurance.js?v=schedule-1"></script><script src="ui.js"></script>
 </body>
 </html>

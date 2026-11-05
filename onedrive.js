@@ -239,18 +239,78 @@ function getEncodedExcelPath() {
     .join("/");
 }
 
+// Only replay idempotent reads and fixed-range writes, never row-append POSTs.
+let excelSession = null;
+let excelSessionPromise = null;
+let excelSessionUnsupported = false;
+const excelPause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function excelRequest(url, options, retrySafe = false) {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, options);
+    if (response.ok) return response;
+    const detail = await response.text();
+    const transient = [429,502,503,504].includes(response.status) ||
+      (response.status === 500 && /GenericFileOpenError|internalServerError/i.test(detail));
+    if (retrySafe && transient && attempt < 2) {
+      const retry = Number(response.headers?.get('Retry-After'));
+      const delay = Number.isFinite(retry) && retry > 0 ? retry * 1000 : 1000 * 2 ** attempt;
+      if (delay <= 30000) {
+        setExcelBusyMessage('Excel is temporarily unavailable. Retrying safely…');
+        await excelPause(delay);
+        continue;
+      }
+    }
+    const error = new Error(/GenericFileOpenError/i.test(detail)
+      ? 'Microsoft Excel could not open the workbook. Your changes are not confirmed saved. Close any Excel editing window, then retry. If this continues, open the workbook in Excel Online to check it.'
+      : response.status + ' ' + detail);
+    error.status = response.status; error.detail = detail;
+    throw error;
+  }
+}
+async function excelSessionHeaders(url, token) {
+  const match = url.match(/^(.*\/workbook)(?:\/|$)/);
+  if (!match || excelSessionUnsupported) return {};
+  const base = match[1];
+  if (excelSession?.base === base && Date.now() - excelSession.used < 180000) {
+    excelSession.used = Date.now();
+    return {'workbook-session-id': excelSession.id};
+  }
+  if (!excelSessionPromise) excelSessionPromise = (async () => {
+    try {
+      const response = await excelRequest(base + '/createSession', {
+        method:'POST', headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({persistChanges:true})
+      }, true);
+      const session = await response.json();
+      if (!session.id) throw new Error('Excel did not return a workbook session. Please retry.');
+      excelSession = {base,id:session.id,used:Date.now()};
+    } catch(error) {
+      // Some account/workbook types do not support sessions; retain range access.
+      if ([400,403,405,501].includes(error.status) && /notSupported|not supported|unsupported/i.test(error.detail||'')) {
+        excelSessionUnsupported = true; return;
+      }
+      throw error;
+    } finally { excelSessionPromise = null; }
+  })();
+  await excelSessionPromise;
+  return excelSession ? {'workbook-session-id':excelSession.id} : {};
+}
+async function excelRangeRequest(url, token, method='GET', body) {
+  for (let attempt=0;attempt<2;attempt++) {
+    const sessionHeaders=await excelSessionHeaders(url,token);
+    try {
+      return await excelRequest(url,{method,headers:{Authorization:`Bearer ${token}`,
+        'Content-Type':'application/json',...sessionHeaders},...(body===undefined?{}:{body:JSON.stringify(body)})},true);
+    } catch(error) {
+      if(attempt===0 && /invalidSessionReCreatable|invalidSessionNotFound/i.test(error.detail||'')) {excelSession=null;continue;}
+      throw error;
+    }
+  }
+}
+
 async function graphFetch(url, token) {
   return withExcelBusy("Reading from Excel...", async () => {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(response.status + " " + errorText);
-    }
+    const response = await excelRangeRequest(url, token);
 
     return response;
   });
@@ -265,19 +325,7 @@ async function graphGetJson(url, token) {
 
 async function graphPatch(url, token, body, preserveCache = false) {
   return withExcelBusy("Saving to Excel...", async () => {
-    const response = await fetch(url, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(response.status + " " + errorText);
-    }
+    const response = await excelRangeRequest(url, token, 'PATCH', body);
 
     const result = await response.json();
     if (!preserveCache) await invalidateExcelDownloadCache();
@@ -287,11 +335,13 @@ async function graphPatch(url, token, body, preserveCache = false) {
 
 async function graphPost(url, token, body) {
   return withExcelBusy("Saving to Excel...", async () => {
+    const sessionHeaders = await excelSessionHeaders(url, token);
     const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...sessionHeaders
       },
       body: JSON.stringify(body)
     });
