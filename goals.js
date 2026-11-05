@@ -4267,14 +4267,15 @@ async function persistGoalsToExcel(options = {}) {
 
   try {
     setGoalsAutoSaveStatus("Saving...");
+    const liveManaged = (await readBudgetSetupRange('AK2:AM2')).values?.[0] || [];
     if (typeof FinTaxStore !== 'undefined') {
-      const liveTax = FinTaxStore.parse((await readBudgetSetupRange('AK2')).values?.[0]?.[0]);
+      const liveTax = FinTaxStore.parse(liveManaged[0]);
       if (liveTax.pendingGoal || Number(liveTax.revision || 0) !== goalsTaxRevision) {
         throw new Error('Personal Tax changed. Reload Goals before saving so the new tax year is preserved.');
       }
     }
-    if(typeof FinPropertyTaxStore !== 'undefined'){const live=FinPropertyTaxStore.parse((await readBudgetSetupRange('AM2')).values?.[0]?.[0]);if(live.pendingGoal||Number(live.revision||0)!==goalsPropertyTaxRevision)throw Error('Property Tax changed. Reload Goals before saving.');}
-    const liveInsurance = FinInsurance.parse((await readBudgetSetupRange('AL2')).values?.[0]?.[0]);
+    if(typeof FinPropertyTaxStore !== 'undefined'){const live=FinPropertyTaxStore.parse(liveManaged[2]);if(live.pendingGoal||Number(live.revision||0)!==goalsPropertyTaxRevision)throw Error('Property Tax changed. Reload Goals before saving.');}
+    const liveInsurance = FinInsurance.parse(liveManaged[1]);
     if (liveInsurance.pending || liveInsurance.revision !== goalsInsuranceRevision) throw new Error('Insurance changed. Reload Goals before saving.');
     const updates = [
       { sheetName: "Budget Setup", rangeAddress: GOALS_RANGE, values: buildGoalsSaveValues() },
@@ -4286,7 +4287,9 @@ async function persistGoalsToExcel(options = {}) {
     }
     await writeExcelRanges(updates);
     if (includeBoosts) incomeBoostsDirty = false;
-    await refreshGoalBudgetMetadataFromExcel();
+    // A refresh failure must not misreport already-confirmed writes as failed.
+    try { await refreshGoalBudgetMetadataFromExcel(); }
+    catch (error) { log("Goals saved; budget metadata refresh pending: " + error.message); }
     setGoalsAutoSaveStatus("Saved to Excel", "ok");
     log("Goals saved.");
     return true;
