@@ -349,39 +349,7 @@ function computeAccountBalances(txData) {
 }
 
 function computeCCOwed(txData) {
-  // Mirrors dashboard.js: opening + charges, adjusted by transfer direction.
-  const ccAccounts = getCreditCardAccountsInData(txData);
-
-  let totalOwed = 0;
-  ccAccounts.forEach(account => {
-    const accountRows = txData.filter(row => clean(row["Account"]) === account);
-
-    const openingRow     = accountRows.find(row => clean(row["Transaction"]) === "Opening Balance");
-    const openingBalance = openingRow ? Math.abs(getSignedAmount(openingRow["Amount"])) : 0;
-    const openingDate    = openingRow ? parseExcelDate(openingRow["Date"]) : null;
-
-    const subsequent = accountRows.filter(row => {
-      if (clean(row["Transaction"]) === "Opening Balance") return false;
-      if (!openingDate) return true;
-      const d = parseExcelDate(row["Date"]);
-      return d && d >= openingDate;
-    });
-
-    const charges = subsequent
-      .filter(row => { const cat = clean(row["Main Category"]).toLowerCase(); return cat !== "income" && cat !== "transfer"; })
-      .reduce((sum, row) => sum + getSignedAmount(row["Amount"]), 0);
-
-    const transferImpact = subsequent
-      .filter(row => clean(row["Main Category"]).toLowerCase() === "transfer")
-      .reduce((sum, row) => sum + getCreditCardTransferOwedImpact(row), 0);
-
-    totalOwed += openingBalance + charges + transferImpact;
-  });
-
-  const businessCover = businessOutstanding(allAccounts, txData).filter(item =>
-    allAccounts.some(account => businessKey(account.name) === businessKey(item.account) && account.type === "Credit Card")
-  ).reduce((sum, item) => sum + item.amount, 0);
-  return Math.max(0, totalOwed - businessCover);
+  return CashRules.cardDebt(allAccounts, txData, parseExcelDate);
 }
 
 function getCreditCardAccountsInData(txData) {
@@ -589,16 +557,8 @@ function calculateDeployableBalance() {
   // again here would double-count the same spending.
   const budgetPosition       = computeCurrentMonthBudgetPosition();
   const monthlyBudgetBalance = budgetPosition.total.balance;
-  const creditCardKeys = new Set(
-    getCreditCardAccountsInData(allTxForGoals).map(accountKey)
-  );
-  const unpaidGoalBills = (budgetPosition.bills.rows || [])
-    .filter(row => {
-      const fundingKey = accountKey(row.accountScope?.account || "");
-      return creditCardKeys.has(fundingKey) || row.accountScope?.reserve;
-    })
-    .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
-  const remainingMonthlyExpenseBudget = Math.max(0, budgetPosition.monthly.balance || 0);
+  const unpaidGoalBills = CashRules.billReserve(budgetPosition.bills.rows, goalSavingsAccts, allAccounts);
+  const remainingMonthlyExpenseBudget = CashRules.monthlyReserve(budgetPosition.monthly.rows);
   const remainingBudgetReserve = unpaidGoalBills + remainingMonthlyExpenseBudget;
 
   // Step 4: future-dated salary is already in account balances, but should
@@ -621,6 +581,7 @@ function calculateDeployableBalance() {
     claimReceivableForGoals,
     remainingBudget: remainingBudgetReserve,
     unpaidGoalBills,
+    externallyFundedBills: Math.max(0, budgetPosition.bills.rows.reduce((sum,row)=>sum+Math.max(0,CashRules.cents(row.balance)),0)/100-unpaidGoalBills),
     remainingMonthlyExpenseBudget,
     extraAllowance: 0,
     extraAllowanceUsed: 0,
@@ -710,15 +671,7 @@ function computeBudgetPositionForMonth(monthDate) {
       const balance = allocated - spent;
       const configuredFundingAccount = fundingByCategory.get(category) || "";
       const isMonthlyExpense = type === "monthly";
-      const accountScope = isMonthlyExpense
-        ? { reserve: true, source: "monthly-shared-reserve", account: "" }
-        : configuredFundingAccount
-          ? {
-              reserve: new Set(goalSavingsAccts.map(accountKey)).has(accountKey(configuredFundingAccount)),
-              source: "budget-setting",
-              account: configuredFundingAccount
-            }
-          : getBudgetCategoryGoalAccountScope(type, category, targetYear, targetMonth);
+      const accountScope = { reserve: isMonthlyExpense || CashRules.protectsBill(configuredFundingAccount, goalSavingsAccts, allAccounts), source: configuredFundingAccount ? "budget-setting" : "unknown-account", account: configuredFundingAccount };
       // Monthly expenses are a shared reserve because their payment account varies.
       // Negative balances stay in the pool, so overspending reduces other remaining
       // monthly-expense budget before anything is considered available for Goals.
@@ -729,6 +682,7 @@ function computeBudgetPositionForMonth(monthDate) {
         spent,
         balance,
         goalReserve,
+        fundingAccount: configuredFundingAccount,
         accountScope,
         over: Math.max(0, spent - allocated),
         isUnbudgeted: allocated <= 0 && spent > 0
@@ -934,13 +888,7 @@ function computePendingClaimReceivableForAccounts(txData, accountNames) {
 }
 
 function computePendingClaimSummary(txData) {
-  return (txData || []).reduce((summary, row) => {
-    const amount = getPendingClaimReceivableAmount(row);
-    if (amount <= 0) return summary;
-    summary.count += 1;
-    summary.total += amount;
-    return summary;
-  }, { count:0, total:0 });
+  return {total:CashRules.pendingClaims(txData||[]),count:(txData||[]).filter(row=>CashRules.pendingClaims([row])>0).length};
 }
 
 function computeGoalClaimRisk(dep, totalAssigned) {

@@ -18,6 +18,7 @@ function load(ctx, file) { vm.runInContext(fs.readFileSync(path.join(root, file)
 
 async function main() {
   const ctx = context();
+  load(ctx, 'cash-rules.js');
   load(ctx, 'business.js');
   load(ctx, 'insurance-engine.js');
   load(ctx, 'goals.js');

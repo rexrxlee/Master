@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 class Clock extends Date{constructor(...a){super(...(a.length?a:['2026-11-01T04:00:00Z']));}static now(){return +new Date('2026-11-01T04:00:00Z');}}
 const ctx=vm.createContext({console,Date:Clock,Intl,setTimeout,clearTimeout,localStorage:{getItem:()=>null,setItem(){}},document:{addEventListener(){},getElementById:()=>null,querySelectorAll:()=>[]},cancelAnimationFrame(){},CONFIG:{sheetName:'Transactions'}});ctx.window=ctx;ctx.addEventListener=()=>{};
-for(const file of ['business.js','insurance-engine.js','goals.js','goals-compact.js','goals-clarity.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
+for(const file of ['cash-rules.js','business.js','insurance-engine.js','goals.js','goals-compact.js','goals-clarity.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
 const run=s=>vm.runInContext(s,ctx);
 run(`allAccounts=[{name:'Savings',type:'Savings'},{name:'Card',type:'Credit Card'}];goalSavingsAccts=['Savings'];savingsBalances={Savings:5000};ccOwed=1000;budgetSummary={billsRows:[{category:'Rent',allocated:500,fundingAccount:'Savings'}],monthlyRows:[{category:'Food',allocated:500}],billsTotal:500,monthlyTotal:500};allTxForGoals=[];incomeBoosts=[];historicalStats.avgMonthlyIncome=2000;
 computePendingClaimSummary=()=>({total:200,count:1});

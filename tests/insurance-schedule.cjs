@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 class Clock extends Date {constructor(...args){super(...(args.length?args:['2026-10-30T04:00:00Z']));}static now(){return +new Date('2026-10-30T04:00:00Z');}}
 const ctx=vm.createContext({console,Date:Clock,Intl,performance,setTimeout,clearTimeout,localStorage:{getItem:()=>null,setItem(){}},document:{addEventListener(){},getElementById:()=>null},CONFIG:{sheetName:'Transactions'}});ctx.window=ctx;ctx.addEventListener=()=>{};
-for(const f of ['business.js','insurance-engine.js','goals.js','goals-compact.js'])vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
+for(const f of ['cash-rules.js','business.js','insurance-engine.js','goals.js','goals-compact.js'])vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
 const I=ctx.FinInsurance;
 assert.equal(I.fundBy('2027-05-31'),'2027-04-30');assert.equal(I.fundBy('2027-06-03'),'2027-04-30');assert.equal(I.fundBy('2027-09-22'),'2027-07-31');assert.equal(I.fundBy('2028-03-01'),'2028-01-31');
 const p={number:'TEST',description:'Example',premium:130,start:'2025-01-01',due:'2027-05-31',annual:true,increment:0,funding:'Cash'};
