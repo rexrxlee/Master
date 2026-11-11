@@ -290,7 +290,7 @@ function renderCashLeftPanel() {
           <span>Current bills protected <b>-${formatCurrency(funding.currentBillsProtected)}</b></span>
           <span>Monthly expenses left protected <b>-${formatCurrency(funding.monthlyExpensesProtected)}</b></span>
           <span>Next month budget block <b>-${formatCurrency(funding.nextMonthBudgetBlock)}</b></span>
-          <span>Bills funded outside selected accounts (not deducted) <b>${formatCurrency(funding.externallyFundedBills)}</b></span>
+          <span>Goal funds including pending claims <b>${formatCurrency(CashRules.planningTotal(funding.cashLeft,funding.claimsComingBack))}</b></span>
           <span>Pending claims (not included) <b>${formatCurrency(funding.claimsComingBack)}</b></span>
           <span>Cash left <b>${formatCurrency(funding.cashLeft)}</b></span>
         </div>
