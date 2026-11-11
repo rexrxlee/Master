@@ -119,6 +119,10 @@ function renderClarityMonthly(model) {
     html+=`<details class="gc-month" ${m===0?'open':''}><summary><span><b>${escapeHtml(model.fullLabels[m])}</b><small>${summary}</small></span><strong>${formatCurrency(available)}</strong></summary><div class="gc-month-body"><div class="gc-month-source"><h4>Money available</h4>`;
     if(m===0)html+=`<p>Cash for goals today: <b>${formatCurrency(dep.deployable)}</b></p><p>Already assigned: ${formatCurrency(opening)}<br>Unassigned: ${formatCurrency(Math.max(0,cash.free))}</p>`;
     else html+=`<div class="gc-ledger-row"><span>Income estimate${getRecordedFutureSalaryForMonth(new Date(model.today.getFullYear(),model.today.getMonth()+m,1))?' (received early)':''}</span><b>${formatCurrency(ledger.salary)}</b></div><div class="gc-ledger-row"><span>Budget reserve</span><b>− ${formatCurrency(ledger.budget)}</b></div>`;
+    if(m>0){
+      const breakdown=getFutureMonthBudgetBreakdown(new Date(model.today.getFullYear(),model.today.getMonth()+m,1));
+      html+=`<details><summary>Budget reserve breakdown</summary><p>Full monthly budgets, not this month's unspent balance. Bills funded outside selected accounts are excluded.</p>${[['Bill',breakdown.bills],['Monthly expense',breakdown.monthly]].map(([label,rows])=>rows.map(row=>`<div class="gc-ledger-row"><span>${label}: ${escapeHtml(row.category)}</span><b>${formatCurrency(row.allocated)}</b></div>`).join('')).join('')}</details>`;
+    }
     if(ledger.adjustment)html+=`<div class="gc-ledger-row"><span>Cashflow adjustments</span><b>${formatCurrency(ledger.adjustment)}</b></div>`;
     if(ledger.carryIn)html+=`<div class="gc-ledger-row"><span>Earlier cash shortfall</span><b>− ${formatCurrency(ledger.carryIn)}</b></div>`;
     if(m>0&&ledger.salary-ledger.budget>ledger.base+.005)html+=`<p>${formatCurrency(ledger.salary-ledger.budget-ledger.base)} of the early salary surplus is already used or protected.</p>`;

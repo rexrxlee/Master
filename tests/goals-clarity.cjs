@@ -29,3 +29,7 @@ assert.ok(container.html.includes('Monthly plan'));assert.ok(element('compactGoa
 run(`compactSmartAssign();`);assert.ok(run('goalsData.reduce((s,g)=>s+g.manualSaved,0)<=computeDeployableBalance().deployable+.001'));
 assert.ok(run('compactPlanChanged()'),'Suggestion is a draft');run('resetCompactPlan()');assert.equal(run('compactPlanChanged()'),false);
 console.log('Goals UI renderer, forecast, suggested assignment and reset preview passed.');
+run(`allAccounts=[{name:'Savings',type:'Savings'},{name:'CDA',type:'Savings'},{name:'Unused card',type:'Credit Card'}];goalSavingsAccts=['Savings'];allTxForGoals=[];budgetSummary={billsRows:[{category:'Selected',allocated:100,fundingAccount:'Savings'},{category:'School',allocated:200,fundingAccount:'CDA'},{category:'Card bill',allocated:50,fundingAccount:'Unused card'},{category:'Unknown',allocated:25}],monthlyRows:[{category:'Food',allocated:300}]};var reserve=getFutureMonthBudgetBreakdown(new Date(2026,11,1));`);
+assert.equal(ctx.reserve.total,475,'Future reserve includes configured cards without transactions and unknown funding, excludes CDA');
+assert.equal(ctx.reserve.bills.length,3);assert.equal(ctx.reserve.monthly.length,1);
+console.log('Future budget reserve uses shared account rules and exposes included rows.');

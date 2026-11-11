@@ -804,19 +804,13 @@ function computeFutureMonthBudgetReserve(monthDate) {
 }
 
 function calculateFutureMonthBudgetReserve(monthDate) {
-   const goalAccountKeys = new Set(goalSavingsAccts.map(accountKey));
+  return getFutureMonthBudgetBreakdown(monthDate).total;
+}
 
-  // Future Bills are held only when their configured funding account is a
-  // selected Goal account. Ending dates are respected for the target month.
-  const creditCardKeys = new Set(
-    getCreditCardAccountsInData(allTxForGoals).map(accountKey)
-  );
+function getFutureMonthBudgetBreakdown(monthDate) {
   const activeGoalBills = (budgetSummary.billsRows || [])
     .filter(row => isBudgetItemActiveForMonth(row, monthDate))
-    .filter(row => {
-      const fundingKey = accountKey(row.fundingAccount);
-      return fundingKey && (creditCardKeys.has(fundingKey) || goalAccountKeys.has(fundingKey));
-    });
+    .filter(row => CashRules.protectsBill(row.fundingAccount, goalSavingsAccts, allAccounts));
 
   // Monthly Expenses remain a shared reserve because their actual payment
   // account varies transaction by transaction. Ending dates still apply.
@@ -826,7 +820,7 @@ function calculateFutureMonthBudgetReserve(monthDate) {
   const total = [...activeGoalBills, ...activeMonthlyExpenses]
     .reduce((sum, row) => sum + (Number(row.allocated) || 0), 0);
 
-  return Math.max(0, total);
+  return { total: Math.max(0, total), bills: activeGoalBills, monthly: activeMonthlyExpenses };
 }
 
 function setHoldFutureSalaryBudget(enabled) {
