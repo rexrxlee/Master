@@ -36,14 +36,14 @@ function clarityCashHTML(dep) {
   const cash=clarityCash(dep);
   const line=(label,value,cls='')=>`<div class="gc-ledger-row ${cls}"><span>${label}</span><b>${formatCurrency(value)}</b></div>`;
   return `<section class="gc-cash" aria-label="Cash reconciliation"><div class="gc-kpis">
-    <div class="gc-kpi primary"><span>Cash for goals today</span><strong>${formatCurrency(dep.deployable)}</strong><small>After bills, budgets and card debt</small></div>
+    <div class="gc-kpi primary"><span>Total goal funds · including claims</span><strong>${formatCurrency(CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals))}</strong><small>${formatCurrency(dep.deployable)} cash now + ${formatCurrency(dep.claimReceivableForGoals)} pending claims</small></div>
     <div class="gc-kpi"><span>Assigned to goals</span><strong>${formatCurrency(cash.assigned)}</strong><small>Part of the cash on the left</small></div>
     <div class="gc-kpi ${cash.free<0?'warning':''}"><span>${cash.free<0?'Over-assigned':'Not yet assigned'}</span><strong>${formatCurrency(Math.abs(cash.free))}</strong><small>${cash.free<0?'Reduce assignments before saving':'Available to assign in your plan'}</small></div>
     </div><details class="gc-reconcile"><summary>Where these numbers come from <span>Bank balances → available cash</span></summary><div class="gc-reconcile-grid"><div>
     ${line('Selected account balances',dep.rawSavings)}${line('− Credit cards owed',ccOwed)}${line('− Bills still to pay',dep.unpaidGoalBills)}${line('− Monthly expenses still reserved',dep.remainingMonthlyExpenseBudget)}${line('− Future salary budgets protected',dep.futureSalaryHold)}${line('− Future salary savings protected',dep.futureSalaryGoalBucketTotal||0)}${line('= Cash after protections',dep.rawSavings-cash.reserved,'total')}
     ${dep.currentCashShortfall>.005?`<p class="gc-alert">Cash shortfall: ${formatCurrency(dep.currentCashShortfall)}. Future income must cover this before goals.</p>`:''}</div><div>
-    ${line('Cash for goals today',dep.deployable)}${line('− Assigned to goals',cash.assigned)}${line('= Not yet assigned',cash.free,'total')}
-    <p>${formatCurrency(dep.externallyFundedBills||0)} of unpaid bills are funded outside the selected accounts and excluded from this reserve.</p><p>Assignments earmark money already in your accounts. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims excluded.</b> Reimbursements become available only after they are recorded as received.</p>
+    ${line('Cash for goals today',dep.deployable)}${line('+ Pending claims',dep.claimReceivableForGoals)}${line('= Total goal funds including claims',CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals),'total')}${line('− Assigned to goals',cash.assigned)}${line('= Cash not yet assigned',cash.free,'total')}
+    <p>All unpaid household bills are reserved, including bills paid from unselected accounts.</p><p>Assignments earmark money already in your accounts. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims included in total goal funds.</b> Assignments and spending-room calculations use cash only until reimbursement is recorded as received.</p>
     <p>Early salary stays protected for its recorded month. Spending already reflected in account balances is not deducted twice.</p></div></div></details></section>`;
 }
 function clarityGoalCard(goal,idx) {

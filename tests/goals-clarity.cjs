@@ -17,7 +17,7 @@ run(`incomeBoosts=[];goalsInsuranceState={version:1,linkedName:'Insurance',polic
 assert.equal(ctx.rows[0].projected,900,'Next cycle never includes next-year funding');assert.equal(ctx.rows[0].now+ctx.rows[0].proposed+ctx.rows[0].future,ctx.rows[0].projected);
 for(const ledger of ctx.model.monthLedger)assert.ok(Math.abs(ledger.available-ledger.allocated-ledger.unallocated)<1e-7);
 for(const a of [[1/3,1/3,1/3],[100.004,100.004,100.004],[0,0,0]]){const parts=ctx.clarityRoundedParts(a);assert.equal(Math.round(parts.reduce((s,n)=>s+n,0)*100),Math.round(a.reduce((s,n)=>s+n,0)*100));}
-const html=ctx.clarityCashHTML(ctx.cash);assert.ok(html.includes('pending claims excluded'));assert.ok(!html.includes('Claims coming back'));
+const html=ctx.clarityCashHTML(ctx.cash);assert.ok(html.includes('pending claims included in total goal funds'));assert.ok(!html.includes('Claims coming back'));
 assert.ok(ctx.clarityGoalCard({name:'<script>',target:900,manualSaved:0},0).includes('&lt;script&gt;'));
 console.log('Goals clarity: cash-only reconciliation, buffer funding, proposed vs assigned, deficit carry, insurance cycle isolation, pool conservation and displayed-cent totals passed.');
 // Exercise the actual page renderer with its generated IDs and event handlers.
