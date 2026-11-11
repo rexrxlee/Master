@@ -671,7 +671,7 @@ function computeBudgetPositionForMonth(monthDate) {
       const balance = allocated - spent;
       const configuredFundingAccount = fundingByCategory.get(category) || "";
       const isMonthlyExpense = type === "monthly";
-      const accountScope = { reserve: true, source: configuredFundingAccount ? "budget-setting" : "unknown-account", account: configuredFundingAccount };
+      const accountScope = { reserve: isMonthlyExpense || CashRules.protectsBill(configuredFundingAccount, goalSavingsAccts, allAccounts), source: configuredFundingAccount ? "budget-setting" : "unknown-account", account: configuredFundingAccount };
       // Monthly expenses are a shared reserve because their payment account varies.
       // Negative balances stay in the pool, so overspending reduces other remaining
       // monthly-expense budget before anything is considered available for Goals.
