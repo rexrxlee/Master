@@ -47,20 +47,28 @@ function goalTimelineEnd(model) {
   return Math.min(model.MONTHS-1,Math.max(12,...model.goalState.map(g=>Math.max(g.deadlineMo||0,g.completedAt||0)))+3);
 }
 function goalForecastChart(model, axisEnd=null) {
-  const end=axisEnd||goalTimelineEnd(model);
-  const x=m=>190+Math.max(0,Math.min(end,m))/end*670;
-  const height=65+model.goalState.length*49;
-  let svg=`<svg viewBox="0 0 910 ${height}" role="img" aria-label="Goal funding timeline: solid bars end at projected funding; dotted outlines end at target months">`;
-  for(let m=0;m<=end;m+=Math.max(1,Math.ceil(end/6)))svg+=`<line x1="${x(m)}" x2="${x(m)}" y1="20" y2="${height-45}" stroke="#e1e9e7"/><text x="${x(m)}" y="${height-20}" text-anchor="middle">${escapeHtml(model.monthLabel(m,true))}</text>`;
+  const end=axisEnd||goalTimelineEnd(model), cell=104, left=315;
+  const width=left+(end+1)*cell+12,height=100+model.goalState.length*54;
+  const money=v=>escapeHtml(formatCurrency(v));
+  const amounts=model.goalState.map((g,i)=>Array.from({length:end+1},(_,m)=>Math.round(Math.max(0,model.allocationData?.[i]?.[m]||0)*100)));
+  let svg=`<svg style="width:${width}px;max-width:none" viewBox="0 0 ${width} ${height}" role="img" aria-label="Monthly goal contributions, with totals above each month">`;
+  svg+='<text x="8" y="25">Goal / funding timing</text><text x="218" y="25">Already funded</text><text x="8" y="48">Forecast added each month →</text>';
+  for(let m=0;m<=end;m++){
+    const x=left+m*cell,total=amounts.reduce((sum,row)=>sum+row[m],0)/100;
+    svg+=`<text x="${x+cell/2}" y="25" text-anchor="middle">${escapeHtml(model.monthLabel(m,true))}</text><text x="${x+cell/2}" y="48" text-anchor="middle" style="font-weight:700;fill:#18786b">${money(total)}</text><line x1="${x}" x2="${x}" y1="58" y2="${height-15}" stroke="#e1e9e7"/>`;
+  }
   model.goalState.forEach((g,i)=>{
-    const y=25+i*49, done=g.completedAt, deadline=g.deadlineMo;
-    const late=done===null||(deadline!==null&&done>deadline), color=late?'#b9514e':'#18786b';
-    svg+=`<text x="0" y="${y+15}">${escapeHtml(g.name)}</text>`;
-    if(deadline!==null)svg+=`<rect x="190" y="${y}" width="${Math.max(4,x(deadline)-190)}" height="24" rx="5" fill="none" stroke="#738b83" stroke-width="2" stroke-dasharray="3 5"/><line x1="${x(deadline)}" x2="${x(deadline)}" y1="${y-5}" y2="${y+29}" stroke="#738b83"/>`;
-    if(done!==null)svg+=`<rect x="190" y="${y+5}" width="${Math.max(5,x(done)-190)}" height="14" rx="4" fill="${color}"><title>${escapeHtml(goalTiming(g,model))}</title></rect>`;
-    svg+=`<text x="190" y="${y+37}" style="fill:${color}">${escapeHtml(goalTiming(g,model))}${g.insuranceMilestones?' · next premium cycle':''}</text>`;
+    const y=70+i*54,done=g.completedAt,deadline=g.deadlineMo;
+    const late=done===null||(deadline!==null&&done>deadline),color=late?'#b9514e':'#18786b';
+    const initial=g.insuranceMilestones?g.insuranceMilestones.reduce((sum,m)=>sum+(m.initialSaved||0),0):g.initialSaved;
+    svg+=`<text x="8" y="${y+16}">${escapeHtml(g.name)}</text><text x="8" y="${y+37}" style="font-size:10px">${escapeHtml(goalTiming(g,model))}</text><text x="260" y="${y+17}" text-anchor="middle">${money(initial)}</text>`;
+    if(deadline!==null)svg+=`<rect x="${left}" y="${y-3}" width="${(Math.max(0,Math.min(end,deadline))+1)*cell-4}" height="32" rx="5" fill="none" stroke="#738b83" stroke-width="1.5" stroke-dasharray="3 5"/>`;
+    for(let m=0;m<=end;m++){
+      const value=amounts[i][m]/100,x=left+m*cell;
+      svg+=`<rect x="${x+3}" y="${y+1}" width="${cell-10}" height="24" rx="4" fill="${value>0?color:'#f3f6f5'}"/><text x="${x+cell/2-2}" y="${y+17}" text-anchor="middle" style="fill:${value>0?'#fff':'#83958f'};font-size:11px">${value>0?money(value):'—'}</text>`;
+    }
   });
-  return `<div class="gi-chart">${svg}</svg></div><p class="gc-note"><b>Solid:</b> current funding + forecast, ending when fully funded. <b>Dotted outline:</b> target month. The gap shows time gained. Dates use the monthly forecast. Insurance shows the next cycle; every premium checkpoint is checked separately.</p>`;
+  return `<div class="gi-chart gi-monthly-chart">${svg}</svg></div><p class="gc-note">Scroll horizontally for later months. Each solid chunk shows the <b>forecast contribution added that month</b>; totals above sum the goal chunks below. Already funded is separate and is not counted again in monthly totals. Dotted outlines mark target months. Insurance chunks include later renewals; its timing label refers to the next premium cycle. Zero contributions are shown as —. Slider changes are temporary previews.</p>`;
 }
 function setupGoalSandbox(model) {
   const slider=document.getElementById('giCashSlider'), output=document.getElementById('giCashValue'), chart=document.getElementById('giTimeline'), status=document.getElementById('giScenarioStatus');

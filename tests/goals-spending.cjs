@@ -32,3 +32,6 @@ assert.ok(pendingFrame,'Dragging schedules update before release');pendingFrame(
 assert.equal(run('JSON.stringify(goalsData)'),before);
 assert.ok(c.goalTimelineEnd(base.model)<base.model.MONTHS-1,'Timeline trims unused years');
 console.log('Live input uses latest slider value once per animation frame without waiting for release.');
+const chunkModel={MONTHS:3,monthLabel:m=>['Nov 2026','Dec 2026','Jan 2027'][m],goalState:[{name:'A',initialSaved:100,effectiveTarget:200,completedAt:2,deadlineMo:2},{name:'B',initialSaved:50,effectiveTarget:100,completedAt:2,deadlineMo:2}],allocationData:[[10.11,20,30],[5.22,0,10]]};
+const chunks=c.goalForecastChart(chunkModel,2);assert.ok(chunks.includes('$15.33'),'Header sums month contributions');assert.ok(chunks.includes('$10.11'));assert.ok(chunks.includes('$100.00'),'Opening saved is separate');assert.ok(!chunks.includes('$165.33'),'Opening funding not double counted in month totals');
+console.log('Monthly chunks, per-month totals and separate opening funding passed.');
