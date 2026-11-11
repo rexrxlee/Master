@@ -76,3 +76,13 @@ test('food allowance never exceeds pooled monthly allowance or goes negative', (
     near(values.foodPerDay, expected);
   }
 });
+test('cash left reserves pooled monthly remainder and excludes pending claims', () => {
+  const c = vm.createContext({computeBudgetAccountBalances:()=>({Savings:9000}),extraAllowanceAccounts:['Savings'],accountKey:v=>v,clean:v=>v,
+    budgetAccountTypes:[{name:'Savings',type:'Savings'}],computeBudgetCreditCardOwed:()=>4800,
+    computeCurrentBillsProtected:()=>1000,hasFutureSalaryInSelectedAccounts:()=>false,
+    computePendingClaimsForAccounts:()=>300,monthlyBudget:[],computeBudgetSectionRows:()=>[{balance:600},{balance:-100}]});
+  vm.runInContext(extract('budget.js','getExtraAllowanceFundingPosition'),c);
+  let result=c.getExtraAllowanceFundingPosition();near(result.cashLeft,2700);near(result.monthlyExpensesProtected,500);
+  c.computeBudgetSectionRows=()=>[{balance:-100}];result=c.getExtraAllowanceFundingPosition();near(result.cashLeft,3200);near(result.monthlyExpensesProtected,0);
+  c.computePendingClaimsForAccounts=()=>0;near(c.getExtraAllowanceFundingPosition().cashLeft,3200);
+});

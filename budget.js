@@ -265,8 +265,8 @@ function renderCashLeftPanel() {
   const impactClass = funding.cashLeft > 0 ? "ok" : "danger";
   const impactTitle = funding.cashLeft > 0 ? "Cash left" : "No cash left";
   const protectedText = funding.futureSalaryReceived
-    ? "card payments, current bills, and next month's budget"
-    : "card payments and current bills";
+    ? "card payments, current bills, remaining monthly expenses, and next month's budget"
+    : "card payments, current bills, and remaining monthly expenses";
   const impactText = funding.cashLeft > 0
     ? `${formatCurrency(funding.cashLeft)} remains after protecting ${protectedText}.`
     : `Selected accounts are fully used after protecting ${protectedText}.`;
@@ -276,7 +276,7 @@ function renderCashLeftPanel() {
         <div class="extra-allowance-funding-head">
           <div>
             <strong>Cash left</strong>
-            <p>Rolling cash available after card debt, next month's protected budget, and pending claims.</p>
+            <p>Cash available after card debt and protected budgets. Pending claims are excluded until received.</p>
           </div>
         </div>
         <div class="extra-allowance-account-list">${accountRows}</div>
@@ -288,8 +288,9 @@ function renderCashLeftPanel() {
           <span>Selected account cash <b>${formatCurrency(funding.available)}</b></span>
           <span>Credit card owed <b>-${formatCurrency(funding.creditCardOwed)}</b></span>
           <span>Current bills protected <b>-${formatCurrency(funding.currentBillsProtected)}</b></span>
+          <span>Monthly expenses left protected <b>-${formatCurrency(funding.monthlyExpensesProtected)}</b></span>
           <span>Next month budget block <b>-${formatCurrency(funding.nextMonthBudgetBlock)}</b></span>
-          <span>Claims coming back <b>+${formatCurrency(funding.claimsComingBack)}</b></span>
+          <span>Pending claims (not included) <b>${formatCurrency(funding.claimsComingBack)}</b></span>
           <span>Cash left <b>${formatCurrency(funding.cashLeft)}</b></span>
         </div>
       </div>
@@ -327,8 +328,11 @@ function getExtraAllowanceFundingPosition() {
   const futureSalaryReceived = hasFutureSalaryInSelectedAccounts(selectedAccountNames);
   const nextMonthBudgetBlock = futureSalaryReceived ? computeNextMonthBudgetBlock(selectedAccountNames) : 0;
   const claimsComingBack = computePendingClaimsForAccounts(selectedAccountNames);
-  const cashLeft = Math.max(0, available - creditCardOwed - currentBillsProtected - nextMonthBudgetBlock + claimsComingBack);
-  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, futureSalaryReceived, nextMonthBudgetBlock, claimsComingBack, cashLeft };
+  // Reserve the pooled monthly remainder. Overspend is already in account/card balances.
+  const monthlyExpensesProtected = Math.max(0, computeBudgetSectionRows(monthlyBudget, "Monthly Expenses")
+    .reduce((sum, row) => sum + row.balance, 0));
+  const cashLeft = Math.max(0, available - creditCardOwed - currentBillsProtected - monthlyExpensesProtected - nextMonthBudgetBlock);
+  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, futureSalaryReceived, nextMonthBudgetBlock, monthlyExpensesProtected, claimsComingBack, cashLeft };
 }
 
 function hasFutureSalaryInSelectedAccounts(selectedAccountNames = []) {
