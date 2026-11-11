@@ -43,7 +43,7 @@ function clarityCashHTML(dep) {
     ${line('Selected account balances',dep.rawSavings)}${line('− Credit cards owed',ccOwed)}${line('− Bills still to pay',dep.unpaidGoalBills)}${line('− Monthly expenses still reserved',dep.remainingMonthlyExpenseBudget)}${line('− Future salary budgets protected',dep.futureSalaryHold)}${line('− Future salary savings protected',dep.futureSalaryGoalBucketTotal||0)}${line('= Cash after protections',dep.rawSavings-cash.reserved,'total')}
     ${dep.currentCashShortfall>.005?`<p class="gc-alert">Cash shortfall: ${formatCurrency(dep.currentCashShortfall)}. Future income must cover this before goals.</p>`:''}</div><div>
     ${line('Cash for goals today',dep.deployable)}${line('− Assigned to goals',cash.assigned)}${line('= Not yet assigned',cash.free,'total')}
-    <p>Assignments earmark money already in your accounts. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims excluded.</b> Reimbursements become available only after they are recorded as received.</p>
+    <p>${formatCurrency(dep.externallyFundedBills||0)} of unpaid bills are funded outside the selected accounts and excluded from this reserve.</p><p>Assignments earmark money already in your accounts. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims excluded.</b> Reimbursements become available only after they are recorded as received.</p>
     <p>Early salary stays protected for its recorded month. Spending already reflected in account balances is not deducted twice.</p></div></div></details></section>`;
 }
 function clarityGoalCard(goal,idx) {

@@ -81,6 +81,8 @@ test('cash left reserves pooled monthly remainder and excludes pending claims', 
     budgetAccountTypes:[{name:'Savings',type:'Savings'}],computeBudgetCreditCardOwed:()=>4800,
     computeCurrentBillsProtected:()=>1000,hasFutureSalaryInSelectedAccounts:()=>false,
     computePendingClaimsForAccounts:()=>300,monthlyBudget:[],computeBudgetSectionRows:()=>[{balance:600},{balance:-100}]});
+  vm.runInContext(fs.readFileSync('cash-rules.js','utf8'),c);
+  c.budgetTransactions=[];c.billsBudget=[];
   vm.runInContext(extract('budget.js','getExtraAllowanceFundingPosition'),c);
   let result=c.getExtraAllowanceFundingPosition();near(result.cashLeft,2700);near(result.monthlyExpensesProtected,500);
   c.computeBudgetSectionRows=()=>[{balance:-100}];result=c.getExtraAllowanceFundingPosition();near(result.cashLeft,3200);near(result.monthlyExpensesProtected,0);

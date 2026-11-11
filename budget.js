@@ -290,6 +290,7 @@ function renderCashLeftPanel() {
           <span>Current bills protected <b>-${formatCurrency(funding.currentBillsProtected)}</b></span>
           <span>Monthly expenses left protected <b>-${formatCurrency(funding.monthlyExpensesProtected)}</b></span>
           <span>Next month budget block <b>-${formatCurrency(funding.nextMonthBudgetBlock)}</b></span>
+          <span>Bills funded outside selected accounts (not deducted) <b>${formatCurrency(funding.externallyFundedBills)}</b></span>
           <span>Pending claims (not included) <b>${formatCurrency(funding.claimsComingBack)}</b></span>
           <span>Cash left <b>${formatCurrency(funding.cashLeft)}</b></span>
         </div>
@@ -325,14 +326,14 @@ function getExtraAllowanceFundingPosition() {
   const selectedAccountNames = selected.map(account => account.name);
   const creditCardOwed = computeBudgetCreditCardOwed();
   const currentBillsProtected = computeCurrentBillsProtected(selectedAccountNames);
+  const externallyFundedBills = Math.max(0, computeBudgetSectionRows(billsBudget,"Bills").reduce((sum,row)=>sum+Math.max(0,CashRules.cents(row.balance)),0)/100-currentBillsProtected);
   const futureSalaryReceived = hasFutureSalaryInSelectedAccounts(selectedAccountNames);
   const nextMonthBudgetBlock = futureSalaryReceived ? computeNextMonthBudgetBlock(selectedAccountNames) : 0;
-  const claimsComingBack = computePendingClaimsForAccounts(selectedAccountNames);
+  const claimsComingBack = CashRules.pendingClaims(budgetTransactions);
   // Reserve the pooled monthly remainder. Overspend is already in account/card balances.
-  const monthlyExpensesProtected = Math.max(0, computeBudgetSectionRows(monthlyBudget, "Monthly Expenses")
-    .reduce((sum, row) => sum + row.balance, 0));
+  const monthlyExpensesProtected = CashRules.monthlyReserve(computeBudgetSectionRows(monthlyBudget, "Monthly Expenses"));
   const cashLeft = Math.max(0, available - creditCardOwed - currentBillsProtected - monthlyExpensesProtected - nextMonthBudgetBlock);
-  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, futureSalaryReceived, nextMonthBudgetBlock, monthlyExpensesProtected, claimsComingBack, cashLeft };
+  return { accounts: savingsAccounts, selected, available, creditCardOwed, currentBillsProtected, externallyFundedBills, futureSalaryReceived, nextMonthBudgetBlock, monthlyExpensesProtected, claimsComingBack, cashLeft };
 }
 
 function hasFutureSalaryInSelectedAccounts(selectedAccountNames = []) {
@@ -352,54 +353,11 @@ function hasFutureSalaryInSelectedAccounts(selectedAccountNames = []) {
 }
 
 function computeCurrentBillsProtected(selectedAccountNames = []) {
-  return billsBudget
-    .map(item => computeBudgetRow(item))
-    .reduce((sum, row) => sum + Math.max(0, row.balance), 0);
+  return CashRules.billReserve(computeBudgetSectionRows(billsBudget, "Bills"), selectedAccountNames, budgetAccountTypes);
 }
 
 function computeBudgetCreditCardOwed() {
-  const savingsKeys = new Set((budgetAccountTypes || [])
-    .filter(account => clean(account.name) && clean(account.type || "Savings").toLowerCase() === "savings")
-    .map(account => accountKey(account.name)));
-  const creditKeys = new Set((budgetAccountTypes || [])
-    .filter(account => clean(account.name) && clean(account.type).toLowerCase() === "credit card")
-    .map(account => accountKey(account.name)));
-  const accountsInData = [...new Set(budgetTransactions.map(row => clean(row["Account"])).filter(Boolean))];
-  const creditAccounts = creditKeys.size
-    ? accountsInData.filter(account => creditKeys.has(accountKey(account)))
-    : accountsInData.filter(account => !savingsKeys.has(accountKey(account)));
-
-  return creditAccounts.reduce((total, account) => {
-    const accountRows = budgetTransactions.filter(row => clean(row["Account"]) === account);
-    const openingRow = accountRows.find(row => clean(row["Transaction"]) === "Opening Balance");
-    const openingBalance = openingRow ? getSignedBudgetAmount(openingRow["Amount"]) : 0;
-    const openingDate = openingRow ? parseBudgetDate(openingRow["Date"]) : null;
-    const subsequent = accountRows.filter(row => {
-      if (clean(row["Transaction"]) === "Opening Balance") return false;
-      if (!openingDate) return true;
-      const d = parseBudgetDate(row["Date"]);
-      return d && d >= openingDate;
-    });
-    const charges = subsequent
-      .filter(row => {
-        const cat = clean(row["Main Category"]).toLowerCase();
-        return cat !== "income" && cat !== "transfer";
-      })
-      .reduce((sum, row) => sum + getSignedBudgetAmount(row["Amount"]), 0);
-    const transferImpact = subsequent
-      .filter(row => clean(row["Main Category"]).toLowerCase() === "transfer")
-      .reduce((sum, row) => {
-        const sub = clean(row["Sub Category"]).toLowerCase();
-        const amount = Math.abs(getSignedBudgetAmount(row["Amount"]));
-        if (sub === "transfer in" || sub === "cc payment in") return sum - amount;
-        if (sub === "transfer out" || sub === "cc payment out") return sum + amount;
-        return sum;
-      }, 0);
-    const credits = subsequent
-      .filter(row => clean(row["Main Category"]).toLowerCase() === "income")
-      .reduce((sum, row) => sum + Math.abs(getSignedBudgetAmount(row["Amount"])), 0);
-    return total + Math.max(0, openingBalance + charges + transferImpact - credits);
-  }, 0);
+  return CashRules.cardDebt(budgetAccountTypes, budgetTransactions, parseBudgetDate);
 }
 
 function computeNextMonthBudgetBlock(selectedAccountNames = []) {
