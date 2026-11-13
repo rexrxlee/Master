@@ -7,6 +7,7 @@ run(`allAccounts=[{name:'Savings',type:'Savings'},{name:'Card',type:'Credit Card
 computePendingClaimSummary=()=>({total:200,count:1});
 var cash=computeDeployableBalance();`);
 assert.equal(ctx.cash.deployable,3000,'Pending claims are not cash');assert.equal(ctx.cash.claimReceivableForGoals,200);
+run('computePendingClaimSummary=()=>({total:0,count:0});');
 run(`goalsData=[{name:'Example',target:4000,manualSaved:500,monthlyAlloc:0,startDate:'2026-11-01',endDate:'2027-05-31',goalBuffer:5}];var model=buildGoalProjectionModel(18,24);var rows=clarityGoalRows(model);`);
 assert.equal(ctx.rows[0].target,4200);assert.equal(ctx.rows[0].projected,4200,'Forecast funds buffer as part of target');assert.equal(ctx.rows[0].now,500);assert.equal(ctx.rows[0].proposed,2500);assert.equal(ctx.rows[0].future,1200);assert.equal(ctx.rows[0].status,'On track · forecast','Proposed cash is not already assigned');
 run(`goalsData[0].manualSaved=0;savingsBalances.Savings=500;historicalStats.avgMonthlyIncome=2000;model=buildGoalProjectionModel(18,24);`);

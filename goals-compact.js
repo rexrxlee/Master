@@ -404,7 +404,7 @@ function updateCompactGoal(idx, field, raw) {
 }
 
 function compactSmartAssign() {
-  let available = Math.max(0, computeDeployableBalance().deployable);
+  let available = Math.max(0, goalAssignableFunds());
   const today = new Date();
   const order = getCompactFundingOrder();
   goalsData.forEach(goal => { goal.manualSaved = 0; });
@@ -465,7 +465,7 @@ function compactSmartAssign() {
 
 function compactReconcileSmartAssignCents() {
   const total = () => compactMoney(goalsData.reduce((sum, goal) => sum + Number(goal.manualSaved || 0), 0));
-  const deployable = compactMoney(Math.max(0, computeDeployableBalance().deployable));
+  const deployable = compactMoney(Math.max(0, goalAssignableFunds()));
   let diff = compactMoney(deployable - total());
   if (Math.abs(diff) > 0.1 || compactNearlyZero(diff)) return;
 

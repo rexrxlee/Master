@@ -43,3 +43,16 @@ outcome=c.goalScenarioOutcome({effectiveTarget:100,deadlineMo:5,completedAt:2},0
 outcome=c.goalScenarioOutcome({deadlineMo:5,completedAt:4,insuranceMilestones:[{inRange:true,gap:25,deadlineMo:1,fundBy:'2027-01-31'}]},0,outcomeModel);assert.equal(outcome.tone,'late');assert.ok(outcome.label.includes('$25.00'));
 outcome=c.goalScenarioOutcome({effectiveTarget:100,deadlineMo:null,completedAt:2},0,outcomeModel);assert.equal(outcome.tone,'unknown');
 console.log('Scenario outcomes distinguish deadline shortfalls, early completion, unknown deadlines and missed early insurance checkpoints.');
+
+run(`goalsData=[{name:'Cash goal',target:1000,manualSaved:1000,monthlyAlloc:0,startDate:'2026-11-01',endDate:'2027-01-31',goalBuffer:0,priority:1},{name:'Claim goal',target:500,manualSaved:500,monthlyAlloc:0,startDate:'2026-11-01',endDate:'2027-01-31',goalBuffer:0,priority:2}];historicalStats.avgMonthlyIncome=1000;computeDeployableBalance=()=>({deployable:1000,rawSavings:1000,claimReceivableForGoals:500,currentCashShortfall:0,futureSalaryGoalBuckets:[]});getCompactFundingOrder=()=>[0,1];`);
+assert.equal(c.goalAssignableFunds(),1500);assert.equal(c.clarityCash(run('computeDeployableBalance()')).free,0,'All cash plus claims can be assigned');
+let funding=c.goalAssignmentFunding();assert.equal(funding[0].cash,1000);assert.equal(funding[1].claims,500);
+assert.equal(c.goalSpendingRoom(1),0,'Claim-backed goal cannot be spent before receipt');assert.equal(c.goalSpendScenario(1,1),null);
+assert.ok(c.goalSpendingRoom()<=1000,'Total spend room never exceeds received cash');
+const preReceipt=JSON.stringify(run('goalsData'));
+run(`computeDeployableBalance=()=>({deployable:1500,rawSavings:1500,claimReceivableForGoals:0,currentCashShortfall:0,futureSalaryGoalBuckets:[]});`);
+assert.equal(c.goalAssignableFunds(),1500,'Receiving a claim changes backing, not total funds');assert.equal(JSON.stringify(run('goalsData')),preReceipt,'Receipt does not add a second assignment');assert.equal(c.goalAssignmentFunding()[1].cash,500);
+run(`goalsData.forEach(g=>g.manualSaved=0);computeDeployableBalance=()=>({deployable:1000,rawSavings:1000,claimReceivableForGoals:500,currentCashShortfall:0,futureSalaryGoalBuckets:[]});var claimsModel=buildGoalProjectionModel(18,60);`);
+assert.equal(run('claimsModel.allocationData.reduce((s,a)=>s+a[0],0)'),1500,'Suggestions include claims once');
+assert.equal(run('claimsModel.pendingClaimsForPlan'),500);
+console.log('Claims are assignable once; priority backing is visible; pending-only assignments are not spendable; receipt preserves total funding.');

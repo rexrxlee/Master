@@ -319,6 +319,21 @@ function getCreditCardTransferOwedImpact(row) {
   return 0;
 }
 
+// Assignable plan funds include pending reimbursements; spendable cash does not.
+function goalAssignableFunds(dep=computeDeployableBalance()) {
+  return CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals||0);
+}
+function goalAssignmentFunding(dep=computeDeployableBalance()) {
+  let cash=Math.max(0,dep.deployable),claims=Math.max(0,dep.claimReceivableForGoals||0);
+  const parts=goalsData.map(()=>({cash:0,claims:0}));
+  const order=typeof getCompactFundingOrder==='function'?getCompactFundingOrder():goalsData.map((_,i)=>i);
+  for(const i of order){const assigned=Math.max(0,Number(goalsData[i].manualSaved)||0);
+    const fundedCash=Math.min(cash,assigned),fundedClaims=Math.min(claims,assigned-fundedCash);
+    parts[i]={cash:fundedCash,claims:fundedClaims};cash-=fundedCash;claims-=fundedClaims;
+  }
+  return parts;
+}
+
 function computeAccountBalances(txData) {
   // Mirrors dashboard.js: opening balance plus signed account movement from opening date onwards.
   const savingsNames = allAccounts
@@ -2366,7 +2381,7 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
   // tagged to the salary month so current overspend can eat into that month.
   const depForTimeline = computeDeployableBalance();
   const manualAssignedNow = goalsData.reduce((sum, goal) => sum + Math.max(0, Number(goal.manualSaved || 0)), 0);
-  const currentUnassignedGoalCash = Math.max(0, depForTimeline.deployable - manualAssignedNow);
+  const currentUnassignedGoalCash = Math.max(0, goalAssignableFunds(depForTimeline) - manualAssignedNow);
   const earlySalaryVisualByMonth = new Map(
     (depForTimeline.futureSalaryGoalBuckets || []).map(item => [
       item.monthKey,
@@ -2609,6 +2624,7 @@ function buildSingleDeadlineGoalProjectionModel(minMonths = 18, maxMonths = 48) 
     forecastBaseMonthly,
     goalState,
     MONTHS,
+    pendingClaimsForPlan: depForTimeline.claimReceivableForGoals || 0,
     labels,
     fullLabels,
     poolBoost,
