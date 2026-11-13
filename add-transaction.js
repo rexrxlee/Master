@@ -268,6 +268,24 @@ function fillSelect(id, list, placeholder = "") {
   });
 }
 
+function configureIncomeEntry() {
+  const cashback = currentMode === "cashback";
+  const selected = document.getElementById("inAccount").value;
+  const choices = accounts.filter(account => cashback
+    ? account.type === "Credit Card" : account.type !== "Credit Card");
+  fillSelect("inAccount", choices, cashback ? "Select credited card" : "");
+  if (choices.some(account => account.name === selected)) document.getElementById("inAccount").value = selected;
+  const category = document.getElementById("inSubCategory");
+  if (cashback && !Array.from(category.options).some(option => option.value === "Cashback")) {
+    const option = document.createElement("option"); option.value = "Cashback"; option.textContent = "Cashback"; category.appendChild(option);
+  }
+  if (cashback) category.value = "Cashback";
+  category.disabled = cashback;
+  document.getElementById("cardCashbackHint").hidden = !cashback;
+  document.getElementById("saveIncomeBtn").textContent = cashback ? "Save Cashback" : "Save Income";
+  document.getElementById("inTransaction").placeholder = cashback ? "e.g. UOB ONE cashback" : "e.g. Salary, Freelance, Dividend";
+}
+
 function populateIncomeSubCategories() {
   const sel = document.getElementById("inSubCategory");
   if (!sel) return;
@@ -948,7 +966,7 @@ function daysInMonth(year, month) {
 
 // ── Mode switching ─────────────────────────────────────────────────────────────
 function setMode(mode) {
-  if (!["transaction", "refund", "income", "transfer", "ccpay", "goal"].includes(mode)) return;
+  if (!["transaction", "refund", "income", "cashback", "transfer", "ccpay", "goal"].includes(mode)) return;
   currentMode = mode;
   const refund = mode === "refund";
   if (refund) resetClaimableUi();
@@ -965,9 +983,10 @@ function setMode(mode) {
                  :                       "goalForm";
     const btn = document.getElementById("btn" + m.charAt(0).toUpperCase() + m.slice(1));
     const form = document.getElementById(formId);
-    if (form) form.style.display = (m === mode || (refund && m === "transaction")) ? "block" : "none";
+    if (form) form.style.display = (m === mode || (refund && m === "transaction") || (mode === "cashback" && m === "income")) ? "block" : "none";
     if (btn)  btn.classList.toggle("mode-active", m === mode);
   });
+  configureIncomeEntry();
   updateBusinessExpenseHint();
   renderBusinessPaymentSplit();
 }
@@ -1265,18 +1284,21 @@ async function saveTransaction() {
 // ── Save income ───────────────────────────────────────────────────────────────
 async function saveIncome() {
   const dateVal = document.getElementById("inDate").value;
-  const txDesc  = document.getElementById("inTransaction").value.trim();
+  const txDesc  = document.getElementById("inTransaction").value.trim() || (currentMode === "cashback" ? "Credit card cashback" : "");
   const subCat  = document.getElementById("inSubCategory").value;
   const amount  = parseFloat(document.getElementById("inAmount").value);
   const account = document.getElementById("inAccount").value;
 
-  if (!dateVal || !txDesc || isNaN(amount) || !account) {
+  if (!dateVal || !txDesc || !Number.isFinite(amount) || amount <= 0 || !account) {
     alert("Please fill in all fields."); return;
   }
 
+  if (currentMode === "cashback" && !accounts.some(item => item.name === account && item.type === "Credit Card")) {
+    alert("Select the credit card that received the cashback."); return;
+  }
   const dateStr = formatDateForExcel(dateVal);
   // Income rows: MainCategory = "Income", Claimable = ""
-  const row = [dateStr, txDesc, amount, "Income", subCat || "", account, "", ""];
+  const row = [dateStr, txDesc, amount, "Income", currentMode === "cashback" ? "Cashback" : subCat || "", account, "", ""];
 
   try {
     log("Saving income...");

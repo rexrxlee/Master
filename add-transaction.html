@@ -543,7 +543,7 @@
 
     <!-- ── Form card ── -->
     <div class="tx-form-card">
-      <div class="transaction-type-picker"><label for="transactionType">Transaction type</label><select id="transactionType" onchange="setMode(this.value)"><option value="transaction">Expense</option><option value="refund">Refund</option><option value="income">Income</option><option value="transfer">Transfer between accounts</option><option value="ccpay">Credit card payment</option><option value="goal">Goal expense</option></select></div>
+      <div class="transaction-type-picker"><label for="transactionType">Transaction type</label><select id="transactionType" onchange="setMode(this.value)"><option value="transaction">Expense</option><option value="refund">Refund</option><option value="income">Income</option><option value="transfer">Transfer between accounts</option><option value="ccpay">Credit card payment</option><option value="cashback">Credit card cashback</option><option value="goal">Goal expense</option></select></div>
 
       <!-- Expense -->
       <div id="transactionForm" class="tx-form-body">
@@ -658,6 +658,7 @@
           <div class="form-field">
             <label>Account (credited to)</label>
             <select id="inAccount"></select>
+            <p id="cardCashbackHint" hidden>Cashback credited to this card reduces the amount owed. It does not add money to your savings account or reduce expense budgets. If the credit exceeds the debt, the remainder stays as card credit.</p>
           </div>
           <div class="form-field full">
             <label>Description</label>
@@ -665,7 +666,7 @@
           </div>
         </div>
         <div class="form-actions">
-          <button class="btn-save" onclick="saveIncome()">Save Income</button>
+          <button class="btn-save" id="saveIncomeBtn" onclick="saveIncome()">Save Income</button>
         </div>
       </div>
 
@@ -773,7 +774,7 @@ function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");a
   <script src="config.js"></script>
   <script src="onedrive.js?v=browser-download-2"></script>
   <script src="business.js"></script>
-  <script src="add-transaction.js"></script>
+  <script src="add-transaction.js?v=card-cashback-1"></script>
   <script>
     let claimsBannerOpen = false;
     function toggleClaimsBanner() {
