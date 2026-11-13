@@ -31,6 +31,8 @@ async function run(insurance) {
     })());
     return modules.get(file);
   }
+  assert.ok(fs.readFileSync(path.join(root,'index.html'),'utf8').includes('src="cash-rules.js'), 'Dashboard must load shared cash rules');
+  vm.runInContext(fs.readFileSync(path.join(root,'cash-rules.js'),'utf8'),ctx);
   vm.runInContext(fs.readFileSync(path.join(root,'business.js'),'utf8'),ctx);
   new vm.Script(fs.readFileSync(path.join(root,'dashboard.js'),'utf8'),{importModuleDynamically:importModule}).runInContext(ctx);
   // Stub UI rendering only; workbook parsing and financial calculation are real.
