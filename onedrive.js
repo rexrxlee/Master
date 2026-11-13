@@ -410,7 +410,7 @@ async function invalidateExcelDownloadCache() {
 // then fetch bytes without forwarding the Graph bearer token.
 async function downloadExcelBytes(encodedPath, token) {
   const metadataUrl = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-    encodedPath + "?$select=id,@microsoft.graph.downloadUrl";
+    encodedPath;
   const metadata = await graphGetJson(metadataUrl, token);
   const downloadUrl = metadata["@microsoft.graph.downloadUrl"];
   if (typeof downloadUrl !== "string" || !downloadUrl.startsWith("https://")) {

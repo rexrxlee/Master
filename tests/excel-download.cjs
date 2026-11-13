@@ -6,7 +6,7 @@ vm.runInContext('withExcelBusy=async(_,fn)=>fn();',c);
  const calls=[],bytes=new ArrayBuffer(3);
  c.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({'@microsoft.graph.downloadUrl':'https://download.example/workbook?secret=temporary'}),arrayBuffer:async()=>bytes};};
  assert.equal(await c.downloadExcelBytes('Folder/test.xlsx','graph-token'),bytes);
- assert.ok(calls[0].url.endsWith('Folder/test.xlsx?$select=id,@microsoft.graph.downloadUrl'));
+ assert.ok(calls[0].url.endsWith('Folder/test.xlsx'));
  assert.equal(calls[0].options.headers.Authorization,'Bearer graph-token');
  assert.equal(calls[1].options.headers,undefined,'Bearer token must never reach download host');
  assert.equal(calls[1].options.credentials,'omit');
