@@ -170,36 +170,32 @@ async function saveOpeningBalances(options = {}) {
 
     if (!allValues || allValues.length === 0) throw new Error("Transaction sheet appears empty.");
 
-    const headers    = allValues[0].map(h => String(h ?? "").trim());
-    const subCatIdx  = headers.indexOf("Sub Category");
-
-    // Strip old Opening Balance rows, append new ones
-    const headerRow     = allValues[0];
-    const dataRows      = allValues.slice(1).filter(row =>
-      String(row[subCatIdx] ?? "").trim() !== "Opening Balance"
-    );
-    const updatedValues = [headerRow, ...dataRows, ...newRows];
-
-    const colCount   = headerRow.length;
-    const rowCount   = updatedValues.length;
-    const endCol     = colIndexToLetter(colCount - 1);
-    const writeRange = `A1:${endCol}${rowCount}`;
-
-    log(`Writing ${rowCount} rows to ${writeRange}...`);
-    const padded = updatedValues.map(row => {
-      const r = [...row];
-      while (r.length < colCount) r.push("");
-      return r;
+    const headers = allValues[0].map(h => String(h ?? "").trim());
+    const subCatIdx = headers.indexOf("Sub Category");
+    const accountIdx = headers.indexOf("Account");
+    if (subCatIdx !== 4 || accountIdx !== 5 || headers[0] !== "Date" ||
+        (usedRange.rowIndex || 0) !== 0 || (usedRange.columnIndex || 0) !== 0) {
+      throw new Error("Transaction headers are not in the expected A1:F1 layout. No opening balances were changed.");
+    }
+    const key = value => String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    const positions = new Map();
+    allValues.slice(1).forEach((row, index) => {
+      if (key(row[subCatIdx]) !== "opening balance") return;
+      const account = key(row[accountIdx]);
+      if (!positions.has(account)) positions.set(account, []);
+      positions.get(account).push(index + 2);
     });
-    await writeExcelRange(CONFIG.sheetName, writeRange, padded);
-
-    // Clear any leftover rows below
-    const oldRowCount = allValues.length;
-    if (oldRowCount > rowCount) {
-      const clearRange = `A${rowCount + 1}:${endCol}${oldRowCount}`;
-      log(`Clearing ${oldRowCount - rowCount} leftover rows...`);
-      const emptyRows = Array(oldRowCount - rowCount).fill(Array(colCount).fill(""));
-      await writeExcelRange(CONFIG.sheetName, clearRange, emptyRows);
+    // Validate the complete plan before any write. Never compact/rewrite the
+    // transaction sheet or remove balances merely because an input is blank.
+    const writes = newRows.map(row => {
+      const matches = positions.get(key(row[5])) || [];
+      if (matches.length > 1) throw new Error("Multiple opening balances exist for " + row[5] + ". Review those rows before editing.");
+      return { row, position: matches[0] || null };
+    });
+    let appendRow = allValues.length + 1;
+    for (const write of writes) {
+      const position = write.position || appendRow++;
+      await writeExcelRange(CONFIG.sheetName, `A${position}:F${position}`, [write.row]);
     }
 
     log("Opening balances saved.");
