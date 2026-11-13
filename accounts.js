@@ -193,6 +193,14 @@ function hasOpeningBalanceInput() {
   });
 }
 
+function hasChangedOpeningBalances() {
+  return getCurrentOpeningBalanceEntries().some(entry => {
+    const existing = existingOpeningEntries.find(old => accountKey(old.account) === accountKey(entry.account));
+    return !existing || Number(existing.amount) !== entry.amount ||
+      excelDateToInputValue(existing.date) !== entry.date;
+  });
+}
+
 function getCurrentOpeningBalanceEntries() {
   return accountsList.map((account, index) => {
     const val = parseFloat(document.getElementById("setupAmt_" + index)?.value);
@@ -281,7 +289,7 @@ async function saveAccountsToExcel(options = {}) {
 
     let openingSaved = false;
     const shouldSaveOpeningBalances = typeof saveOpeningBalances === "function" &&
-      (hasOpeningBalanceInput() || (!silent && existingOpeningEntries.length > 0));
+      hasChangedOpeningBalances();
     if (shouldSaveOpeningBalances) {
       openingSaved = await saveOpeningBalances({
         allowEmpty: true,
@@ -291,7 +299,10 @@ async function saveAccountsToExcel(options = {}) {
         silentSuccess: true,
         skipReload: true
       });
-      if (openingSaved) existingOpeningEntries = getCurrentOpeningBalanceEntries();
+      if (openingSaved) {
+        const changed = getCurrentOpeningBalanceEntries();
+        existingOpeningEntries = existingOpeningEntries.filter(old => !changed.some(entry => accountKey(entry.account) === accountKey(old.account))).concat(changed);
+      }
     }
 
     const successEl = document.getElementById("setupSuccess");
