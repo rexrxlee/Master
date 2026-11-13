@@ -10,7 +10,7 @@ function switchGoalView(view) {
 }
 function clarityCash(dep) {
   const assigned = compactMoney(goalsData.reduce((s,g)=>s+Math.max(0,+g.manualSaved||0),0));
-  return {assigned,free:compactMoney(dep.deployable-assigned),reserved:compactMoney(ccOwed+dep.remainingBudget+dep.futureSalaryHold+(dep.futureSalaryGoalBucketTotal||0))};
+  return {assigned,free:compactMoney(goalAssignableFunds(dep)-assigned),reserved:compactMoney(ccOwed+dep.remainingBudget+dep.futureSalaryHold+(dep.futureSalaryGoalBucketTotal||0))};
 }
 function clarityGoalRows(model) {
   return model.goalState.map((state,idx)=>{
@@ -20,6 +20,7 @@ function clarityGoalRows(model) {
     const base=insurance?state.insuranceCurrentBase:model.allocationBaseData[idx];
     const boosts=insurance?state.insuranceCurrentAdjustments:model.allocationCashflowData[idx];
     const assigned=compactMoney(Math.max(0,+goal.manualSaved||0));
+    const backing=goalAssignmentFunding()[idx];
     const recorded=insurance?0:compactRecordedForGoal(idx);
     const now=compactMoney(Math.min(state.effectiveTarget,assigned+recorded));
     const proposed=compactMoney(base?.[0]||0);
@@ -28,8 +29,8 @@ function clarityGoalRows(model) {
     const target=compactMoney(state.effectiveTarget);
     const gap=compactMoney(insurance?state.insuranceGap:Math.max(0,target-projected));
     const unknown=insurance?state.insuranceUnverified:state.deadlineMo===null||state.deadlineMo>=model.MONTHS;
-    const status=unknown?'Check deadline':gap>=.01?'Shortfall':now>=target?'Covered now':'On track · forecast';
-    return {idx,name:state.name,insurance,state,assigned,recorded,now,proposed,future,projected,target,gap,unknown,status,month};
+    const status=unknown?'Check deadline':gap>=.01?'Shortfall':now>=target?(backing.claims>.005?'Covered incl. pending claims':'Covered now'):'On track · forecast';
+    return {idx,name:state.name,insurance,state,assigned,backing,recorded,now,proposed,future,projected,target,gap,unknown,status,month};
   });
 }
 function clarityCashHTML(dep) {
@@ -37,20 +38,20 @@ function clarityCashHTML(dep) {
   const line=(label,value,cls='')=>`<div class="gc-ledger-row ${cls}"><span>${label}</span><b>${formatCurrency(value)}</b></div>`;
   return `<section class="gc-cash" aria-label="Cash reconciliation"><div class="gc-kpis">
     <div class="gc-kpi primary"><span>Total goal funds · including claims</span><strong>${formatCurrency(CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals))}</strong><small>${formatCurrency(dep.deployable)} cash now + ${formatCurrency(dep.claimReceivableForGoals)} pending claims</small></div>
-    <div class="gc-kpi"><span>Assigned to goals</span><strong>${formatCurrency(cash.assigned)}</strong><small>Part of the cash on the left</small></div>
+    <div class="gc-kpi"><span>Assigned to goals</span><strong>${formatCurrency(cash.assigned)}</strong><small>Cash and expected claims earmarked in this plan</small></div>
     <div class="gc-kpi ${cash.free<0?'warning':''}"><span>${cash.free<0?'Over-assigned':'Not yet assigned'}</span><strong>${formatCurrency(Math.abs(cash.free))}</strong><small>${cash.free<0?'Reduce assignments before saving':'Available to assign in your plan'}</small></div>
-    </div><details class="gc-reconcile"><summary>Where these numbers come from <span>Bank balances → available cash</span></summary><div class="gc-reconcile-grid"><div>
+    </div><details class="gc-reconcile"><summary>Where these numbers come from <span>Bank balances → available goal funds</span></summary><div class="gc-reconcile-grid"><div>
     ${line('Selected account balances',dep.rawSavings)}${line('− Credit cards owed',ccOwed)}${line('− Bills still to pay',dep.unpaidGoalBills)}${line('− Monthly expenses still reserved',dep.remainingMonthlyExpenseBudget)}${line('− Future salary budgets protected',dep.futureSalaryHold)}${line('− Future salary savings protected',dep.futureSalaryGoalBucketTotal||0)}${line('= Cash after protections',dep.rawSavings-cash.reserved,'total')}
     ${dep.currentCashShortfall>.005?`<p class="gc-alert">Cash shortfall: ${formatCurrency(dep.currentCashShortfall)}. Future income must cover this before goals.</p>`:''}</div><div>
-    ${line('Cash for goals today',dep.deployable)}${line('+ Pending claims',dep.claimReceivableForGoals)}${line('= Total goal funds including claims',CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals),'total')}${line('− Assigned to goals',cash.assigned)}${line('= Cash not yet assigned',cash.free,'total')}
-    <p>${formatCurrency(dep.externallyFundedBills||0)} of unpaid bills are funded by unselected accounts and excluded from this cash reserve.</p><p>Assignments earmark money already in your accounts. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims included in total goal funds.</b> Assignments and spending-room calculations use cash only until reimbursement is recorded as received.</p>
+    ${line('Cash for goals today',dep.deployable)}${line('+ Pending claims',dep.claimReceivableForGoals)}${line('= Total goal funds including claims',CashRules.planningTotal(dep.deployable,dep.claimReceivableForGoals),'total')}${line('− Assigned to goals',cash.assigned)}${line('= Funds not yet assigned',cash.free,'total')}
+    <p>${formatCurrency(dep.externallyFundedBills||0)} of unpaid bills are funded by unselected accounts and excluded from this cash reserve.</p><p>Assignments earmark cash and expected reimbursements. They do not move money.</p><p><b>${formatCurrency(dep.claimReceivableForGoals)} pending claims included in total goal funds.</b> Pending claims can be assigned. Forecasts assume they arrive before the relevant goal deadlines; spending-room estimates still use received cash only. Cash is attributed to goals in funding-priority order, then claims.</p>
     <p>Early salary stays protected for its recorded month. Spending already reflected in account balances is not deducted twice.</p></div></div></details></section>`;
 }
 function clarityGoalCard(goal,idx) {
   const recorded=compactRecordedForGoal(idx),assigned=compactTotalAssignedForGoal(idx);
   return `<article class="gc-goal-card" id="compactGoal_${idx}"><div class="gc-goal-top"><div><span class="gc-eyebrow">${escapeHtml(goal.group||'Wants')} · ${escapeHtml(goal.urgency||'Medium')}</span><h3>${escapeHtml(goal.name)}</h3></div><span class="gc-pill" id="cgPill_${idx}">Checking</span></div>
     <div id="gcNumbers_${idx}" class="gc-goal-numbers"></div><div class="gc-progress"><span id="cgBar_${idx}"></span></div><p class="gc-result" id="cgStatus_${idx}"></p>
-    <details class="gc-assign"><summary>Adjust assignment <b id="cgAssignedMetric_${idx}">${formatCurrency(assigned)}</b></summary><div class="gc-assign-input"><label>Assigned cash ($)<input id="gcCash_${idx}" type="number" min="0" step="0.01" value="${(+goal.manualSaved||0).toFixed(2)}" oninput="assignClarityCash(${idx},this.value)"></label><input hidden id="cgSlider_${idx}" value="${assigned}"><input hidden id="cgAmount_${idx}" value="${assigned}"></div>${recorded>0?`<p>${formatCurrency(recorded)} of earlier recorded progress is shown separately from assigned cash.</p>`:''}<p>Preview only until you save. This does not transfer money.</p></details>
+    <details class="gc-assign"><summary>Adjust assignment <b id="cgAssignedMetric_${idx}">${formatCurrency(assigned)}</b></summary><div class="gc-assign-input"><label>Assigned funds ($)<input id="gcCash_${idx}" type="number" min="0" step="0.01" value="${(+goal.manualSaved||0).toFixed(2)}" oninput="assignClarityCash(${idx},this.value)"></label><input hidden id="cgSlider_${idx}" value="${assigned}"><input hidden id="cgAmount_${idx}" value="${assigned}"></div>${recorded>0?`<p>${formatCurrency(recorded)} of earlier recorded progress is shown separately from assigned cash.</p>`:''}<p>Preview only until you save. This does not transfer money.</p></details>
     <details class="gc-details"><summary>${goal.insuranceManaged?'Premium checkpoints & forecast':'Forecast calculation'}</summary><div id="gcBreakdown_${idx}"></div></details></article>`;
 }
 function assignClarityCash(idx,value) {
@@ -63,7 +64,7 @@ function renderClarityPage() {
   const today=toDateInputValue(new Date());
   const container=document.getElementById('goalsContainer');
   container.innerHTML=`<nav class="gc-tabs" aria-label="Goal views"><button data-goal-tab="overview" onclick="switchGoalView('overview')">Overview</button><button data-goal-tab="monthly" onclick="switchGoalView('monthly')">Monthly plan</button><button data-goal-tab="settings" onclick="switchGoalView('settings')">Settings</button></nav>
-  <div data-goal-view="overview"><div id="compactGoalSummary"></div><div id="gcOverall" aria-live="polite"></div><div id="goalInsights"></div><div class="gc-section-head"><div><h2>Your goals</h2><p>Cash assigned today and projected funding are shown separately.</p></div><button class="btn-primary" onclick="compactSmartAssign()">Suggest assignments</button></div><div id="compactAssignTotal" class="gc-note"></div><div class="gc-goal-grid" id="compactGoalRows">${goalsData.map(clarityGoalCard).join('')||'<p>No goals yet. Add one in Settings.</p>'}</div></div>
+  <div data-goal-view="overview"><div id="compactGoalSummary"></div><div id="gcOverall" aria-live="polite"></div><div id="goalInsights"></div><div class="gc-section-head"><div><h2>Your goals</h2><p>Assigned cash + claims and projected funding are shown separately.</p></div><button class="btn-primary" onclick="compactSmartAssign()">Suggest assignments</button></div><div id="compactAssignTotal" class="gc-note"></div><div class="gc-goal-grid" id="compactGoalRows">${goalsData.map(clarityGoalCard).join('')||'<p>No goals yet. Add one in Settings.</p>'}</div></div>
   <div data-goal-view="monthly" hidden><section class="gc-panel"><div class="gc-section-head"><div><h2>Where each month’s money goes</h2><p>Today is a proposed allocation of existing cash. Later months are forecasts.</p></div><label>Show<select id="gcHorizon" onchange="renderClarityMonthly(goalClarityModel)"><option value="12">12 months</option><option value="24">24 months</option><option value="60">Full forecast</option></select></label></div><div id="compactGoalTimeline"></div></section></div>
   <div data-goal-view="settings" hidden><section class="gc-panel"><h2>Funding accounts</h2><p>Only selected savings accounts fund this plan.</p><div class="cg-accounts">${allAccounts.filter(a=>a.type==='Savings').map(a=>`<label><input type="checkbox" value="${escapeHtml(a.name)}" ${goalSavingsAccts.includes(a.name)?'checked':''} onchange="toggleGoalAccount(this)">${escapeHtml(a.name)} <strong>${formatCurrency(savingsBalances[a.name]||0)}</strong></label>`).join('')}</div></section>
   <section class="gc-panel"><h2>Forecast adjustments</h2><p>Expected bonuses and changes to future saving capacity. Pending claims are not automatically included.</p><div id="compactAdjustments"></div></section>
@@ -78,17 +79,17 @@ function renderClarityForecast() {
   const rows=clarityGoalRows(model);
   document.getElementById('compactGoalSummary').innerHTML=clarityCashHTML(dep);
   const short=rows.filter(r=>r.gap>=.01),unknown=rows.filter(r=>r.unknown);
-  document.getElementById('gcOverall').innerHTML=`<div class="gc-status ${cash.free<-.005||short.length?'attention':''}"><b>${cash.free<-.005?'Your assignments exceed available cash':short.length?`${short.length} goal${short.length===1?' needs':'s need'} attention`:unknown.length?'Some deadlines need checking':'Your goals are forecast on track'}</b><span>${cash.free<-.005?`Reduce assigned cash by ${formatCurrency(-cash.free)}.`:short.length?short.map(r=>`${escapeHtml(r.name)}: ${formatCurrency(r.gap)} projected shortfall`).join(' · '):'Based on your current income estimate, budgets and adjustments. Future money is not guaranteed.'}</span></div>`;
-  document.getElementById('compactAssignTotal').textContent=`${formatCurrency(Math.max(0,cash.free))} unassigned today. Suggested allocations are a preview until you save.`;
+  document.getElementById('gcOverall').innerHTML=`<div class="gc-status ${cash.free<-.005||short.length?'attention':''}"><b>${cash.free<-.005?'Your assignments exceed available goal funds':short.length?`${short.length} goal${short.length===1?' needs':'s need'} attention`:unknown.length?'Some deadlines need checking':'Your goals are forecast on track'}</b><span>${cash.free<-.005?`Reduce assignments by ${formatCurrency(-cash.free)}.`:short.length?short.map(r=>`${escapeHtml(r.name)}: ${formatCurrency(r.gap)} projected shortfall`).join(' · '):'Based on your current income estimate, budgets and adjustments. Future money is not guaranteed.'}</span></div>`;
+  document.getElementById('compactAssignTotal').textContent=`${formatCurrency(Math.max(0,cash.free))} unassigned (cash + pending claims). Suggested allocations are a preview until you save.`;
   rows.forEach(r=>{
     const goal=goalsData[r.idx];
     const pill=document.getElementById(`cgPill_${r.idx}`);pill.textContent=cash.free<-.005?'Over-assigned':r.status;pill.classList.toggle('warning',cash.free<-.005||r.gap>=.01||r.unknown);
     const due=r.insurance?'Separate premium deadlines':goal.endDate?`By ${formatDateDisplay(goal.endDate)}`:'No deadline set';
-    document.getElementById(`gcNumbers_${r.idx}`).innerHTML=`<div><small>Assigned cash</small><b>${formatCurrency(r.assigned)}</b></div><div><small>Target${goal.goalBuffer?' incl. buffer':''}</small><b>${formatCurrency(r.target)}</b></div><div><small>Still to cover today</small><b>${formatCurrency(Math.max(0,r.target-r.now))}</b></div>`;
+    document.getElementById(`gcNumbers_${r.idx}`).innerHTML=`<div><small>Assigned funds</small><b>${formatCurrency(r.assigned)}</b></div><div><small>Target${goal.goalBuffer?' incl. buffer':''}</small><b>${formatCurrency(r.target)}</b></div><div><small>Still to cover today</small><b>${formatCurrency(Math.max(0,r.target-r.now))}</b></div>`;
     document.getElementById(`cgBar_${r.idx}`).style.width=Math.min(100,100*r.now/Math.max(1,r.target))+'%';
     document.getElementById(`cgStatus_${r.idx}`).textContent=`${due} · ${r.insurance?'Next premium cycle': 'Projected by deadline'}: ${formatCurrency(r.projected)}${r.recorded?` · ${formatCurrency(r.recorded)} earlier recorded progress`:''}`;
     const line=(label,n)=>`<div class="gc-ledger-row"><span>${label}</span><b>${formatCurrency(n)}</b></div>`;
-    let detail=`${line('Assigned cash',r.assigned)}${r.recorded?line('+ Earlier recorded progress',r.recorded):''}${line('+ Proposed from unassigned cash today',r.proposed)}${line('+ Future income & adjustments',r.future)}${line('= Projected funding',r.projected)}${line('Target',r.target)}<p>Progress bar shows only assigned cash and recorded progress. Forecast amounts are estimates.</p>`;
+    let detail=`${line('Assigned cash',r.backing.cash)}${line('+ Assigned pending claims',r.backing.claims)}${r.recorded?line('+ Earlier recorded progress',r.recorded):''}${line('+ Proposed from unassigned funds',r.proposed)}${line('+ Future income & adjustments',r.future)}${line('= Projected funding',r.projected)}${line('Target',r.target)}<p>Progress includes assigned cash, pending claims and recorded progress. Forecast amounts are estimates.</p>`;
     if(r.insurance){detail+=`<div class="gc-table-wrap"><table><thead><tr><th>Ready by</th><th>Premiums</th><th>Projected</th><th>Status</th></tr></thead><tbody>${r.state.insuranceMilestones.filter(m=>m.current||m.inRange&&m.gap>=.01).map(m=>`<tr><td>${escapeHtml(m.fundBy)}${m.current?'':' · renewal'}</td><td>${formatCurrency(m.amount)}</td><td>${formatCurrency(m.projected)}</td><td>${!m.inRange?'Beyond range':m.gap>=.01?formatCurrency(m.gap)+' short':'On track'}</td></tr>`).join('')}</tbody></table></div><p>At least 30 days before payment. The target and calculation above cover only the next premiums. Later renewals are funded separately in the Monthly plan.</p>`;}
     document.getElementById(`gcBreakdown_${r.idx}`).innerHTML=detail;
     document.getElementById(`cgAssignedMetric_${r.idx}`).textContent=formatCurrency(r.assigned);
@@ -117,7 +118,7 @@ function renderClarityMonthly(model) {
     const available=compactMoney(ledger.available+opening);
     const summary=m===0?'Existing cash · proposed split':'Income forecast · after budget';
     html+=`<details class="gc-month" ${m===0?'open':''}><summary><span><b>${escapeHtml(model.fullLabels[m])}</b><small>${summary}</small></span><strong>${formatCurrency(available)}</strong></summary><div class="gc-month-body"><div class="gc-month-source"><h4>Money available</h4>`;
-    if(m===0)html+=`<p>Cash for goals today: <b>${formatCurrency(dep.deployable)}</b></p><p>Already assigned: ${formatCurrency(opening)}<br>Unassigned: ${formatCurrency(Math.max(0,cash.free))}</p>`;
+    if(m===0)html+=`<p>Cash for goals today: <b>${formatCurrency(dep.deployable)}</b> + pending claims: <b>${formatCurrency(dep.claimReceivableForGoals||0)}</b></p><p>Already assigned: ${formatCurrency(opening)}<br>Unassigned: ${formatCurrency(Math.max(0,cash.free))}</p>`;
     else html+=`<div class="gc-ledger-row"><span>Income estimate${getRecordedFutureSalaryForMonth(new Date(model.today.getFullYear(),model.today.getMonth()+m,1))?' (received early)':''}</span><b>${formatCurrency(ledger.salary)}</b></div><div class="gc-ledger-row"><span>Budget reserve</span><b>− ${formatCurrency(ledger.budget)}</b></div>`;
     if(m>0){
       const breakdown=getFutureMonthBudgetBreakdown(new Date(model.today.getFullYear(),model.today.getMonth()+m,1));
@@ -137,7 +138,7 @@ renderGoalsPage=renderClarityPage;
 renderCompactGoalForecast=renderClarityForecast;
 updateCompactAllocationSummary=function(){document.getElementById('compactGoalSummary').innerHTML=clarityCashHTML(computeDeployableBalance());updateCompactSaveStatus();};
 // Suggestions use the same deadline/priority allocator as the forecast, not a
-// second weighted algorithm. Only existing cash is assigned, never future boosts.
+// second weighted algorithm. Cash and pending claims are assignable; future salary boosts are not.
 compactSmartAssign=function(){
   goalsData.forEach(g=>{g.manualSaved=0;});
   const model=withGoalCalculationCache(()=>buildGoalProjectionModel(18,60));

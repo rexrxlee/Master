@@ -3,7 +3,7 @@
 function goalSpendScenario(amount, sourceIndex=null) {
   const originalCompute=computeDeployableBalance, dep=originalCompute();
   const saved=goalsData.map(g=>Number(g.manualSaved||0));
-  const limit=sourceIndex===null?dep.deployable:Math.min(dep.deployable,saved[sourceIndex]||0);
+  const limit=sourceIndex===null?dep.deployable:Math.min(dep.deployable,goalAssignmentFunding(dep)[sourceIndex]?.cash||0);
   if(!Number.isFinite(amount)||amount>limit+.001||(amount<0&&sourceIndex!==null))return null;
   let remaining=amount;
   if(sourceIndex!==null){goalsData[sourceIndex].manualSaved=Math.max(0,saved[sourceIndex]-remaining);remaining=0;}
@@ -18,19 +18,19 @@ function goalSpendScenario(amount, sourceIndex=null) {
     const model=buildGoalProjectionModel(18,60);
     const assigned=goalsData.reduce((s,g)=>s+Number(g.manualSaved||0),0);
     const nearNeed=goalsData.reduce((s,g,i)=>s+Math.max(0,compactRequiredAssignedToday(i)-compactRecordedForGoal(i)),0);
-    const ok=assigned<=dep.deployable-amount+.001 && nearNeed<=dep.deployable-amount+.001 &&
+    const ok=assigned<=goalAssignableFunds(dep)-amount+.001 && nearNeed<=goalAssignableFunds(dep)-amount+.001 &&
       !(dep.currentCashShortfall>0.005) && !model.monthLedger.some(m=>m.carryOut>.005) && model.goalState.every((g,i)=>{
         if(g.insuranceMilestones)return !g.insuranceUnverified&&g.insuranceMilestones.filter(m=>m.inRange).every(m=>m.gap<.005);
         if(g.deadlineMo===null||g.deadlineMo>=model.MONTHS)return false;
         return model.progressDollars[i][Math.max(0,g.deadlineMo)]>=g.effectiveTarget-.005;
       });
-    return {ok,model,cashGap:Math.max(0,assigned-(dep.deployable-amount),nearNeed-(dep.deployable-amount),dep.currentCashShortfall||0),carryGap:Math.max(0,...model.monthLedger.map(m=>m.carryOut||0))};
+    return {ok,model,cashGap:Math.max(0,assigned-(goalAssignableFunds(dep)-amount),nearNeed-(goalAssignableFunds(dep)-amount),dep.currentCashShortfall||0),carryGap:Math.max(0,...model.monthLedger.map(m=>m.carryOut||0))};
   } finally {computeDeployableBalance=originalCompute;goalsData.forEach((g,i)=>{g.manualSaved=saved[i];});}
 }
 function goalSpendingRoom(sourceIndex=null) {
   const dep=computeDeployableBalance();
   if(!goalSpendScenario(0,sourceIndex)?.ok)return 0;
-  let lo=0,hi=Math.floor(Math.max(0,sourceIndex===null?dep.deployable:Math.min(dep.deployable,goalsData[sourceIndex]?.manualSaved||0))*100);
+  let lo=0,hi=Math.floor(Math.max(0,sourceIndex===null?dep.deployable:Math.min(dep.deployable,goalAssignmentFunding(dep)[sourceIndex]?.cash||0))*100);
   // Cent precision, checked at every trial against ALL deadlines and renewals.
   while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(goalSpendScenario(mid/100,sourceIndex)?.ok)lo=mid;else hi=mid-1;}
   return lo/100;
@@ -38,7 +38,7 @@ function goalSpendingRoom(sourceIndex=null) {
 function goalTiming(g,model) {
   const done=g.completedAt;
   if(done===null)return 'Not fully funded in forecast';
-  if(done===0)return g.initialSaved>=g.effectiveTarget?'Covered now':'Could be covered from today’s cash';
+  if(done===0)return model.pendingClaimsForPlan>0?'Covered by plan (includes pending claims)':g.initialSaved>=g.effectiveTarget?'Covered now':'Could be covered from today’s cash';
   const date=model.monthLabel(done,true);
   const early=g.deadlineMo===null?null:g.deadlineMo-done;
   return `${date}${early===null?'':early>0?` · ${early} month${early===1?'':'s'} early`:early===0?' · deadline month':` · ${-early} months late`}`;
@@ -69,7 +69,7 @@ function goalForecastChart(model, axisEnd=null) {
       svg+=`<rect x="${x+3}" y="${y+1}" width="${cell-10}" height="24" rx="4" fill="${value>0?color:'#f3f6f5'}"/><text x="${x+cell/2-2}" y="${y+17}" text-anchor="middle" style="fill:${value>0?'#fff':'#83958f'};font-size:11px">${value>0?money(value):'—'}</text>`;
     }
   });
-  return `<div class="gi-chart gi-monthly-chart">${svg}</svg></div><p class="gc-note">Scroll horizontally for later months. Each solid chunk shows the <b>assigned cash (current month) or forecast contribution (future months)</b>; totals above sum the goal chunks below. Current assignments are included once in the current month; they are not new income or a history of past deposits. Dotted outlines mark target months. Insurance chunks include later renewals; its timing label refers to the next premium cycle. Zero contributions are shown as —. Slider changes are temporary previews.</p>`;
+  return `<div class="gi-chart gi-monthly-chart">${svg}</svg></div><p class="gc-note">Scroll horizontally for later months. Each solid chunk shows the <b>assigned cash (current month) or forecast contribution (future months)</b>; totals above sum the goal chunks below. Current assignments include cash and pending claims, counted once in the current month; they are not new income or a history of past deposits. Dotted outlines mark target months. Insurance chunks include later renewals; its timing label refers to the next premium cycle. Zero contributions are shown as —. Slider changes are temporary previews.</p>`;
 }
 function goalScenarioOutcome(g,i,model) {
   const deadline=g.deadlineMo, done=g.completedAt;
@@ -82,7 +82,7 @@ function goalScenarioOutcome(g,i,model) {
     const gap=Math.max(0,g.effectiveTarget-(model.progressDollars[i]?.[Math.max(0,deadline)]||0));
     if(gap>.005)return {tone:'late',label:'Short '+formatCurrency(gap)+' at target',detail:done===null?'Not fully funded within forecast':model.monthLabel(done,true)+' · '+Math.max(0,done-deadline)+' months late'};
   }
-  if(done===0)return {tone:'early',label:'Covered now',detail:'Target funded from current cash'};
+  if(done===0)return {tone:'early',label:model.pendingClaimsForPlan>0?'Covered incl. expected claims':'Covered now',detail:model.pendingClaimsForPlan>0?'Conditional on reimbursements arriving':'Target funded from current cash'};
   const early=done===null||deadline===null?0:deadline-done;
   return {tone:early>0?'early':'ontime',label:early>0?early+' month'+(early===1?'':'s')+' early':'On time',detail:goalTiming(g,model)};
 }
@@ -97,7 +97,7 @@ function goalScenarioHTML(result,baseline,delta) {
     const change=old===now?'No timing change':old===null&&now!==null?'Now forecast to finish':now===null?'No longer forecast to finish':Math.abs(old-now)+' month'+(Math.abs(old-now)===1?'':'s')+(now<old?' earlier':' later')+' than original';
     return `<tr><th scope="row">${escapeHtml(g.name)}</th><td><span class="gi-outcome gi-${outcome.tone}">${escapeHtml(outcome.label)}</span><small>${escapeHtml(outcome.detail)}</small></td><td>${escapeHtml(change)}</td></tr>`;
   }).join('');
-  return `<div class="gi-result-head ${result.ok?'gi-result-ok':'gi-result-alert'}"><strong>${title}</strong><span>${delta===0?'Original plan':delta>0?formatCurrency(delta)+' added':formatCurrency(-delta)+' removed'} · temporary preview</span>${notes.length?'<p>'+escapeHtml(notes.join('. '))+'</p>':''}</div><div class="gc-table-wrap"><table class="gi-table gi-outcomes"><thead><tr><th>Goal</th><th>Result at target</th><th>Change from original</th></tr></thead><tbody>${rows}</tbody></table></div><p class="gc-note">Targets include buffers. Insurance checks every funding deadline, including later renewals. Future income and spending remain estimates.</p>`;
+  return `<div class="gi-result-head ${result.ok?'gi-result-ok':'gi-result-alert'}"><strong>${title}</strong><span>${delta===0?'Original plan':delta>0?formatCurrency(delta)+' added':formatCurrency(-delta)+' removed'} · temporary preview</span>${notes.length?'<p>'+escapeHtml(notes.join('. '))+'</p>':''}</div><div class="gc-table-wrap"><table class="gi-table gi-outcomes"><thead><tr><th>Goal</th><th>Result at target</th><th>Change from original</th></tr></thead><tbody>${rows}</tbody></table></div><p class="gc-note">Targets include buffers. Insurance checks every funding deadline, including later renewals. Pending claims must arrive before their goal deadlines. Future income and spending remain estimates.</p>`;
 }
 function setupGoalSandbox(model) {
   const slider=document.getElementById('giCashSlider'), output=document.getElementById('giCashValue'), chart=document.getElementById('giTimeline'), status=document.getElementById('giScenarioStatus');
@@ -133,6 +133,6 @@ function renderGoalInsights(model) {
   const host=document.getElementById('goalInsights');if(!host)return;
   const room=goalSpendingRoom();
   const rows=model.goalState.map((g,i)=>({g,i,room:goalSpendingRoom(i)}));
-  host.innerHTML=`<section class="gc-panel gi-home"><div class="gc-section-head"><div><h2>Your goal forecast</h2><p>When each goal could be funded—and what flexibility remains today.</p></div></div><div class="gi-takeaway"><div><span>Estimated spending room today</span><strong>${formatCurrency(room)}</strong></div><p>${room>0?'The forecast can absorb this one-time spend while still meeting all checked goal targets, buffers and insurance funding dates.':'No spending room is confirmed under the current plan. Check shortfalls, missing deadlines and near-term cash needs.'}<br><b>This is conditional on forecast income and spending. Spending it reduces your safety margin.</b></p></div><div class="gi-sandbox"><div class="gi-slider-head"><label for="giCashSlider">Try a one-time cash change</label><output id="giCashValue" for="giCashSlider">No change</output><button type="button" id="giCashReset">Reset</button></div><input id="giCashSlider" type="range" aria-describedby="giSliderHelp giScenarioStatus"><div class="gi-slider-ends"><span>Remove money</span><span>Add money</span></div><p id="giSliderHelp" class="gc-note">Preview only—never saved. Changes total cash available for goals today. Added money follows your funding priorities; removal uses unassigned cash first, then reverses funding priority. The results immediately below and chart update live. Spending-room estimates further down remain the original plan.</p><p id="giScenarioStatus" role="status" aria-live="polite">Current plan · no hypothetical cash change.</p><div id="giScenarioOutcomes"></div></div><div id="giTimeline">${goalForecastChart(model)}</div><div class="gc-table-wrap"><table class="gi-table"><thead><tr><th>Goal</th><th>Projected fully funded</th><th>Could spend from this assignment</th></tr></thead><tbody>${rows.map(({g,i,room})=>`<tr><td>${escapeHtml(g.name)}</td><td>${escapeHtml(goalTiming(g,model))}${g.insuranceMilestones?'<small>Next premiums; each earlier deadline is also checked</small>':''}</td><td><b>${formatCurrency(room)}</b><small>of ${formatCurrency(goalsData[i].manualSaved||0)} assigned</small></td></tr>`).join('')}</tbody></table></div><p class="gc-note"><b>Individual amounts are alternatives, not additive.</b> Each tests spending from that goal alone while protecting every goal. The headline tests one combined withdrawal. These are extra purchases, not payments already included in a goal’s target. Nothing is withdrawn or saved automatically.</p></section>`;
+  host.innerHTML=`<section class="gc-panel gi-home"><div class="gc-section-head"><div><h2>Your goal forecast</h2><p>When each goal could be funded—and what flexibility remains today.</p></div></div><div class="gi-takeaway"><div><span>Estimated spending room today</span><strong>${formatCurrency(room)}</strong></div><p>${room>0?'The forecast can absorb this one-time spend while still meeting all checked goal targets, buffers and insurance funding dates.':'No spending room is confirmed under the current plan. Check shortfalls, missing deadlines and near-term cash needs.'}<br><b>This is conditional on forecast income and spending. Spending it reduces your safety margin.</b></p></div><div class="gi-sandbox"><div class="gi-slider-head"><label for="giCashSlider">Try a one-time cash change</label><output id="giCashValue" for="giCashSlider">No change</output><button type="button" id="giCashReset">Reset</button></div><input id="giCashSlider" type="range" aria-describedby="giSliderHelp giScenarioStatus"><div class="gi-slider-ends"><span>Remove money</span><span>Add money</span></div><p id="giSliderHelp" class="gc-note">Preview only—never saved. Changes total cash available for goals today. Added money follows your funding priorities; removal uses unassigned cash first, then reverses funding priority. The results immediately below and chart update live. Spending-room estimates further down remain the original plan.</p><p id="giScenarioStatus" role="status" aria-live="polite">Current plan · no hypothetical cash change.</p><div id="giScenarioOutcomes"></div></div><div id="giTimeline">${goalForecastChart(model)}</div><div class="gc-table-wrap"><table class="gi-table"><thead><tr><th>Goal</th><th>Projected fully funded</th><th>Could spend from this assignment</th></tr></thead><tbody>${rows.map(({g,i,room})=>`<tr><td>${escapeHtml(g.name)}</td><td>${escapeHtml(goalTiming(g,model))}${g.insuranceMilestones?'<small>Next premiums; each earlier deadline is also checked</small>':''}</td><td><b>${formatCurrency(room)}</b><small>of ${formatCurrency(goalAssignmentFunding()[i]?.cash||0)} cash-backed assignment</small></td></tr>`).join('')}</tbody></table></div><p class="gc-note"><b>Individual amounts are alternatives, not additive.</b> Each tests spending from that goal alone while protecting every goal. The headline tests one combined withdrawal. These are extra purchases, not payments already included in a goal’s target. Nothing is withdrawn or saved automatically.</p></section>`;
   setupGoalSandbox(model);
 }
