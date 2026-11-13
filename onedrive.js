@@ -405,6 +405,29 @@ async function invalidateExcelDownloadCache() {
   await excelCacheQueue;
 }
 
+// Graph /content redirects cannot reliably follow an authenticated CORS
+// preflight in browsers. Resolve a short-lived download URL via metadata,
+// then fetch bytes without forwarding the Graph bearer token.
+async function downloadExcelBytes(encodedPath, token) {
+  const metadataUrl = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+    encodedPath + "?$select=id,@microsoft.graph.downloadUrl";
+  const metadata = await graphGetJson(metadataUrl, token);
+  const downloadUrl = metadata["@microsoft.graph.downloadUrl"];
+  if (typeof downloadUrl !== "string" || !downloadUrl.startsWith("https://")) {
+    throw new Error("OneDrive did not provide a workbook download link. Please retry loading.");
+  }
+  let response;
+  try {
+    response = await excelRequest(downloadUrl, {method:"GET", credentials:"omit"}, true);
+  } catch (error) {
+    // Never include the preauthenticated URL in logs or error messages.
+    throw new Error(error.status
+      ? "Workbook download failed (HTTP " + error.status + "). Please retry loading."
+      : "Could not download the workbook from OneDrive. Check your connection and retry loading. Your saved data has not changed.");
+  }
+  return response.arrayBuffer();
+}
+
 async function downloadExcelFile(forceRefresh = false) {
   await excelWriteQueue;
   if (!forceRefresh) {
@@ -428,13 +451,7 @@ async function downloadExcelFile(forceRefresh = false) {
 
     const encodedPath = getEncodedExcelPath();
 
-    const downloadUrl =
-      "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-      encodedPath +
-      ":/content";
-
-    const response = await graphFetch(downloadUrl, token);
-    const arrayBuffer = await response.arrayBuffer();
+    const arrayBuffer = await downloadExcelBytes(encodedPath, token);
     if (generation === excelCacheGeneration) {
       try { await storeExcelDownloadCache(arrayBuffer, Date.now(), generation); } catch (_) {}
     }
