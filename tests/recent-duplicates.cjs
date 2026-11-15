@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const elements={txTableBody:{innerHTML:''},recentTxBadge:{textContent:''}};
+const c=vm.createContext({console,document:{addEventListener(){},getElementById:id=>elements[id]},window:{addEventListener(){}},setTimeout,clearTimeout,isBusinessAccount:()=>false});
+vm.runInContext(fs.readFileSync('add-transaction.js','utf8'),c);
+const row=(id,extra={})=>({_rowIndex:id,date:'2026-11-15',transaction:'Sheng Siong',amount:12.8,mainCat:'Monthly Expenses',subCat:'Food',account:'UOB ONE',claimAccount:'',expenseFor:'',...extra});
+assert.equal(c.findPossibleRecentDuplicates([row(2),row(3)]).size,2);
+assert.equal(c.findPossibleRecentDuplicates([row(2),row(3,{transaction:'sheng-siong'})]).size,2,'Punctuation/case changes');
+assert.equal(c.findPossibleRecentDuplicates([row(2),row(3,{transaction:'Sheng Sion'})]).size,2,'Single typo');
+for(const extra of [{date:'2026-11-14'},{amount:12.81},{amount:-12.8},{account:'UOB Savings'},{mainCat:'Income'},{expenseFor:'Business'}])assert.equal(c.findPossibleRecentDuplicates([row(2),row(3,extra)]).size,0);
+assert.equal(c.findPossibleRecentDuplicates([row(2,{transaction:'BUS MRT 1234'}),row(3,{transaction:'BUS MRT 1235'})]).size,0,'Different references are separate');
+assert.equal(c.findPossibleRecentDuplicates([row(2,{transaction:''}),row(3,{transaction:''})]).size,0);
+assert.equal(c.findPossibleRecentDuplicates([row(2,{mainCat:'Transfer',subCat:'Transfer Out'}),row(3,{mainCat:'Transfer',subCat:'Transfer In'})]).size,0,'Expected transfer pair');
+const top=Array.from({length:30},(_,i)=>row(i+2,{amount:i+100}));top.push(row(99,{amount:100}));assert.equal(c.findPossibleRecentDuplicates(top).size,0,'No matches beyond top 30');
+assert.equal(c.findPossibleRecentDuplicates([top[0],top[30]]).size,2,'Filtering determines which rows enter scan');
+vm.runInContext(`categories={};accounts=[];filteredRecentRows=${JSON.stringify([row(2),row(3)])};`,c);
+c.renderRecentTransactionsTable();assert.ok(elements.txTableBody.innerHTML.includes('tx-possible-duplicate'));assert.ok(elements.txTableBody.innerHTML.includes('Possible duplicate · row 3'));assert.ok(elements.txTableBody.innerHTML.includes('top 2 filtered results'));
+vm.runInContext(`filteredRecentRows=${JSON.stringify([row(2)])};`,c);c.renderRecentTransactionsTable();assert.ok(!elements.txTableBody.innerHTML.includes('tx-possible-duplicate'),'Stale highlight removed after filter changes');
+console.log('Duplicate scan: top-30 scope, exact/fuzzy names, reference protection, signed amounts, dates, accounts, transfer pairs and refreshed highlights passed.');

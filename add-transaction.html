@@ -422,6 +422,11 @@
       transition: background 0.1s;
       gap: 8px;
     }
+    .tx-duplicate-summary {font-size:12px;color:var(--muted);padding:8px 0;}
+    .tx-row.tx-possible-duplicate,.tx-row.tx-possible-duplicate:hover,.tx-row.tx-possible-duplicate.expanded {background:#fff0ee;border-left:4px solid #c23b32;}
+    .tx-possible-duplicate .tx-row-desc,.tx-possible-duplicate .tx-row-amount {color:#a52b24;}
+    .tx-duplicate-badge {display:block;font-size:10px;font-weight:600;color:#a52b24;white-space:normal;}
+    .tx-possible-duplicate .tx-row-desc {white-space:normal;}
     .tx-row:last-child { border-bottom: none; }
     .tx-row:hover { background: var(--bg); }
     .tx-row.expanded { background: #f8f9fa; }
@@ -774,7 +779,7 @@ function initGlobalNav(){const saved=localStorage.getItem("fintrackNavHidden");a
   <script src="config.js"></script>
   <script src="onedrive.js?v=browser-download-2"></script>
   <script src="business.js"></script>
-  <script src="add-transaction.js?v=card-cashback-1"></script>
+  <script src="add-transaction.js?v=duplicate-hints-1"></script>
   <script>
     let claimsBannerOpen = false;
     function toggleClaimsBanner() {
