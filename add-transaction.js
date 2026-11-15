@@ -1553,6 +1553,45 @@ function clearTxFilter() {
   applyTxFilter();
 }
 
+// Compare only the first 30 rows AFTER filters and date sorting are applied.
+// Conservative hints: equal signed cents, date, account and transaction kind.
+function findPossibleRecentDuplicates(rows) {
+  const norm=value=>String(value??'').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ');
+  const similar=(a,b)=>{
+    if(!a||!b)return false;
+    if(a===b||a.replace(/ /g,'')===b.replace(/ /g,''))return true;
+    if(Math.min(a.length,b.length)<6)return false;
+    // Different receipt/reference numbers are evidence of separate purchases.
+    if((a.match(/\d+/g)||[]).join('|')!==(b.match(/\d+/g)||[]).join('|'))return false;
+    const aa=new Set(a.split(' ')),bb=new Set(b.split(' '));
+    const shared=[...aa].filter(word=>bb.has(word)).length;
+    if(shared>=2&&2*shared/(aa.size+bb.size)>=.8)return true;
+    // At most one typo for longer names; do not broadly merge similar merchants.
+    if(Math.abs(a.length-b.length)>1)return false;
+    let i=0,j=0,edits=0;
+    while(i<a.length&&j<b.length){if(a[i]===b[j]){i++;j++;continue;}if(++edits>1)return false;if(a.length>=b.length)i++;if(b.length>=a.length)j++;}
+    return edits+(a.length-i)+(b.length-j)<=1;
+  };
+  const scan=rows.slice(0,30),matches=new Map();
+  for(let i=0;i<scan.length;i++)for(let j=i+1;j<scan.length;j++){
+    const a=scan[i],b=scan[j],date=rawDateToInputValue(a.date);
+    if(!date||date!==rawDateToInputValue(b.date))continue;
+    const amount=v=>Number(String(v??'').replace(/[$,]/g,''));
+    const av=amount(a.amount),bv=amount(b.amount);
+    if(!Number.isFinite(av)||!Number.isFinite(bv)||Math.round(av*100)===0||Math.round(av*100)!==Math.round(bv*100))continue;
+    if(!norm(a.account)||norm(a.account)!==norm(b.account)||norm(a.expenseFor)!==norm(b.expenseFor))continue;
+    if(norm(a.mainCat)!==norm(b.mainCat))continue;
+    if(norm(a.mainCat)==='transfer'&&norm(a.subCat)!==norm(b.subCat))continue;
+    if(!similar(norm(a.transaction),norm(b.transaction)))continue;
+    const exact=norm(a.transaction)===norm(b.transaction);
+    for(const [row,other] of [[a,b],[b,a]]){
+      if(!matches.has(row._rowIndex))matches.set(row._rowIndex,[]);
+      matches.get(row._rowIndex).push({row:other._rowIndex,reason:exact?'Same date, amount, account and description':'Same date, amount and account; very similar description'});
+    }
+  }
+  return matches;
+}
+
 function renderRecentTransactionsTable() {
   const container = document.getElementById("txTableBody");
   if (!container) return;
@@ -1570,7 +1609,8 @@ function renderRecentTransactionsTable() {
   const allCats     = [...allMainCats, ...extraCats];
   const allAccounts = accounts.map(a => a.name);
 
-  let html = `
+  const duplicates=findPossibleRecentDuplicates(filteredRecentRows);
+  let html = `<p class="tx-duplicate-summary" role="status">Duplicate check: top ${Math.min(30,filteredRecentRows.length)} filtered results · ${duplicates.size} possible duplicate${duplicates.size===1?'':'s'}. Review highlighted entries; nothing is changed automatically.</p>
     <div class="tx-row-header">
       <span>Date</span>
       <span>Description</span>
@@ -1582,6 +1622,9 @@ function renderRecentTransactionsTable() {
 
   filteredRecentRows.forEach(row => {
     const idx     = row._rowIndex;
+    const possible=duplicates.get(idx);
+    const duplicateHint=possible?possible[0].reason+' · matches Excel row'+(possible.length>1?'s ':' ')+possible.map(item=>item.row).join(', '):'';
+    const duplicateBadge=possible?`<small class="tx-duplicate-badge" title="${escapeHtml(duplicateHint)}">Possible duplicate · row${possible.length>1?'s':''} ${possible.map(item=>item.row).join(', ')}</small>`:'';
     const dateVal = rawDateToInputValue(row.date);
     const dispDate = formatDisplayDate(row.date);
     const amt     = parseFloat(String(row.amount).replace(/[$,]/g, "")) || 0;
@@ -1601,9 +1644,9 @@ function renderRecentTransactionsTable() {
       `<option value="${a}" ${a === row.claimAccount ? "selected" : ""}>${a}</option>`).join("");
 
     html += `
-      <div class="tx-row" id="tx-row-${idx}" onclick="toggleEditPanel(${idx})">
+      <div class="tx-row${possible?' tx-possible-duplicate':''}" title="${escapeHtml(duplicateHint)}" id="tx-row-${idx}" onclick="toggleEditPanel(${idx})">
         <span class="tx-row-date">${dispDate}</span>
-        <span class="tx-row-desc">${escapeHtml(row.transaction)}${row.expenseFor ? ` <small>Business: ${escapeHtml(row.expenseFor)}</small>` : ""}${claimBadge}</span>
+        <span class="tx-row-desc">${escapeHtml(row.transaction)}${duplicateBadge}${row.expenseFor ? ` <small>Business: ${escapeHtml(row.expenseFor)}</small>` : ""}${claimBadge}</span>
         <span class="tx-row-amount">${amtStr}</span>
         <span class="tx-row-cat">${escapeHtml(catLabel)}</span>
         <span class="tx-row-account">${escapeHtml(row.account)}</span>
