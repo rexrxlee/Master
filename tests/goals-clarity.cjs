@@ -34,3 +34,5 @@ run(`allAccounts=[{name:'Savings',type:'Savings'},{name:'CDA',type:'Savings'},{n
 assert.equal(ctx.reserve.total,475,'Future reserve includes configured cards without transactions and unknown funding, excludes CDA');
 assert.equal(ctx.reserve.bills.length,3);assert.equal(ctx.reserve.monthly.length,1);
 console.log('Future budget reserve uses shared account rules and exposes included rows.');
+run(`budgetSummary={billsRows:[],monthlyRows:[{category:'Others',allocated:200,monthOverrides:{'2026-11':1000}}]};allTxForGoals=[];var november=computeBudgetPositionForMonth(new Date(2026,10,1)),december=getFutureMonthBudgetBreakdown(new Date(2026,11,1));`);
+assert.equal(ctx.november.monthly.allocated,1000);assert.equal(ctx.december.total,200,'Future goals use regular budget after current override expires');

@@ -41,3 +41,7 @@ assert.ok(ctx.model.goalState[0].insuranceMilestones.find(x=>x.current).gap>0);
 assert.equal(vm.runInContext('compactModelHasShortfall()',ctx),true);
 console.log('Insurance schedule: buffer dates, saved-money allocation, per-deadline shortfalls, competing goals, renewals, directed cashflow and pool conservation passed.');
 const benchStart=performance.now();vm.runInContext('withGoalCalculationCache(()=>{for(let i=0;i<20;i++)buildGoalProjectionModel(18,60);})',ctx);console.log('20 shared schedule projections: '+Math.round(performance.now()-benchStart)+'ms');
+const yearRows=ctx.model.insuranceYearRows;assert.ok(yearRows.some(r=>r.paymentYear==='2027'));assert.ok(yearRows.some(r=>r.paymentYear==='2028'));
+for(let month=0;month<ctx.model.MONTHS;month++)assert.ok(Math.abs(yearRows.reduce((s,row)=>s+row.allocation[month],0)-ctx.model.allocationData[0][month])<1e-7,'Year rows sum exactly to the original insurance allocation');
+assert.ok(Math.abs(yearRows.reduce((s,row)=>s+row.initialSaved,0)-ctx.model.goalState[0].insuranceMilestones.reduce((s,m)=>s+m.initialSaved,0))<.005,'Opening assignment counted once across insurance years');
+console.log('Insurance year rows conserve monthly contributions and opening funds.');
