@@ -20,8 +20,8 @@
      const ready=fundBy(e.due),prior=previous.get(e.id),current=first.get(e.id)===e.due;
      const start=prior?new Date(date(prior).getTime()+86400000).toISOString().slice(0,10):now;
      previous.set(e.id,ready);
-     const key=ready+'|'+start+'|'+current;
-     if(!groups.has(key))groups.set(key,{fundBy:ready,start,amount:0,current,events:[]});
+     const paymentYear=e.due.slice(0,4),key=ready+'|'+start+'|'+current+'|'+paymentYear;
+     if(!groups.has(key))groups.set(key,{fundBy:ready,start,amount:0,current,paymentYear,events:[]});
      const group=groups.get(key);group.amount=money(group.amount+e.amount);group.events.push(e);
    }
    return [...groups.values()].sort((a,b)=>a.fundBy.localeCompare(b.fundBy));

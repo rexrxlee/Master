@@ -153,12 +153,21 @@ function applyBudgetFundingMap(sheet) {
     if (saved && typeof saved === "object") {
       item.fundingAccount = clean(saved.fundingAccount || "");
       item.endDate = clean(saved.endDate || "");
+      item.monthOverrides = saved.monthOverrides || {};
     } else {
       // Backwards compatibility with the original account-only string format.
       item.fundingAccount = clean(saved || "");
       item.endDate = "";
     }
   });
+}
+
+function updateBudgetMonthOverride(type,index,value){
+  const item=(type==='Bills'?billsBudget:monthlyBudget)[index],month=CashRules.budgetMonth();
+  if(!item.monthOverrides)item.monthOverrides={};
+  if(value==='')delete item.monthOverrides[month];
+  else {const amount=Number(value);if(!Number.isFinite(amount)||amount<0){alert('Enter a non-negative amount, or clear to use the regular budget.');renderBudget();return;}item.monthOverrides[month]=amount;}
+  renderBudget();markBudgetSetupDirty();
 }
 
 function updateBudgetEndDate(type, index, value) {
@@ -363,7 +372,7 @@ function computeBudgetCreditCardOwed() {
 
 function computeNextMonthBudgetBlock(selectedAccountNames = []) {
   return [...getActiveBillsForNextMonth(selectedAccountNames), ...monthlyBudget]
-    .reduce((sum, item) => sum + Math.max(0, toNumber(item.allocated)), 0);
+    .reduce((sum, item) => sum + Math.max(0, CashRules.budgetAmount(item,new Date(new Date().getFullYear(),new Date().getMonth()+1,1))), 0);
 }
 
 function getActiveBillsForNextMonth(selectedAccountNames = []) {
@@ -482,7 +491,8 @@ function parsePipeList(value) {
 
 function computeBudgetRow(item) {
   const spent = calculateSpentForCurrentMonth(item.type, item.category);
-  return { ...item, spent, balance: item.allocated - spent };
+  const allocated=CashRules.budgetAmount(item);
+  return { ...item, baseAllocated:item.allocated, allocated, spent, balance: allocated - spent };
 }
 
 function computeBudgetSectionRows(items, type) {
@@ -538,7 +548,7 @@ function renderBudgetTable(tableId, type, rows) {
   table.innerHTML = `
     <tr>
       <th>${type}</th>
-      <th>Allocated</th>
+      <th>Regular / month</th><th>This month only<br><small>Clears automatically next month</small></th>
       ${isBills ? `<th>Paid from</th><th>Ending date</th>` : ""}
       <th>Spent</th>
       <th>Balance</th>
@@ -555,7 +565,7 @@ function renderBudgetTable(tableId, type, rows) {
     const tr = document.createElement("tr");
     if (row.isUnbudgeted) {
       tr.innerHTML = `<td data-label="${type}">${escapeHtml(row.category || "(Uncategorised)")} (unbudgeted)</td>
-        <td data-label="Allocated">${formatCurrency(0)}</td>
+        <td data-label="Allocated">${formatCurrency(0)}</td><td></td>
         ${isBills ? "<td></td><td></td>" : ""}
         <td data-label="Spent">${formatCurrency(row.spent)}</td>
         <td data-label="Balance" style="color:var(--red)">${formatCurrency(row.balance)}</td><td></td>`;
@@ -564,7 +574,8 @@ function renderBudgetTable(tableId, type, rows) {
     }
     tr.innerHTML = `
       <td data-label="${type}"><input value="${escapeHtml(row.category)}" onchange="updateBudgetCategory('${type}', ${index}, this.value)"></td>
-      <td data-label="Allocated"><input type="number" step="0.01" value="${row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
+      <td data-label="Allocated"><input type="number" step="0.01" value="${row.baseAllocated ?? row.allocated}" onchange="updateBudgetAllocated('${type}', ${index}, this.value)"></td>
+      <td data-label="This month only"><input type="number" min="0" step="0.01" value="${row.monthOverrides?.[CashRules.budgetMonth()] ?? ''}" placeholder="Use regular" aria-label="This month only for ${escapeHtml(row.category)}" onchange="updateBudgetMonthOverride('${type}', ${index}, this.value)"><small>${CashRules.budgetMonth()} · effective ${formatCurrency(row.allocated)}</small></td>
       ${isBills ? `<td data-label="Paid from"><select onchange="updateBudgetFundingAccount('${type}', ${index}, this.value)">${renderBudgetFundingOptions(row.fundingAccount)}</select></td><td data-label="Ending date"><input type="date" value="${escapeHtml(row.endDate || "")}" onchange="updateBudgetEndDate('${type}', ${index}, this.value)" aria-label="Ending date for ${escapeHtml(row.category)}"></td>` : ""}
       <td data-label="Spent">${formatCurrency(row.spent)}</td>
       <td data-label="Balance" style="color:${row.balance < 0 ? '#c0392b' : 'inherit'}">${formatCurrency(row.balance)}</td>
@@ -576,7 +587,7 @@ function renderBudgetTable(tableId, type, rows) {
   totalRow.className = "total-row";
   totalRow.innerHTML = `
     <td><strong>Total</strong></td>
-    <td><strong>${formatCurrency(totalAllocated)}</strong></td>
+    <td><strong>${formatCurrency(totalAllocated)} effective</strong></td><td></td>
     ${isBills ? `<td></td><td></td>` : ""}
     <td><strong>${formatCurrency(totalSpent)}</strong></td>
     <td style="color:${totalBalance < 0 ? '#c0392b' : 'inherit'}"><strong>${formatCurrency(totalBalance)}</strong></td>
@@ -1006,12 +1017,9 @@ async function saveBudgetSetupToExcel(options = {}) {
 
 function buildBudgetFundingMap() {
   const map = {};
-  billsBudget.forEach(item => {
-    if (clean(item.category) && (clean(item.fundingAccount) || clean(item.endDate))) {
-      map[budgetFundingKey(item.type, item.category)] = {
-        fundingAccount: clean(item.fundingAccount),
-        endDate: clean(item.endDate || "")
-      };
+  [...billsBudget,...monthlyBudget].forEach(item=>{
+    if(clean(item.category)&&(clean(item.fundingAccount)||clean(item.endDate)||Object.keys(item.monthOverrides||{}).length)){
+      map[budgetFundingKey(item.type,item.category)]={fundingAccount:clean(item.fundingAccount||''),endDate:clean(item.endDate||''),monthOverrides:item.monthOverrides||{}};
     }
   });
   return map;

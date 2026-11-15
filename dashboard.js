@@ -57,13 +57,13 @@ async function loadDashboard(forceRefresh = false) {
     // Dashboard imports Goals without its HTML script tags. Load the same
     // calculation dependencies first, including on a fresh browser visit.
     await Promise.all([
-      import("./insurance-engine.js?v=schedule-1"),
+      import("./insurance-engine.js?v=month-overrides-1"),
       import("./tax-engine.js?v=tax-2"),
       import("./tax-storage.js?v=tax-2"),
       import("./property-tax-engine.js?v=1"),
       import("./property-tax-storage.js?v=1")
     ]);
-    await import("./goals.js?v=clarity-1");
+    await import("./goals.js?v=month-overrides-1");
     const financePlan = await window.calculateFinancePlanFromWorkbook(workbook);
     financePlanGoalCash = financePlan.freeCash;
     financePlanMonthlyBudget = financePlan.monthlySpend;
@@ -100,11 +100,12 @@ function accountKey(value) { return clean(value).toLowerCase().replace(/\s+/g, "
 function fieldKey(value) { return clean(value).toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
 function readDashboardBudgetSection(sheet, range) {
+  let metadata={};try{metadata=JSON.parse(String(sheet.AE2?.v||"{}"));}catch(_){}
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range, blankrows: false });
   return rows
     .map(row => ({
       category: clean(row[0]),
-      allocated: Number(String(row[1] ?? "").replace(/[$,]/g, "")) || 0
+      allocated: CashRules.budgetAmount({allocated:Number(String(row[1] ?? "").replace(/[$,]/g, ""))||0,monthOverrides:(metadata["monthly expenses|"+clean(row[0]).toLowerCase()]||{}).monthOverrides})
     }))
     .filter(row => row.category !== "");
 }

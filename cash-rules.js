@@ -30,6 +30,11 @@ const CashRules = (() => {
   }
   // Reserve bills funded by selected cash accounts or credit cards; protect unknown funding.
   function billReserve(rows,selected,accounts){return rows.reduce((sum,r)=>sum+(protectsBill(r.fundingAccount,selected,accounts)?Math.max(0,cents(r.balance)):0),0)/100;}
+  function budgetMonth(date=new Date()){return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0');}
+  function budgetAmount(row,date=new Date()){
+    const value=row.monthOverrides?.[budgetMonth(date)];
+    return value!==undefined&&value!==null&&value!==''&&Number.isFinite(Number(value))&&Number(value)>=0?Number(value):Number(row.allocated)||0;
+  }
   function planningTotal(cash,claims){return (cents(cash)+cents(claims))/100;}
 
   function monthlyReserve(rows){return Math.max(0,rows.reduce((sum,r)=>sum+cents(r.balance),0))/100;}
@@ -41,5 +46,5 @@ const CashRules = (() => {
       return sum+Math.min(amount,claim||amount);
     },0)/100;
   }
-  return {planningTotal,cents,cardDebt,protectsBill,billReserve,monthlyReserve,pendingClaims};
+  return {budgetMonth,budgetAmount,planningTotal,cents,cardDebt,protectsBill,billReserve,monthlyReserve,pendingClaims};
 })();

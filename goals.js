@@ -221,6 +221,7 @@ function readBudgetSection(sheet, range, type) {
     return {
       category,
       allocated: Number(row[1] ?? 0) || 0,
+      monthOverrides: saved && typeof saved === "object" ? saved.monthOverrides || {} : {},
       fundingAccount: clean(saved && typeof saved === "object" ? saved.fundingAccount || "" : saved || ""),
       endDate: clean(saved && typeof saved === "object" ? saved.endDate || "" : "")
     };
@@ -240,6 +241,7 @@ async function refreshGoalBudgetMetadataFromExcel() {
     const saved = fundingMap[budgetFundingKey(type, row.category)];
     return {
       ...row,
+      monthOverrides: saved && typeof saved === "object" ? saved.monthOverrides || {} : {},
       fundingAccount: clean(saved && typeof saved === "object" ? saved.fundingAccount || "" : saved || ""),
       endDate: clean(saved && typeof saved === "object" ? saved.endDate || "" : "")
     };
@@ -675,7 +677,7 @@ function computeBudgetPositionForMonth(monthDate) {
     const allocatedByCategory = new Map();
     const fundingByCategory = new Map();
     budgetRows.forEach(row => {
-      allocatedByCategory.set(row.category, (allocatedByCategory.get(row.category) || 0) + row.allocated);
+      allocatedByCategory.set(row.category, (allocatedByCategory.get(row.category) || 0) + CashRules.budgetAmount(row,monthDate));
       if (row.fundingAccount) fundingByCategory.set(row.category, row.fundingAccount);
     });
 
@@ -833,9 +835,9 @@ function getFutureMonthBudgetBreakdown(monthDate) {
     .filter(row => isBudgetItemActiveForMonth(row, monthDate));
 
   const total = [...activeGoalBills, ...activeMonthlyExpenses]
-    .reduce((sum, row) => sum + (Number(row.allocated) || 0), 0);
+    .reduce((sum, row) => sum + CashRules.budgetAmount(row,monthDate), 0);
 
-  return { total: Math.max(0, total), bills: activeGoalBills, monthly: activeMonthlyExpenses };
+  return { total: Math.max(0, total), bills: activeGoalBills.map(row=>({...row,allocated:CashRules.budgetAmount(row,monthDate)})), monthly: activeMonthlyExpenses.map(row=>({...row,allocated:CashRules.budgetAmount(row,monthDate)})) };
 }
 
 function setHoldFutureSalaryBudget(enabled) {
@@ -2258,6 +2260,16 @@ function buildGoalProjectionModel(minMonths = 18, maxMonths = 48) {
     if(gi!==insuranceIndex)return {...model.goalState[indices[0]],idx:gi};
     const states=currentIndices.map(i=>model.goalState[i]);
     return {...states[0],idx:gi,name:original[gi].name,baseTarget:currentTarget,effectiveTarget:currentTarget,initialSaved:states.reduce((s,x)=>s+Math.min(x.initialSaved,x.baseTarget),0),saved:currentProgress.at(-1),deadlineMo:Math.max(...states.map(x=>x.deadlineMo)),startMo:0,completedAt:completion<0?null:completion,baseCompletedAt:completion<0?null:completion,insuranceCurrentBase:currentBase,insuranceCurrentAdjustments:currentAdjustments,insuranceMilestones:milestones,insuranceUnverified:milestones.some(x=>x.current&&!x.inRange),insuranceGap:milestones.filter(x=>x.inRange).reduce((s,x)=>s+x.gap,0),plannedTotal:summed.allocationData[gi].reduce((s,x)=>s+x,0)};
+  });
+  const yearGroups=new Map();
+  for(const i of mapping[insuranceIndex]){
+    const year=stageByIndex.get(i).paymentYear || stageByIndex.get(i).events[0].due.slice(0,4);
+    if(!yearGroups.has(year))yearGroups.set(year,[]);yearGroups.get(year).push(i);
+  }
+  summed.insuranceYearRows=[...yearGroups].map(([year,indices])=>{
+    const states=indices.map(i=>model.goalState[i]);
+    const checks=milestones.filter(m=>(m.paymentYear||m.events[0].due.slice(0,4))===year);
+    return {name:original[insuranceIndex].name+' '+year,paymentYear:year,initialSaved:states.reduce((s,g)=>s+g.initialSaved,0),effectiveTarget:states.reduce((s,g)=>s+g.effectiveTarget,0),deadlineMo:Math.max(...states.map(g=>g.deadlineMo)),completedAt:states.every(g=>g.completedAt!==null)?Math.max(...states.map(g=>g.completedAt)):null,insuranceMilestones:checks,allocation:sumSeries(indices,'allocationData')};
   });
   return summed;
 }
