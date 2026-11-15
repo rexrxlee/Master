@@ -111,14 +111,15 @@ async function main() {
     readExcelDownloadCache = async () => JSON.stringify(fixture);
     invalidateExcelDownloadCache = async () => { excelCacheGeneration++; stored = null; };
     storeExcelDownloadCache = async value => { stored = value; };
+    readExcelRange = async () => patches.at(-1);
     graphPatch = async (url, token, body) => { patches.push(body); if (patches.length === failAt) throw new Error('save failed'); return body; };
     XLSX = { read: JSON.parse, write: workbook => { rebuilds++; return JSON.stringify(workbook); }, utils: { sheet_add_aoa: (sheet, values, options) => { sheet[options.origin] = values; } } };
     const updatesTest = ['S2:AC20','AG2:AG2','AF2:AF2'].map(rangeAddress => ({sheetName:'Budget Setup',rangeAddress,values:[[rangeAddress]]}));
   `, io);
   await vm.runInContext('writeExcelRanges(updatesTest)', io);
   assert.equal(vm.runInContext('patches.length', io), 3);
-  assert.equal(vm.runInContext('rebuilds', io), 1);
-  assert.equal(Object.keys(JSON.parse(vm.runInContext('stored', io)).Sheets['Budget Setup']).length, 3);
+  assert.equal(vm.runInContext('rebuilds', io), 0);
+  assert.equal(vm.runInContext('stored', io), null, 'Never store a patched cache as a confirmed server snapshot');
   vm.runInContext('patches = []; failAt = 2; stored = null;', io);
   await assert.rejects(vm.runInContext('writeExcelRanges(updatesTest)', io), /save failed/);
   assert.equal(vm.runInContext('stored', io), null);

@@ -22,7 +22,7 @@ let excelWriteQueue = Promise.resolve();
 let excelCacheGeneration = 0;
 let excelCacheQueue = Promise.resolve();
 
-const EXCEL_CACHE_NAME = "fintrack-workbook-v1";
+const EXCEL_CACHE_NAME = "fintrack-workbook-v2";
 const EXCEL_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 const EXCEL_CACHE_TIME_KEY = "fintrack.workbookCacheTime.v1";
 
@@ -246,7 +246,7 @@ let excelSessionUnsupported = false;
 const excelPause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function excelRequest(url, options, retrySafe = false) {
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(url, options);
+    const response = await fetch(url, { ...options, ...(!options?.method || options.method === "GET" ? {cache:"no-store"} : {}) });
     if (response.ok) return response;
     const detail = await response.text();
     const transient = [429,502,503,504].includes(response.status) ||
@@ -357,16 +357,69 @@ async function graphPost(url, token, body) {
   });
 }
 
+function excelFileScope() {
+  const account=msalInstance.getActiveAccount?.() || msalInstance.getAllAccounts?.()[0];
+  return encodeURIComponent((account?.homeAccountId || account?.username || 'signed-out')+'|'+CONFIG.filePath);
+}
+function excelCacheTimeKey(){return EXCEL_CACHE_TIME_KEY+':'+excelFileScope();}
+function excelRecentRangesKey(){return 'fintrack.recentRanges.v1:'+excelFileScope();}
+function readExcelRecentRanges(){
+  try{return JSON.parse(localStorage.getItem(excelRecentRangesKey())||'[]');}catch(_){return [];}
+}
+function recordExcelRecentRange(update){
+  const previous=readExcelRecentRanges().filter(item=>item.sheetName!==update.sheetName||item.rangeAddress!==update.rangeAddress);
+  previous.push({sheetName:update.sheetName,rangeAddress:update.rangeAddress,rows:update.values.length,cols:Math.max(...update.values.map(row=>row.length)),id:Date.now()+':'+Math.random()});
+  localStorage.setItem(excelRecentRangesKey(),JSON.stringify(previous));
+}
+function retireExcelRecentRanges(ids){
+  localStorage.setItem(excelRecentRangesKey(),JSON.stringify(readExcelRecentRanges().filter(item=>!ids.includes(item.id))));
+}
+function withExcelFileLock(work){
+  return typeof navigator!=='undefined'&&navigator.locks?.request
+    ? navigator.locks.request('fintrack:'+excelFileScope(),work):work();
+}
+function excelCellEqual(a,b){
+  if(a===null||a===undefined)a='';if(b===null||b===undefined)b='';
+  if(a===b)return true;
+  // Excel converts ISO date inputs into numeric serials on write.
+  const date=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?(Date.parse(value+'T00:00:00Z')-Date.UTC(1899,11,30))/86400000:value;
+  const aa=date(a),bb=date(b);
+  return typeof aa==='number'&&typeof bb==='number'&&Math.abs(aa-bb)<1e-8;
+}
+function excelValuesMatch(actual,expected){
+  return expected.every((row,r)=>row.every((value,c)=>excelCellEqual(actual?.[r]?.[c],value)));
+}
+async function reconcileExcelDownload(buffer,fromServer){
+  const ranges=readExcelRecentRanges();if(!ranges.length)return buffer;
+  setExcelBusyMessage('Checking recent changes in Excel…');
+  const workbook=XLSX.read(buffer,{type:'array'}),retired=[];
+  for(const range of ranges){
+    const sheet=workbook.Sheets[range.sheetName];
+    if(!sheet)throw new Error('Could not verify recently edited sheet '+range.sheetName+'. Reload before editing.');
+    const live=await readExcelRange(range.sheetName,range.rangeAddress);
+    const values=Array.from({length:range.rows},(_,r)=>Array.from({length:range.cols},(_,c)=>live.values?.[r]?.[c]??''));
+    const origin=XLSX.utils.decode_cell(range.rangeAddress.split(':')[0]);
+    const downloaded=values.map((row,r)=>row.map((_,c)=>sheet[XLSX.utils.encode_cell({r:origin.r+r,c:origin.c+c})]?.v??''));
+    if(fromServer&&excelValuesMatch(downloaded,values))retired.push(range.id);
+    // Live Excel cells win, including blank/deleted cells and external edits.
+    // Never replay old desired values over a newer external change.
+    XLSX.utils.sheet_add_aoa(sheet,values,{origin:range.rangeAddress.split(':')[0]});
+  }
+  if(retired.length)retireExcelRecentRanges(retired);
+  return XLSX.write(workbook,{type:'array',bookType:'xlsx'});
+}
+
 function getExcelCacheRequest() {
   if (typeof Request === "undefined" || !window.location?.origin) return null;
   const cacheUrl = new URL("/__fintrack_workbook_cache__", window.location.origin);
   cacheUrl.searchParams.set("path", CONFIG.filePath);
+  cacheUrl.searchParams.set("account",excelFileScope());
   return new Request(cacheUrl.toString());
 }
 
 async function readExcelDownloadCache() {
   if (!("caches" in window)) return null;
-  const savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY) || 0);
+  const savedAt = Number(localStorage.getItem(excelCacheTimeKey()) || 0);
   if (!savedAt || Date.now() - savedAt > EXCEL_CACHE_MAX_AGE_MS) return null;
 
   const request = getExcelCacheRequest();
@@ -384,7 +437,7 @@ function storeExcelDownloadCache(arrayBuffer, savedAt = Date.now(), generation =
     const cache = await caches.open(EXCEL_CACHE_NAME);
     await cache.put(request, new Response(arrayBuffer.slice(0)));
     if (generation === excelCacheGeneration) {
-      localStorage.setItem(EXCEL_CACHE_TIME_KEY, String(savedAt));
+      localStorage.setItem(excelCacheTimeKey(), String(savedAt));
     }
   });
   excelCacheQueue = store.catch(() => {});
@@ -393,7 +446,7 @@ function storeExcelDownloadCache(arrayBuffer, savedAt = Date.now(), generation =
 
 async function invalidateExcelDownloadCache() {
   excelCacheGeneration++;
-  try { localStorage.removeItem(EXCEL_CACHE_TIME_KEY); } catch (_) {}
+  try { localStorage.removeItem(excelCacheTimeKey()); } catch (_) {}
   const clear = excelCacheQueue.then(async () => {
     if (!("caches" in window)) return;
     const request = getExcelCacheRequest();
@@ -429,40 +482,29 @@ async function downloadExcelBytes(encodedPath, token) {
 }
 
 async function downloadExcelFile(forceRefresh = false) {
+  if(workbookDownloadPromise){
+    if(!forceRefresh)return workbookDownloadPromise;
+    try{await workbookDownloadPromise;}catch(_){} // Explicit reload starts fresh even after a failed load.
+  }
   await excelWriteQueue;
-  if (!forceRefresh) {
-    try {
-      const cached = await readExcelDownloadCache();
-      if (cached) return cached;
-    } catch (_) {
-      // Cache failures must never prevent a normal workbook download.
-    }
-  }
-
-  if (workbookDownloadPromise) return workbookDownloadPromise;
-
-  workbookDownloadPromise = withExcelBusy("Loading from Excel...", async () => {
-    const generation = excelCacheGeneration;
-    const token = await getToken();
-
-    if (!token) {
-      throw new Error("No access token available yet. Please wait for login redirect to complete.");
-    }
-
-    const encodedPath = getEncodedExcelPath();
-
-    const arrayBuffer = await downloadExcelBytes(encodedPath, token);
-    if (generation === excelCacheGeneration) {
-      try { await storeExcelDownloadCache(arrayBuffer, Date.now(), generation); } catch (_) {}
-    }
-    return arrayBuffer;
+  const download=withExcelFileLock(async()=>{
+    return withExcelBusy('Loading from Excel...',async()=>{
+      if(!forceRefresh){
+        let cached=null;try{cached=await readExcelDownloadCache();}catch(_){}
+        if(cached)return reconcileExcelDownload(cached,false);
+      }
+      const generation=excelCacheGeneration,token=await getToken();
+      if(!token)throw new Error('No access token available yet. Please wait for login redirect to complete.');
+      const bytes=await downloadExcelBytes(getEncodedExcelPath(),token);
+      const reconciled=await reconcileExcelDownload(bytes,true);
+      // Cache the untouched server snapshot: patched copies must not be mistaken
+      // for proof that the downloadable file has caught up with Excel edits.
+      if(generation===excelCacheGeneration){try{await storeExcelDownloadCache(bytes,Date.now(),generation);}catch(_){}}
+      return reconciled;
+    });
   });
-
-  try {
-    return await workbookDownloadPromise;
-  } finally {
-    workbookDownloadPromise = null;
-  }
+  workbookDownloadPromise=download;
+  try{return await download;}finally{if(workbookDownloadPromise===download)workbookDownloadPromise=null;}
 }
 
 async function readExcelRange(sheetName, rangeAddress) {
@@ -495,37 +537,20 @@ function writeExcelRange(sheetName, rangeAddress, values) {
 function writeExcelRanges(updates) {
   // Snapshot edits before queuing; one workbook rebuild per save, not per range.
   const pending = updates.map(update => ({ ...update, values: update.values.map(row => row.slice()) }));
-  const write = excelWriteQueue.then(async () => {
-    let cached = null;
-    let savedAt = 0;
-    try {
-      cached = await readExcelDownloadCache();
-      savedAt = Number(localStorage.getItem(EXCEL_CACHE_TIME_KEY));
-    } catch (_) {}
-    const results = [];
-    // Clear first: a failed or partially completed save must never leave stale cache.
+  const write = excelWriteQueue.then(()=>withExcelFileLock(async()=>{
+    // Persist range markers before sending edits, including partially failed batches.
+    // A reload must verify their live values, never quietly use a stale snapshot.
+    for(const update of pending)recordExcelRecentRange(update);
     await invalidateExcelDownloadCache();
-    const generation = excelCacheGeneration;
-    for (const update of pending) {
-      results.push(await writeExcelRangeNow(update.sheetName, update.rangeAddress, update.values));
-    }
-    if (cached) {
-      try {
-        const workbook = XLSX.read(cached, { type: "array" });
-        const hasFormulas = Object.values(workbook.Sheets).some(sheet =>
-          Object.keys(sheet).some(key => !key.startsWith("!") && sheet[key]?.f));
-        const writesFormula = pending.some(update => update.values.some(row => row.some(value =>
-          typeof value === "string" && value.startsWith("="))));
-        if (!hasFormulas && !writesFormula && pending.every(update => workbook.Sheets[update.sheetName])) {
-          for (const update of pending) {
-            XLSX.utils.sheet_add_aoa(workbook.Sheets[update.sheetName], update.values, { origin: update.rangeAddress.split(":")[0] });
-          }
-          await storeExcelDownloadCache(XLSX.write(workbook, { type: "array", bookType: "xlsx" }), savedAt, generation);
-        }
-      } catch (_) { /* Confirmed server saves remain successful if local caching fails. */ }
+    const results=[];
+    for(const update of pending){
+      const result=await writeExcelRangeNow(update.sheetName,update.rangeAddress,update.values);
+      const live=await readExcelRange(update.sheetName,update.rangeAddress);
+      if(!excelValuesMatch(live.values,update.values))throw new Error('Save could not be verified in Excel. Some changes may already be saved. Reload before retrying.');
+      results.push(result);
     }
     return results;
-  });
+  }));
   excelWriteQueue = write.catch(() => {});
   return write;
 }

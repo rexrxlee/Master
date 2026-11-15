@@ -4,6 +4,7 @@ let billsBudget = [];
 let monthlyBudget = [];
 let budgetAutoSaveTimer = null;
 let budgetAutoSaveInFlight = false;
+let budgetEditRevision = 0;
 let budgetSetupDirty = false;
 let extraAllowanceAccounts = [];
 let goalSavingsAccountsForBudget = [];
@@ -957,6 +958,7 @@ function scheduleBudgetAutoSave(delay = 700) {
 }
 
 function markBudgetSetupDirty() {
+  budgetEditRevision++;
   budgetSetupDirty = true;
   clearTimeout(budgetAutoSaveTimer);
   setBudgetAutoSaveStatus("Unsaved changes", "warn");
@@ -980,13 +982,17 @@ async function saveBudgetSetupToExcel(options = {}) {
   try {
     setBudgetAutoSaveStatus("Saving...");
     log("Saving Budget Setup to Excel...");
-    await writeBudgetSetupRange("A2:B16", buildSaveValues(billsBudget, 15));
-    await writeBudgetSetupRange("F2:G13", buildSaveValues(monthlyBudget, 12));
-    await writeBudgetSetupRange("AE2:AE2", [[JSON.stringify(buildBudgetFundingMap())]]);
-    await writeBudgetSetupRange("AI2:AI2", [[extraAllowanceAccounts.join("|")]]);
-    budgetSetupDirty = false;
-    setBudgetAutoSaveStatus("Saved to Excel", "ok");
-    if (!silent) alert("Budget saved to Excel.");
+    const savedRevision=budgetEditRevision;
+    const snapshot=[
+      {sheetName:'Budget Setup',rangeAddress:'A2:B16',values:buildSaveValues(billsBudget,15)},
+      {sheetName:'Budget Setup',rangeAddress:'F2:G13',values:buildSaveValues(monthlyBudget,12)},
+      {sheetName:'Budget Setup',rangeAddress:'AE2:AE2',values:[[JSON.stringify(buildBudgetFundingMap())]]},
+      {sheetName:'Budget Setup',rangeAddress:'AI2:AI2',values:[[extraAllowanceAccounts.join('|')]]}
+    ];
+    await writeExcelRanges(snapshot);
+    budgetSetupDirty = savedRevision !== budgetEditRevision;
+    setBudgetAutoSaveStatus(budgetSetupDirty ? "Newer changes still need saving" : "Saved to Excel", budgetSetupDirty ? "warn" : "ok");
+    if (!silent) alert(budgetSetupDirty ? "Budget saved. Newer changes still need saving." : "Budget saved to Excel.");
     log("Budget saved.");
   } catch (err) {
     setBudgetAutoSaveStatus("Save failed", "error");
